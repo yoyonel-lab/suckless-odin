@@ -1,0 +1,14 @@
+# Binary
+suckless-odin
+
+# Odin build artifacts
+*.o
+*.a
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
