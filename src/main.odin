@@ -2,7 +2,7 @@ package main
 
 import "core:os"
 
-import "core/log"
+import log "core/log"
 import "app"
 import "core/settings"
 

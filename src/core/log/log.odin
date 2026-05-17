@@ -1,4 +1,4 @@
-package log
+package applog
 
 import "core:fmt"
 import "core:time"
