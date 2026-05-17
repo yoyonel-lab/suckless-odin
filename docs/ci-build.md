@@ -117,9 +117,50 @@ just build-imgui               # Compile .a (~90s)
 just update-imgui              # Pull latest + rebuild
 ```
 
-### HDR Asset Dependency
+### GLFW 3.4+ (built from source)
+
+odin-imgui requires GLFW 3.4+ (`glfwGetPlatform`), but Ubuntu's `libglfw3-dev` provides 3.3.x.
+In CI, GLFW is built from the submodule's vendored sources:
+
+```bash
+cmake -S deps/odin-imgui/backend_deps/glfw -B /tmp/glfw-build \
+  -DCMAKE_INSTALL_PREFIX=/tmp/glfw-install -DGLFW_BUILD_EXAMPLES=OFF \
+  -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+cmake --build /tmp/glfw-build --parallel $(nproc)
+cmake --install /tmp/glfw-build
+```
+
+The resulting `/tmp/glfw-install/lib/` is added to linker search paths.
+
+### C++ Runtime (libc++)
+
+ImGui's C++ code links against `libc++`. In CI:
+
+```bash
+apt-get install libc++-dev libc++abi-dev
+```
+
+Extra linker flags in CI: `-lX11` (imgui_impl_glfw calls X11 directly).
+
+### Odin Compiler
 
 The CI uses a pinned Odin nightly release, cached between runs:
 - Version: `nightly+2026-05-03`
 - Platform: `linux-amd64`
 - Install path: `/opt/odin` (CI) or `/tmp/odin-linux-amd64-nightly+2026-05-03/` (local dev)
+
+## Memory Safety (ASAN / LSAN)
+
+All allocations must be matched with corresponding `delete`/`free`. Validate with:
+
+```bash
+just build-sanitize                           # Build with -sanitize:address
+./build/sanitize/suckless-odin & APP_PID=$!
+sleep 2 && xdotool key Escape                 # Clean shutdown (triggers LSAN)
+wait $APP_PID                                 # Exit code 0 = no leaks
+```
+
+**Key patterns** (see `.github/instructions/odin-coding-style.instructions.md`):
+- `os.read_entire_file` → `defer delete(data)`
+- `strings.clone_to_cstring` → `defer delete(cstr)` or freed in `destroy`
+- Struct-owned allocations → freed in the struct's `destroy` proc

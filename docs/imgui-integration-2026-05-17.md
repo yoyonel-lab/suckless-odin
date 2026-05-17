@@ -153,6 +153,8 @@ just test           # 16 tests GL + 31 unit tests
 3. **Unused import `gl`** → Retiré du package gui
 4. **Tone mapping cassait le rendu ISO** → Retiré du shader, exposure grisée dans l'UI
 5. **Import circulaire gui↔scene** → `Scene_State` struct avec pointeurs bruts
+6. **`glfwGetPlatform` undefined in CI** → Ubuntu `libglfw3-dev` = 3.3.x, GLFW 3.4+ requis → build from source via `deps/odin-imgui/backend_deps/glfw`
+7. **Memory leaks (7, 23 KB)** → `os.read_entire_file` sans `defer delete`, `strings.clone_to_cstring` sans free → corrigé avec defer discipline systématique
 
 ## Prochaines étapes
 
