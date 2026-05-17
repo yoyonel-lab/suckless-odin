@@ -1,7 +1,6 @@
 package scene
 
 import gl "vendor:OpenGL"
-import "core:math"
 import "core:os"
 
 import log "../core/log"

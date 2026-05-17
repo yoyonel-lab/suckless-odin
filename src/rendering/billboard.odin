@@ -1,7 +1,6 @@
 package rendering
 
 import gl "vendor:OpenGL"
-import "core:fmt"
 
 import log "../core/log"
 

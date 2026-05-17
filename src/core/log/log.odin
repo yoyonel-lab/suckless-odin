@@ -2,8 +2,6 @@ package log
 
 import "core:fmt"
 import "core:time"
-import "core:strings"
-import "core:os"
 import "core:sys/linux"
 
 // Severity levels for log filtering (mirrors C version)

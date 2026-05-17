@@ -2,11 +2,9 @@ package rendering
 
 import gl "vendor:OpenGL"
 import "core:os"
-import "core:math"
 import "core:time"
 
 import log "../core/log"
-import mt  "../core/math_types"
 
 // IBL textures produced by compute shaders
 IBL_Resources :: struct {

@@ -2,7 +2,6 @@ package rendering
 
 import "core:os"
 import "core:encoding/json"
-import "core:strings"
 
 import log "../core/log"
 import mt  "../core/math_types"

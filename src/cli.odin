@@ -1,8 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:os"
-import "core:strings"
 
 // CLI action results
 Cli_Action :: enum {
