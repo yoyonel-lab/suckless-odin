@@ -107,11 +107,10 @@ update-imgui:
 
 # --- CI (local) ---
 
-# Install git hooks (pre-commit + pre-push)
+# Install git hooks via pre-commit framework (https://pre-commit.com)
 pre-commit-install:
-    chmod +x scripts/pre-commit scripts/pre-push
-    cp scripts/pre-commit .git/hooks/pre-commit
-    cp scripts/pre-push .git/hooks/pre-push
+    pre-commit install
+    pre-commit install --hook-type pre-push
     @echo "✅ Git hooks installed (pre-commit: lint, pre-push: lint+build+tests)"
 
 # Full CI pipeline (lint + build + all tests) — mirrors GitHub Actions

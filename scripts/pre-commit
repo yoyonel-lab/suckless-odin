@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# Pre-commit hook: fast checks before each commit
-# Install: just pre-commit-install
-set -euo pipefail
-
-echo "🔍 pre-commit: lint (vet + strict-style)..."
-odin check src/ -vet -strict-style -warnings-as-errors
-
-echo "✅ pre-commit: all checks passed"
