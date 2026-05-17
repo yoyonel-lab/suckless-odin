@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build debug",
+            "type": "shell",
+            "command": "just",
+            "args": ["build"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "Build debug binary (odin build src/ -debug)"
+        },
+        {
+            "label": "build sanitize",
+            "type": "shell",
+            "command": "just",
+            "args": ["build-sanitize"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "Build with address sanitizer"
+        },
+        {
+            "label": "build release",
+            "type": "shell",
+            "command": "just",
+            "args": ["build-release"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "Build release (optimized)"
+        }
+    ]
+}

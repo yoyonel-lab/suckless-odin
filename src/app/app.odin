@@ -8,6 +8,7 @@ import log "../core/log"
 import settings "../core/settings"
 import cam "../camera"
 import scene "../scene"
+import gui "../gui"
 
 // Application state — top-level struct owning all subsystems.
 // ISO port of App struct from suckless-ogl/include/app.h.
@@ -32,6 +33,9 @@ App :: struct {
 
 	// Scene
 	scene:           scene.Scene,
+
+	// GUI (Dear ImGui)
+	imgui:           gui.Gui,
 }
 
 // Creates the application (allocates + creates window).
@@ -82,6 +86,12 @@ init :: proc(application: ^App) -> bool {
 		return false
 	}
 
+	// Initialize GUI (Dear ImGui)
+	if !gui.init(&application.imgui, application.window) {
+		log.log_error("suckless-odin.app", "Failed to initialize ImGui")
+		return false
+	}
+
 	application.last_frame_time = glfw.GetTime()
 	application.running = true
 
@@ -104,7 +114,9 @@ run :: proc(application: ^App) {
 
 		// Input
 		glfw.PollEvents()
-		process_keyboard(application)
+		if !gui.wants_keyboard(&application.imgui) {
+			process_keyboard(application)
+		}
 
 		// Update scene (camera physics, etc.)
 		scene.scene_update(&application.scene, application.delta_time)
@@ -114,6 +126,17 @@ run :: proc(application: ^App) {
 
 		w, h := glfw.GetFramebufferSize(application.window)
 		scene.scene_render(&application.scene, w, h)
+
+		// GUI (Dear ImGui) — render on top of scene
+		gui.new_frame(&application.imgui)
+		gui.update(&application.imgui, gui.Scene_State{
+			camera            = &application.scene.camera,
+			skybox_visible    = &application.scene.skybox_visible,
+			wireframe_enabled = &application.scene.wireframe_enabled,
+			exposure          = &application.scene.exposure,
+			skybox_blur_lod   = &application.scene.skybox.blur_lod,
+		})
+		gui.render(&application.imgui)
 
 		// Swap
 		glfw.SwapBuffers(application.window)
@@ -126,6 +149,7 @@ run :: proc(application: ^App) {
 destroy :: proc(application: ^App) {
 	if application == nil { return }
 
+	gui.destroy(&application.imgui)
 	scene.scene_destroy(&application.scene)
 	window_destroy(application.window)
 	free(application)
@@ -144,6 +168,18 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	app := cast(^App)glfw.GetWindowUserPointer(window)
 	if app == nil { return }
 
+	// Ctrl+F focuses search when GUI is visible (must be before the ImGui guard)
+	if key == glfw.KEY_F && mods == glfw.MOD_CONTROL && app.imgui.visible {
+		app.imgui.focus_search = true
+		return
+	}
+
+	// When ImGui has keyboard focus, only block printable character keys
+	// (so F2, Escape, F-keys etc. still work for toggling the GUI)
+	if gui.wants_keyboard(&app.imgui) && key >= glfw.KEY_SPACE && key <= glfw.KEY_GRAVE_ACCENT {
+		return
+	}
+
 	switch key {
 	case glfw.KEY_ESCAPE:
 		glfw.SetWindowShouldClose(window, true)
@@ -151,6 +187,8 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		toggle_fullscreen(app)
 	case glfw.KEY_F1:
 		scene.scene_toggle_overlay(&app.scene)
+	case glfw.KEY_F2:
+		gui.toggle(&app.imgui)
 	case glfw.KEY_C:
 		toggle_camera(app)
 	case glfw.KEY_SPACE:
@@ -226,6 +264,7 @@ mouse_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
 	app := cast(^App)glfw.GetWindowUserPointer(window)
 	if app == nil { return }
 	if !app.camera_enabled { return }
+	if gui.wants_mouse(&app.imgui) { return }
 
 	c := &app.scene.camera
 	if c.first_mouse {
@@ -252,6 +291,7 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 	app := cast(^App)glfw.GetWindowUserPointer(window)
 	if app == nil { return }
 	if !app.camera_enabled { return }
+	if gui.wants_mouse(&app.imgui) { return }
 
 	cam.process_scroll(&app.scene.camera, f32(yoffset))
 }

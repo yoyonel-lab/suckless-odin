@@ -4,12 +4,15 @@ suckless-odin
 
 # Odin build artifacts
 *.o
-*.a
 
 # IDE
-.vscode/
+.vscode/settings.json
 .idea/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Dependencies (submodule build artifacts ignored via .gitmodules ignore=dirty)
+imgui.ini
+tests/references/failed_*.png

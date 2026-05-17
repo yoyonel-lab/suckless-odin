@@ -1,0 +1,51 @@
+repos:
+  - repo: local
+    hooks:
+      # Pre-commit: fast lint gate
+      - id: odin-lint
+        name: odin check (vet + strict-style)
+        entry: odin check src/ -vet -strict-style -warnings-as-errors
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Pre-push: full build + test suite
+      - id: odin-build
+        name: odin build (debug)
+        entry: bash -c 'mkdir -p build/debug && odin build src/ -out:build/debug/suckless-odin -debug -extra-linker-flags:"-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11"'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: odin-test-unit
+        name: odin test (unit)
+        entry: odin test tests/ -out:/tmp/odin-test-unit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: odin-test-cli
+        name: odin test (CLI)
+        entry: odin test src/ -out:/tmp/odin-test-cli
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: odin-test-shader
+        name: odin test (shader CPU)
+        entry: odin test src/rendering/shader/ -out:/tmp/odin-test-shader
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: odin-test-gl
+        name: odin test (GL headless)
+        entry: bash -c 'xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11"'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

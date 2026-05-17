@@ -80,3 +80,26 @@ camera := Camera{
 1. Core library (`core:fmt`, `core:math`, `core:os`, etc.)
 2. Vendor packages (`vendor:OpenGL`, `vendor:glfw`, `vendor:stb`)
 3. Project packages (relative imports)
+
+## Memory Ownership & `defer` Discipline
+
+**Every allocation MUST have a corresponding deallocation.** Before writing or reviewing any code, actively verify the following checklist:
+
+### Mandatory `defer delete` patterns
+
+| Allocation source | Required cleanup |
+|---|---|
+| `os.read_entire_file` / `os.read_entire_file_from_path` | `defer delete(data)` immediately after error check |
+| `strings.concatenate` | `defer delete(result)` if temporary |
+| `strings.clone` / `strings.clone_to_cstring` | `defer delete(...)` if temporary, or freed in the owning struct's `destroy` |
+| `strings.builder_make` | Either `defer strings.builder_destroy(&b)`, or ownership transferred via return |
+| `make([]T, ...)` / `make([dynamic]T)` | `defer delete(slice)` or freed in `destroy` proc |
+| `new(T)` | `defer free(ptr)` or freed in `destroy` proc |
+
+### Rules
+
+1. **Immediate `defer`**: If the allocation is used only within the current scope, place `defer delete(...)` on the very next line after the error check.
+2. **Ownership transfer**: If the allocation is returned to the caller, the caller is responsible. Document this in a comment if non-obvious.
+3. **Struct-owned allocations**: Any allocation stored in a struct field MUST be freed in that struct's `destroy`/cleanup proc. The `destroy` proc MUST iterate dynamic arrays and free each element's owned allocations before deleting the array itself.
+4. **Review trigger**: When modifying or creating ANY proc that calls an allocating function, STOP and verify: "Where is this freed?" If the answer is not immediately obvious, add the `defer` or fix the `destroy`.
+5. **No silent leaks**: LeakSanitizer (ASAN) is the final arbiter. Run `just build-sanitize` + clean shutdown to validate 0 leaks after any memory-related change.

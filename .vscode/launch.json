@@ -1,0 +1,37 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug App",
+            "type": "lldb-dap",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/debug/suckless-odin",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "build debug",
+            "env": {}
+        },
+        {
+            "name": "Debug App (with args)",
+            "type": "lldb-dap",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/debug/suckless-odin",
+            "args": ["--width", "800", "--height", "600"],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "build debug",
+            "env": {}
+        },
+        {
+            "name": "Debug Sanitize",
+            "type": "lldb-dap",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/sanitize/suckless-odin",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "build sanitize",
+            "env": {
+                "ASAN_OPTIONS": "detect_leaks=1"
+            }
+        }
+    ]
+}

@@ -14,13 +14,16 @@ on:
 env:
   ODIN_VERSION: "dev-2026-05"
   ODIN_URL: "https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz"
+  GLFW_VERSION: "3.4"
 
 jobs:
-  # --- JOB 1: LINT & VET (fast, no GPU needed) ---
+  # ─── JOB 1: LINT (fast, no deps needed) ───────────────────────────────────────
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -40,9 +43,88 @@ jobs:
       - name: Vet & Strict Style Check
         run: odin check src/ -vet -strict-style -warnings-as-errors
 
-  # --- JOB 2: BUILD (debug + release) ---
+  # ─── JOB 2: BUILD DEPENDENCIES (GLFW + ImGui) — shared via artifacts ──────────
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # --- GLFW ---
+      - name: Cache GLFW ${{ env.GLFW_VERSION }}
+        id: cache-glfw
+        uses: actions/cache@v4
+        with:
+          path: glfw-install
+          key: glfw-${{ env.GLFW_VERSION }}-shared-ubuntu-latest
+
+      - name: Build GLFW from source (shared)
+        if: steps.cache-glfw.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev
+          git clone --depth 1 --branch ${{ env.GLFW_VERSION }} https://github.com/glfw/glfw.git /tmp/glfw-src
+          cmake -S /tmp/glfw-src -B /tmp/glfw-build \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/glfw-install \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+          cmake --build /tmp/glfw-build -j$(nproc)
+          cmake --install /tmp/glfw-build
+
+      - name: Upload GLFW artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glfw-install
+          path: glfw-install
+          retention-days: 1
+
+      # --- ImGui ---
+      - name: Cache ImGui library
+        id: cache-imgui
+        uses: actions/cache@v4
+        with:
+          path: deps/odin-imgui/imgui_linux_x64.a
+          key: imgui-${{ hashFiles('deps/odin-imgui/build.py', 'scripts/build_imgui_parallel.py') }}
+
+      - name: Cache Odin compiler (for ImGui build)
+        if: steps.cache-imgui.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: /opt/odin
+          key: odin-${{ env.ODIN_VERSION }}-linux-amd64
+
+      - name: Install Odin (for ImGui build)
+        if: steps.cache-imgui.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -f /opt/odin/odin ]; then
+            mkdir -p /opt/odin
+            curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+            make -C /opt/odin/vendor/stb/src
+          fi
+          echo "/opt/odin" >> "$GITHUB_PATH"
+
+      - name: Build ImGui
+        if: steps.cache-imgui.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc++-dev libgl1-mesa-dev
+          cd deps/odin-imgui
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -q ply
+          python ../../scripts/build_imgui_parallel.py
+
+      - name: Upload ImGui artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: imgui-lib
+          path: deps/odin-imgui/imgui_linux_x64.a
+          retention-days: 1
+
+  # ─── JOB 3: BUILD (debug + release matrix) ────────────────────────────────────
   build:
-    needs: [lint]
+    needs: [lint, deps]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -54,6 +136,8 @@ jobs:
             flags: "-o:speed"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -70,15 +154,37 @@ jobs:
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
-      - name: Install system dependencies
+      - name: Install system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglfw3-dev libgl1-mesa-dev
+          sudo apt-get install -y libgl1-mesa-dev libc++-dev libx11-dev
+
+      - name: Download GLFW
+        uses: actions/download-artifact@v4
+        with:
+          name: glfw-install
+          path: glfw-install
+
+      - name: Install GLFW to system
+        run: |
+          sudo cp -a glfw-install/lib/* /usr/local/lib/
+          sudo cp -a glfw-install/include/* /usr/local/include/
+          cd /usr/local/lib && sudo ln -sf libglfw.so.3 libglfw.so 2>/dev/null || true
+          sudo ldconfig
+
+      - name: Download ImGui library
+        uses: actions/download-artifact@v4
+        with:
+          name: imgui-lib
+          path: deps/odin-imgui
 
       - name: Build (${{ matrix.mode }})
         run: |
           mkdir -p build/${{ matrix.mode }}
-          odin build src/ -out:build/${{ matrix.mode }}/suckless-odin ${{ matrix.flags }}
+          odin build src/ \
+            -out:build/${{ matrix.mode }}/suckless-odin \
+            ${{ matrix.flags }} \
+            -extra-linker-flags:"-lX11"
 
       - name: Upload binary
         if: matrix.mode == 'release'
@@ -87,12 +193,14 @@ jobs:
           name: suckless-odin-linux-amd64
           path: build/release/suckless-odin
 
-  # --- JOB 3: UNIT TESTS (no GPU) ---
+  # ─── JOB 4: UNIT TESTS (no GPU) ───────────────────────────────────────────────
   test-unit:
-    needs: [lint]
+    needs: [lint, deps]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -109,26 +217,47 @@ jobs:
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
-      - name: Install system dependencies
+      - name: Install system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglfw3-dev libgl1-mesa-dev
+          sudo apt-get install -y libgl1-mesa-dev libc++-dev libx11-dev
 
-      - name: Unit tests (camera, settings, material, rendering)
-        run: odin test tests/
+      - name: Download GLFW
+        uses: actions/download-artifact@v4
+        with:
+          name: glfw-install
+          path: glfw-install
+
+      - name: Install GLFW to system
+        run: |
+          sudo cp -a glfw-install/lib/* /usr/local/lib/
+          sudo cp -a glfw-install/include/* /usr/local/include/
+          cd /usr/local/lib && sudo ln -sf libglfw.so.3 libglfw.so 2>/dev/null || true
+          sudo ldconfig
+
+      - name: Download ImGui library
+        uses: actions/download-artifact@v4
+        with:
+          name: imgui-lib
+          path: deps/odin-imgui
+
+      - name: Unit tests
+        run: odin test tests/ -out:/tmp/odin-test-unit -extra-linker-flags:"-lX11"
 
       - name: CLI tests
-        run: odin test src/
+        run: odin test src/ -out:/tmp/odin-test-cli -extra-linker-flags:"-lX11"
 
       - name: Shader CPU tests
-        run: odin test src/rendering/shader/
+        run: odin test src/rendering/shader/ -out:/tmp/odin-test-shader -extra-linker-flags:"-lX11"
 
-  # --- JOB 4: GL TESTS + VISUAL REGRESSION (needs Mesa + xvfb) ---
+  # ─── JOB 5: GL TESTS + VISUAL REGRESSION (Mesa + xvfb) ────────────────────────
   test-gl:
-    needs: [lint]
+    needs: [lint, deps]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -145,14 +274,25 @@ jobs:
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
-      - name: Install system dependencies (Mesa + xvfb for headless GL)
+      - name: Install system dependencies (Mesa + xvfb)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libglfw3-dev \
-            libgl1-mesa-dev \
-            mesa-utils \
-            xvfb
+            libgl1-mesa-dev libc++-dev libx11-dev \
+            mesa-utils xvfb
+
+      - name: Download GLFW
+        uses: actions/download-artifact@v4
+        with:
+          name: glfw-install
+          path: glfw-install
+
+      - name: Install GLFW to system
+        run: |
+          sudo cp -a glfw-install/lib/* /usr/local/lib/
+          sudo cp -a glfw-install/include/* /usr/local/include/
+          cd /usr/local/lib && sudo ln -sf libglfw.so.3 libglfw.so 2>/dev/null || true
+          sudo ldconfig
 
       - name: Fetch HDR texture from sibling repo
         run: |
@@ -162,21 +302,34 @@ jobs:
           cd ../suckless-ogl
           git sparse-checkout set assets/textures/hdr/
 
+      - name: Download ImGui library
+        uses: actions/download-artifact@v4
+        with:
+          name: imgui-lib
+          path: deps/odin-imgui
+
       - name: GL shader tests (headless)
         run: |
           xvfb-run -a -s "-screen 0 1024x768x24" \
-            odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_shader_pbr_billboard,test_gl.test_shader_background,test_gl.test_shader_simple_billboard,test_gl.test_shader_irmap_compute,test_gl.test_shader_spmap_compute,test_gl.test_shader_spbrdf_compute,test_gl.test_compute_ibl_irradiance,test_gl.test_compute_ibl_specular,test_gl.test_compute_ibl_brdf_lut,test_gl.test_shader_outputs_pbr,test_gl.test_shader_outputs_background,test_gl.test_uniform_locations_pbr,test_gl.test_uniform_locations_background,test_gl.test_ibl_texture_sizes,test_gl.test_billboard_vao_state
+            odin test tests/gl/ \
+              -out:/tmp/odin-test-gl-shaders \
+              -define:ODIN_TEST_THREADS=1 \
+              -extra-linker-flags:"-lX11" \
+              -define:ODIN_TEST_NAMES=test_gl.test_shader_pbr_billboard,test_gl.test_shader_background,test_gl.test_shader_simple_billboard,test_gl.test_shader_irmap_compute,test_gl.test_shader_spmap_compute,test_gl.test_shader_spbrdf_compute,test_gl.test_compute_ibl_irradiance,test_gl.test_compute_ibl_specular,test_gl.test_compute_ibl_brdf_lut,test_gl.test_shader_outputs_pbr,test_gl.test_shader_outputs_background,test_gl.test_uniform_locations_pbr,test_gl.test_uniform_locations_background,test_gl.test_ibl_texture_sizes,test_gl.test_billboard_vao_state
 
-      - name: Visual regression test (headless, full scene)
+      - name: Visual regression test (headless)
         run: |
           xvfb-run -a -s "-screen 0 1024x768x24" \
-            odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view
+            odin test tests/gl/ \
+              -out:/tmp/odin-test-gl-visual \
+              -define:ODIN_TEST_THREADS=1 \
+              -extra-linker-flags:"-lX11" \
+              -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view
 
       - name: Upload visual artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: visual-regression-artifacts
-          path: |
-            tests/references/failed_*.png
+          path: tests/references/failed_*.png
           if-no-files-found: ignore
