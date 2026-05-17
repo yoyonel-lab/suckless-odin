@@ -77,7 +77,14 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglfw3-dev libgl1-mesa-dev libc++-dev
+          sudo apt-get install -y libgl1-mesa-dev libc++-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev
+
+      - name: Build GLFW from source (3.4+)
+        run: |
+          cd deps/odin-imgui/backend_deps/glfw
+          cmake -B build -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+          cmake --build build -j$(($(nproc) - 2))
+          sudo cmake --install build
 
       - name: Build ImGui library
         run: |
@@ -173,11 +180,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libglfw3-dev \
             libgl1-mesa-dev \
             libc++-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
             mesa-utils \
             xvfb
+
+      - name: Build GLFW from source (3.4+)
+        run: |
+          cd deps/odin-imgui/backend_deps/glfw
+          cmake -B build -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+          cmake --build build -j$(($(nproc) - 2))
+          sudo cmake --install build
 
       - name: Fetch HDR texture from sibling repo
         run: |
