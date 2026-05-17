@@ -1,0 +1,27 @@
+{
+	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+	"enable_semantic_tokens": true,
+	"enable_document_symbols": true,
+	"enable_hover": true,
+	"enable_snippets": true,
+	"enable_format": true,
+	"enable_references": true,
+	"enable_inlay_hints_params": true,
+	"enable_procedure_snippet": true,
+	"odin_command": "/tmp/odin-linux-amd64-nightly+2026-05-03/odin",
+	"odin_root_override": "/tmp/odin-linux-amd64-nightly+2026-05-03",
+	"checker_args": "-vet -strict-style",
+	"verbose": true,
+	"profile": "default",
+	"profiles": [
+		{
+			"name": "default",
+			"os": "linux",
+			"checker_path": ["src"],
+			"defines": {}
+		}
+	],
+	"collections": [
+		{ "name": "deps", "path": "deps" }
+	]
+}
