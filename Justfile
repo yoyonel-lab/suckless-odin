@@ -4,6 +4,9 @@
 # Build output base directory (each config gets its own subdir)
 build_base := "build"
 
+# Extra linker flags (libc++ from linuxbrew, X11 for imgui_impl_glfw)
+extra_linker_flags := "-L/home/linuxbrew/.linuxbrew/lib -lX11"
+
 # Default recipe: build + run
 default: build run
 
@@ -12,22 +15,22 @@ default: build run
 # Debug build
 build:
     @mkdir -p {{build_base}}/debug
-    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug
+    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Release build (optimized)
 build-release:
     @mkdir -p {{build_base}}/release
-    odin build src/ -out:{{build_base}}/release/suckless-odin -o:speed
+    odin build src/ -out:{{build_base}}/release/suckless-odin -o:speed -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Build with all vet checks + strict style (lint errors = build errors)
 build-strict:
     @mkdir -p {{build_base}}/debug
-    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -vet -strict-style -warnings-as-errors
+    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -vet -strict-style -warnings-as-errors -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Sanitizer build (address + undefined behavior)
 build-sanitize:
     @mkdir -p {{build_base}}/sanitize
-    odin build src/ -out:{{build_base}}/sanitize/suckless-odin -debug -sanitize:address
+    odin build src/ -out:{{build_base}}/sanitize/suckless-odin -debug -sanitize:address -extra-linker-flags:"{{extra_linker_flags}}"
 
 # --- Run ---
 
@@ -95,6 +98,12 @@ clean:
 # Rebuild Dear ImGui library (requires python3, clang, ar)
 build-imgui:
     cd deps/odin-imgui && python3 -m venv .venv && . .venv/bin/activate && pip install ply && python build.py
+
+# Update Dear ImGui submodule to latest upstream commit and rebuild
+update-imgui:
+    git submodule update --remote deps/odin-imgui
+    just build-imgui
+    @echo "Updated odin-imgui to:" && git -C deps/odin-imgui log --oneline -1
 
 # --- CI (local) ---
 

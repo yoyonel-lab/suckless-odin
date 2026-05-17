@@ -13,27 +13,6 @@ suckless-odin
 .DS_Store
 Thumbs.db
 
-# Dependencies build artifacts (keep only source + prebuilt lib)
-deps/odin-imgui/.venv/
-deps/odin-imgui/.git/
-deps/odin-imgui/imgui/
-deps/odin-imgui/dear_bindings/
-deps/odin-imgui/backend_deps/
-deps/odin-imgui/temp/
-deps/odin-imgui/wasm/
-deps/odin-imgui/examples/
-deps/odin-imgui/imgui_impl_dx11/
-deps/odin-imgui/imgui_impl_dx12/
-deps/odin-imgui/imgui_impl_metal/
-deps/odin-imgui/imgui_impl_osx/
-deps/odin-imgui/imgui_impl_sdl2/
-deps/odin-imgui/imgui_impl_sdlrenderer2/
-deps/odin-imgui/imgui_impl_vulkan/
-deps/odin-imgui/imgui_impl_wgpu/
-deps/odin-imgui/imgui_impl_win32/
-deps/odin-imgui/imgui_impl_js/
-deps/odin-imgui/imgui_impl_webgl/
-deps/odin-imgui/imgui_js.odin
-deps/odin-imgui/imgui_windows_x64.lib
+# Dependencies (submodule build artifacts ignored via .gitmodules ignore=dirty)
 imgui.ini
 tests/references/failed_*.png
