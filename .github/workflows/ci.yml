@@ -84,7 +84,7 @@ jobs:
           git clone --depth 1 --branch 3.4 https://github.com/glfw/glfw.git /tmp/glfw-src
           cmake -S /tmp/glfw-src -B /tmp/glfw-build \
             -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
-          cmake --build /tmp/glfw-build -j$(($(nproc) - 2))
+          cmake --build /tmp/glfw-build -j$(nproc)
           sudo cmake --install /tmp/glfw-build
 
       - name: Build ImGui library
@@ -141,7 +141,7 @@ jobs:
           git clone --depth 1 --branch 3.4 https://github.com/glfw/glfw.git /tmp/glfw-src
           cmake -S /tmp/glfw-src -B /tmp/glfw-build \
             -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
-          cmake --build /tmp/glfw-build -j$(($(nproc) - 2))
+          cmake --build /tmp/glfw-build -j$(nproc)
           sudo cmake --install /tmp/glfw-build
 
       - name: Build ImGui library
@@ -206,7 +206,7 @@ jobs:
           git clone --depth 1 --branch 3.4 https://github.com/glfw/glfw.git /tmp/glfw-src
           cmake -S /tmp/glfw-src -B /tmp/glfw-build \
             -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
-          cmake --build /tmp/glfw-build -j$(($(nproc) - 2))
+          cmake --build /tmp/glfw-build -j$(nproc)
           sudo cmake --install /tmp/glfw-build
 
       - name: Fetch HDR texture from sibling repo
