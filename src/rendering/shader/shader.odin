@@ -33,17 +33,17 @@ Shader :: struct {
 
 // Read a shader file from disk, processing @header includes
 read_file :: proc(path: string) -> (source: string, ok: bool) {
-	data, success := os.read_entire_file(path)
-	if !success {
+	data, err := os.read_entire_file(path, context.allocator)
+	if err != nil {
 		log.log_error("suckless-odin.shader", "Failed to read shader file: %s", path)
 		return "", false
 	}
+	defer delete(data)
 	raw_source := string(data)
 
 	// Process includes
 	result, proc_ok := process_includes(raw_source, path, 0)
 	if !proc_ok {
-		delete(data)
 		return "", false
 	}
 
@@ -78,8 +78,8 @@ process_includes :: proc(source: string, file_path: string, depth: int) -> (resu
 			full_path := strings.concatenate({dir, header_path_raw})
 			defer delete(full_path)
 
-			header_data, read_ok := os.read_entire_file(full_path)
-			if !read_ok {
+			header_data, read_err := os.read_entire_file(full_path, context.allocator)
+			if read_err != nil {
 				log.log_error("suckless-odin.shader", "Failed to read included header: %s", full_path)
 				return "", false
 			}
@@ -87,9 +87,11 @@ process_includes :: proc(source: string, file_path: string, depth: int) -> (resu
 
 			// Recurse
 			included, include_ok := process_includes(header_source, full_path, depth + 1)
+			delete(header_data)
 			if !include_ok {
 				return "", false
 			}
+			defer delete(included)
 
 			strings.write_string(&builder, included)
 			strings.write_byte(&builder, '\n')
@@ -129,9 +131,11 @@ compile :: proc(source: string, shader_type: u32) -> (shader_id: u32, ok: bool) 
 load_program :: proc(vertex_path, fragment_path: string) -> (program: u32, ok: bool) {
 	vs_source, vs_ok := read_file(vertex_path)
 	if !vs_ok { return 0, false }
+	defer delete(vs_source)
 
 	fs_source, fs_ok := read_file(fragment_path)
 	if !fs_ok { return 0, false }
+	defer delete(fs_source)
 
 	vs, vs_compile_ok := compile(vs_source, gl.VERTEX_SHADER)
 	if !vs_compile_ok { return 0, false }
@@ -163,6 +167,7 @@ load_program :: proc(vertex_path, fragment_path: string) -> (program: u32, ok: b
 load_compute :: proc(compute_path: string) -> (program: u32, ok: bool) {
 	cs_source, cs_ok := read_file(compute_path)
 	if !cs_ok { return 0, false }
+	defer delete(cs_source)
 
 	cs, cs_compile_ok := compile(cs_source, gl.COMPUTE_SHADER)
 	if !cs_compile_ok { return 0, false }
@@ -260,12 +265,14 @@ set_float :: proc(shader: ^Shader, name: string, value: f32) {
 
 set_vec3 :: proc(shader: ^Shader, name: string, value: [3]f32) {
 	loc := get_uniform_location(shader, name)
-	if loc >= 0 { gl.Uniform3fv(loc, 1, raw_data(&value)) }
+	v := value
+	if loc >= 0 { gl.Uniform3fv(loc, 1, raw_data(&v)) }
 }
 
 set_mat4 :: proc(shader: ^Shader, name: string, value: [4][4]f32) {
 	loc := get_uniform_location(shader, name)
-	if loc >= 0 { gl.UniformMatrix4fv(loc, 1, false, raw_data(&value[0])) }
+	v := value
+	if loc >= 0 { gl.UniformMatrix4fv(loc, 1, false, raw_data(&v[0])) }
 }
 
 // --- Private helpers ---
