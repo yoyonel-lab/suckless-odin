@@ -36,6 +36,7 @@ material_load_presets :: proc(path: string) -> (lib: Material_Lib, ok: bool) {
 		log.log_error("suckless-odin.material", "Failed to read material file: %s", path)
 		return lib, false
 	}
+	defer delete(data)
 
 	json_materials: [dynamic]Material_JSON
 	json_err := json.unmarshal(data, &json_materials, allocator = context.allocator)
@@ -43,6 +44,7 @@ material_load_presets :: proc(path: string) -> (lib: Material_Lib, ok: bool) {
 		log.log_error("suckless-odin.material", "Failed to parse material JSON: %s", path)
 		return lib, false
 	}
+	defer delete(json_materials)
 
 	lib.materials = make([dynamic]PBR_Material, len(json_materials))
 	lib.count = len(json_materials)
@@ -62,6 +64,9 @@ material_load_presets :: proc(path: string) -> (lib: Material_Lib, ok: bool) {
 }
 
 material_lib_destroy :: proc(lib: ^Material_Lib) {
+	for &m in lib.materials {
+		delete(m.name)
+	}
 	delete(lib.materials)
 	lib.count = 0
 }
