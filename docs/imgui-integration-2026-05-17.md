@@ -1,0 +1,103 @@
+# Dear ImGui Integration — suckless-odin
+
+**Date**: 2026-05-17  
+**Branch**: `feat/imgui-integration`  
+**Status**: Fonctionnel, tests verts
+
+## Contexte
+
+Intégration de Dear ImGui (v1.91.7-docking) dans le moteur PBR Odin pour
+remplacer les raccourcis clavier par une interface graphique unifiée. Toutes
+les options de rendu, debug et post-processing sont exposées dans une fenêtre
+unique à onglets.
+
+## Architecture
+
+```
+deps/odin-imgui/          ← Bindings L-4/odin-imgui (GitLab)
+├── imgui_linux_x64.a     ← Bibliothèque statique précompilée (2.8 MB)
+├── imgui.odin            ← Bindings Odin (modifié: system:stdc++)
+├── imgui_impl_glfw/      ← Backend GLFW
+└── imgui_impl_opengl3/   ← Backend OpenGL3
+
+src/gui/gui.odin          ← Package GUI (278 lignes)
+├── Gui struct            ← État lifecycle ImGui
+├── Scene_State struct    ← Pointeurs vers l'état mutable de la scène
+├── init/destroy          ← Lifecycle (GLFW + OpenGL3 backends)
+├── new_frame/render      ← Frame ImGui
+├── update(state)         ← Fenêtre unique + tab bar
+├── draw_tab_camera()     ← Onglet Camera (connecté live)
+├── draw_tab_scene()      ← Onglet Scene (connecté live)
+└── draw_tab_rendering()  ← Onglet Rendering (placeholders grisés)
+```
+
+## Design decisions
+
+| Décision | Justification |
+|----------|---------------|
+| Fenêtre unique + onglets | UX simple, pas de fenêtres multiples à gérer |
+| Pas de raccourcis clavier pour les toggles | Tout passe par ImGui (sauf F2 toggle, WASD, Escape) |
+| `Scene_State` avec pointeurs | Évite l'import circulaire gui→scene |
+| Placeholders `BeginDisabled()` | Interface prête pour le futur, visuellement claire |
+| `system:stdc++` au lieu de `system:c++` | libc++ non installée ; `nm` confirme 0 symboles libc++ |
+
+## Contrôles connectés (live)
+
+### Onglet Camera
+- Position / Yaw / Pitch (lecture seule)
+- Speed, Acceleration, Friction (sliders)
+- Sensitivity, Rotation Smoothing, Mouse Smoothing (sliders)
+- FOV (slider)
+- Head Bobbing enable + fréquence/amplitude
+- Reset Camera (bouton)
+
+### Onglet Scene
+- Skybox visible (checkbox)
+- Skybox Blur LOD (slider)
+- Exposure (slider — grisé, pas de tone mapping actif)
+- Wireframe (checkbox)
+
+### Onglet Rendering (tout grisé — non implémenté)
+- **PBR Debug Modes**: Combo 10 modes (Final PBR, Albedo, Normal, Metallic, Roughness, AO, Irradiance, Prefilter, BRDF LUT, GI Probes)
+- **Post-Processing**: Bloom, DoF, Auto-Exposure, Motion Blur, FXAA, Vignette, Film Grain, Chromatic Aberration, Color Grading
+- **Debug Views**: Bloom/DoF/Exposure/MB/FXAA/Stencil debug
+- **Profiling**: GPU Timeline, GPU Metrics, Perf Mode, Effect Benchmark
+- **Scene Debug**: Light Probes, N-Body sim, GI mode, Sort mode
+- **Environment**: HDR env cycling, Env LOD blur, Screenshot, Hot-Reload
+
+## Raccourcis clavier restants
+
+| Touche | Action |
+|--------|--------|
+| Escape | Quitter |
+| F2 | Toggle fenêtre ImGui |
+| F1 | Cycle overlay texte |
+| F | Fullscreen |
+| C | Toggle contrôle caméra souris |
+| Space | Reset caméra |
+| WASD / QE | Mouvement caméra |
+| Scroll | Impulsion vélocité |
+
+## Compilation
+
+```bash
+just build          # Build debug (inclut ImGui)
+just build-imgui    # Recompile la bibliothèque ImGui depuis les sources
+just lint           # odin check -vet -strict-style -warnings-as-errors
+just test           # 16 tests GL + 31 unit tests
+```
+
+## Problèmes résolus
+
+1. **`-lc++` linker error** → Remplacé par `system:stdc++` dans `imgui.odin`
+2. **Unused import `gl`** → Retiré du package gui
+3. **Tone mapping cassait le rendu ISO** → Retiré du shader, exposure grisée dans l'UI
+4. **Import circulaire gui↔scene** → `Scene_State` struct avec pointeurs bruts
+
+## Prochaines étapes
+
+1. Implémenter le tone mapping via post-process FBO (dé-griser Exposure)
+2. Brancher PBR debug mode (uniform `debugMode` dans le shader)
+3. Ajouter hot-reload shaders
+4. Implémenter le pipeline post-process (bloom, DoF, etc.)
+5. Screenshot via `glReadPixels` + stb_image_write
