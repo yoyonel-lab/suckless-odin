@@ -1,0 +1,180 @@
+name: Suckless-Odin CI
+
+permissions:
+  contents: write
+  pull-requests: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+env:
+  ODIN_VERSION: "nightly+2026-05-03"
+  ODIN_URL: "https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-nightly+2026-05-03.tar.gz"
+
+jobs:
+  # --- JOB 1: LINT & VET (fast, no GPU needed) ---
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Odin compiler
+        uses: actions/cache@v4
+        with:
+          path: /opt/odin
+          key: odin-${{ env.ODIN_VERSION }}-linux-amd64
+
+      - name: Install Odin
+        run: |
+          if [ ! -f /opt/odin/odin ]; then
+            mkdir -p /opt/odin
+            curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+          fi
+          echo "/opt/odin" >> "$GITHUB_PATH"
+
+      - name: Vet & Strict Style Check
+        run: odin check src/ -vet -strict-style -warnings-as-errors
+
+  # --- JOB 2: BUILD (debug + release) ---
+  build:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        mode: [debug, release]
+        include:
+          - mode: debug
+            flags: "-debug"
+          - mode: release
+            flags: "-o:speed"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Odin compiler
+        uses: actions/cache@v4
+        with:
+          path: /opt/odin
+          key: odin-${{ env.ODIN_VERSION }}-linux-amd64
+
+      - name: Install Odin
+        run: |
+          if [ ! -f /opt/odin/odin ]; then
+            mkdir -p /opt/odin
+            curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+          fi
+          echo "/opt/odin" >> "$GITHUB_PATH"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglfw3-dev libgl1-mesa-dev
+
+      - name: Build (${{ matrix.mode }})
+        run: |
+          mkdir -p build/${{ matrix.mode }}
+          odin build src/ -out:build/${{ matrix.mode }}/suckless-odin ${{ matrix.flags }}
+
+      - name: Upload binary
+        if: matrix.mode == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: suckless-odin-linux-amd64
+          path: build/release/suckless-odin
+
+  # --- JOB 3: UNIT TESTS (no GPU) ---
+  test-unit:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Odin compiler
+        uses: actions/cache@v4
+        with:
+          path: /opt/odin
+          key: odin-${{ env.ODIN_VERSION }}-linux-amd64
+
+      - name: Install Odin
+        run: |
+          if [ ! -f /opt/odin/odin ]; then
+            mkdir -p /opt/odin
+            curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+          fi
+          echo "/opt/odin" >> "$GITHUB_PATH"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglfw3-dev libgl1-mesa-dev
+
+      - name: Unit tests (camera, settings, material, rendering)
+        run: odin test tests/
+
+      - name: CLI tests
+        run: odin test src/
+
+      - name: Shader CPU tests
+        run: odin test src/rendering/shader/
+
+  # --- JOB 4: GL TESTS + VISUAL REGRESSION (needs Mesa + xvfb) ---
+  test-gl:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Odin compiler
+        uses: actions/cache@v4
+        with:
+          path: /opt/odin
+          key: odin-${{ env.ODIN_VERSION }}-linux-amd64
+
+      - name: Install Odin
+        run: |
+          if [ ! -f /opt/odin/odin ]; then
+            mkdir -p /opt/odin
+            curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+          fi
+          echo "/opt/odin" >> "$GITHUB_PATH"
+
+      - name: Install system dependencies (Mesa + xvfb for headless GL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglfw3-dev \
+            libgl1-mesa-dev \
+            mesa-utils \
+            xvfb \
+            libegl1-mesa
+
+      - name: Checkout sibling assets (HDR textures)
+        uses: actions/checkout@v4
+        with:
+          repository: yoyonel/suckless-ogl
+          path: ../suckless-ogl
+          sparse-checkout: |
+            assets/textures/hdr/
+          sparse-checkout-cone-mode: true
+
+      - name: GL shader tests (headless)
+        run: |
+          xvfb-run -a -s "-screen 0 1024x768x24" \
+            odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_shader_pbr_billboard,test_gl.test_shader_background,test_gl.test_shader_simple_billboard,test_gl.test_shader_irmap_compute,test_gl.test_shader_spmap_compute,test_gl.test_shader_spbrdf_compute,test_gl.test_compute_ibl_irradiance,test_gl.test_compute_ibl_specular,test_gl.test_compute_ibl_brdf_lut,test_gl.test_shader_outputs_pbr,test_gl.test_shader_outputs_background,test_gl.test_uniform_locations_pbr,test_gl.test_uniform_locations_background,test_gl.test_ibl_texture_sizes,test_gl.test_billboard_vao_state
+
+      - name: Visual regression test (headless, full scene)
+        run: |
+          xvfb-run -a -s "-screen 0 1024x768x24" \
+            odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view
+
+      - name: Upload visual artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-artifacts
+          path: |
+            tests/references/failed_*.png
+          if-no-files-found: ignore
