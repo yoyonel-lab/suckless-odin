@@ -114,7 +114,9 @@ run :: proc(application: ^App) {
 
 		// Input
 		glfw.PollEvents()
-		process_keyboard(application)
+		if !gui.wants_keyboard(&application.imgui) {
+			process_keyboard(application)
+		}
 
 		// Update scene (camera physics, etc.)
 		scene.scene_update(&application.scene, application.delta_time)
@@ -165,6 +167,18 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 
 	app := cast(^App)glfw.GetWindowUserPointer(window)
 	if app == nil { return }
+
+	// Ctrl+F focuses search when GUI is visible (must be before the ImGui guard)
+	if key == glfw.KEY_F && mods == glfw.MOD_CONTROL && app.imgui.visible {
+		app.imgui.focus_search = true
+		return
+	}
+
+	// When ImGui has keyboard focus, only block printable character keys
+	// (so F2, Escape, F-keys etc. still work for toggling the GUI)
+	if gui.wants_keyboard(&app.imgui) && key >= glfw.KEY_SPACE && key <= glfw.KEY_GRAVE_ACCENT {
+		return
+	}
 
 	switch key {
 	case glfw.KEY_ESCAPE:

@@ -27,7 +27,7 @@ Gui :: struct {
 	visible:         bool,
 	docking_enabled: bool,
 	search_buf:      [SEARCH_BUF_SIZE]u8,
-	search_focused:  bool,
+	focus_search:    bool,
 }
 
 GLSL_VERSION :: "#version 440 core"
@@ -79,7 +79,11 @@ update :: proc(g: ^Gui, state: Scene_State) {
 	imgui.SetNextWindowSize(imgui.Vec2{400, 560}, .FirstUseEver)
 
 	if imgui.Begin("Engine Controls", &g.visible) {
-		// Search bar at the top
+		// Search bar at the top — focus on Ctrl+F
+		if g.focus_search {
+			imgui.SetKeyboardFocusHere()
+			g.focus_search = false
+		}
 		imgui.SetNextItemWidth(-1)
 		imgui.InputTextWithHint("##search", "Search parameters...",
 			cast(cstring)&g.search_buf[0], SEARCH_BUF_SIZE)
@@ -451,51 +455,51 @@ draw_filtered_view :: proc(state: Scene_State, filter: cstring) {
 		placeholder := false
 		placeholder_f: f32 = 0.5
 
-		if fuzzy_match(filter, "PBR Debug Mode", "albedo normal metallic roughness ao irradiance prefilter brdf") {
+		if fuzzy_match(filter, "PBR Debug Mode", "post-processing post processing rendering albedo normal metallic roughness ao irradiance prefilter brdf") {
 			pbr_debug_mode: i32 = 0
 			imgui.Combo("Debug Mode", &pbr_debug_mode,
 				"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance\x00Prefilter\x00BRDF LUT\x00GI Probes\x00")
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Specular Anti-Aliasing", "aa filtering") {
+		if fuzzy_match(filter, "Specular Anti-Aliasing", "post-processing post processing rendering aa filtering") {
 			imgui.Checkbox("Specular Anti-Aliasing", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Bloom", "glow post effect") {
+		if fuzzy_match(filter, "Bloom", "post-processing post processing rendering glow effect") {
 			imgui.Checkbox("Bloom", &placeholder)
 			imgui.SliderFloat("Bloom Intensity", &placeholder_f, 0.0, 2.0)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Depth of Field", "dof bokeh blur focus") {
+		if fuzzy_match(filter, "Depth of Field", "post-processing post processing rendering dof bokeh blur focus") {
 			imgui.Checkbox("Depth of Field", &placeholder)
 			imgui.SliderFloat("DoF Focus Dist", &placeholder_f, 0.0, 100.0)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Auto-Exposure", "adaptation luminance eye") {
+		if fuzzy_match(filter, "Auto-Exposure", "post-processing post processing rendering adaptation luminance eye") {
 			imgui.Checkbox("Auto-Exposure", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Motion Blur", "velocity tile") {
+		if fuzzy_match(filter, "Motion Blur", "post-processing post processing rendering velocity tile") {
 			imgui.Checkbox("Motion Blur", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "FXAA", "anti-aliasing antialiasing smooth") {
+		if fuzzy_match(filter, "FXAA", "post-processing post processing rendering anti-aliasing antialiasing smooth") {
 			imgui.Checkbox("FXAA", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Vignette", "border darken") {
+		if fuzzy_match(filter, "Vignette", "post-processing post processing rendering border darken") {
 			imgui.Checkbox("Vignette", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Film Grain", "noise cinematic") {
+		if fuzzy_match(filter, "Film Grain", "post-processing post processing rendering noise cinematic") {
 			imgui.Checkbox("Film Grain", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Chromatic Aberration", "color fringe lens") {
+		if fuzzy_match(filter, "Chromatic Aberration", "post-processing post processing rendering color fringe lens") {
 			imgui.Checkbox("Chromatic Aberration", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Color Grading", "lut tone color correction") {
+		if fuzzy_match(filter, "Color Grading", "post-processing post processing rendering lut tone color correction") {
 			imgui.Checkbox("Color Grading (LUT)", &placeholder)
 			match_count += 1
 		}
@@ -611,10 +615,10 @@ CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov
 SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon"
 
 @(private)
-RENDERING_KEYWORDS :: "rendering pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus"
+RENDERING_KEYWORDS :: "rendering post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus"
 
 @(private)
-DEBUG_KEYWORDS :: "debug bloom dof exposure histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization"
+DEBUG_KEYWORDS :: "debug debug views bloom dof exposure histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization"
 
 @(private)
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"
