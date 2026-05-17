@@ -114,10 +114,12 @@ ci: lint build test-unit test-cli test-shader test-gl-xvfb
 test-gl-xvfb:
     xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
 
-# Generate visual regression references (run once, commit results)
+# Generate visual regression references (DESTRUCTIVE — overwrites refs, requires confirmation)
+[confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
 gen-refs:
     GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{extra_linker_flags}}"
 
-# Generate refs under xvfb (headless)
+# Generate refs under xvfb (DESTRUCTIVE — overwrites refs, requires confirmation)
+[confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
 gen-refs-xvfb:
     xvfb-run -a -s "-screen 0 1024x768x24" env GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{extra_linker_flags}}"
