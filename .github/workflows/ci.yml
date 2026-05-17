@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -54,6 +56,8 @@ jobs:
             flags: "-o:speed"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -74,6 +78,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libglfw3-dev libgl1-mesa-dev
+
+      - name: Build ImGui library
+        run: |
+          cd deps/odin-imgui
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -q ply
+          python ../../scripts/build_imgui_parallel.py
 
       - name: Build (${{ matrix.mode }})
         run: |
@@ -93,6 +105,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -114,6 +128,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libglfw3-dev libgl1-mesa-dev
 
+      - name: Build ImGui library
+        run: |
+          cd deps/odin-imgui
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -q ply
+          python ../../scripts/build_imgui_parallel.py
+
       - name: Unit tests (camera, settings, material, rendering)
         run: odin test tests/
 
@@ -129,6 +151,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Cache Odin compiler
         uses: actions/cache@v4
@@ -161,6 +185,14 @@ jobs:
             ../suckless-ogl
           cd ../suckless-ogl
           git sparse-checkout set assets/textures/hdr/
+
+      - name: Build ImGui library
+        run: |
+          cd deps/odin-imgui
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -q ply
+          python ../../scripts/build_imgui_parallel.py
 
       - name: GL shader tests (headless)
         run: |
