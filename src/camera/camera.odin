@@ -216,15 +216,11 @@ smooth_rotation :: proc(cam: ^Camera) {
 	update_vectors(cam)
 }
 
-// Process scroll wheel input (ISO port of camera_process_scroll)
+// Process scroll wheel input — forward velocity impulse along camera front.
+// ISO port of camera_process_scroll from suckless-ogl/src/camera.c.
 process_scroll :: proc(cam: ^Camera, yoffset: f32) {
-	cam.zoom -= yoffset * DEFAULT_ZOOM_SPEED
-	if cam.zoom < 1.0 {
-		cam.zoom = 1.0
-	}
-	if cam.zoom > 120.0 {
-		cam.zoom = 120.0
-	}
+	impulse := mt.vec3_scale(cam.front, yoffset * DEFAULT_SCROLL_SENSITIVITY)
+	cam.velocity_current += impulse
 }
 
 // Get view matrix (ISO port of camera_get_view_matrix)
