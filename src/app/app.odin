@@ -2,11 +2,11 @@ package app
 
 import "vendor:glfw"
 import gl "vendor:OpenGL"
-import "core:fmt"
 import "base:runtime"
 
 import log "../core/log"
 import settings "../core/settings"
+import cam "../camera"
 import scene "../scene"
 
 // Application state — top-level struct owning all subsystems.
@@ -24,6 +24,7 @@ App :: struct {
 	// State
 	running:         bool,
 	is_fullscreen:   bool,
+	camera_enabled:  bool,  // C key toggles mouse-driven camera
 	saved_x:         i32,
 	saved_y:         i32,
 	saved_width:     i32,
@@ -71,7 +72,9 @@ init :: proc(application: ^App) -> bool {
 
 	// Mouse input for camera
 	glfw.SetCursorPosCallback(application.window, mouse_callback)
+	glfw.SetScrollCallback(application.window, scroll_callback)
 	glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+	application.camera_enabled = true
 
 	// Initialize scene
 	if !scene.scene_create(&application.scene, application.width, application.height) {
@@ -130,22 +133,28 @@ destroy :: proc(application: ^App) {
 	log.log_info("suckless-odin.app", "Application destroyed")
 }
 
-// GLFW key callback — Escape closes the window, F toggles fullscreen.
+// GLFW key callback — handles press-only actions.
+// Movement keys (WASD/Q/E) are handled via polling in process_keyboard().
 @(private)
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
 	if action != glfw.PRESS { return }
 
 	context = runtime.default_context()
 
+	app := cast(^App)glfw.GetWindowUserPointer(window)
+	if app == nil { return }
+
 	switch key {
 	case glfw.KEY_ESCAPE:
 		glfw.SetWindowShouldClose(window, true)
 	case glfw.KEY_F:
-		app := cast(^App)glfw.GetWindowUserPointer(window)
-		if app != nil { toggle_fullscreen(app) }
+		toggle_fullscreen(app)
 	case glfw.KEY_F1:
-		app := cast(^App)glfw.GetWindowUserPointer(window)
-		if app != nil { scene.scene_toggle_overlay(&app.scene) }
+		scene.scene_toggle_overlay(&app.scene)
+	case glfw.KEY_C:
+		toggle_camera(app)
+	case glfw.KEY_SPACE:
+		camera_reset(app)
 	}
 }
 
@@ -171,7 +180,8 @@ toggle_fullscreen :: proc(application: ^App) {
 	glfw.FocusWindow(application.window)
 }
 
-// Process held keys for continuous camera movement
+// Process held keys for continuous camera movement.
+// ISO: W/S/A/D = move, Q = up, E = down (matches legacy camera_input.c)
 @(private)
 process_keyboard :: proc(application: ^App) {
 	w := application.window
@@ -180,32 +190,70 @@ process_keyboard :: proc(application: ^App) {
 	s.camera.move_backward = glfw.GetKey(w, glfw.KEY_S) == glfw.PRESS
 	s.camera.move_left     = glfw.GetKey(w, glfw.KEY_A) == glfw.PRESS
 	s.camera.move_right_   = glfw.GetKey(w, glfw.KEY_D) == glfw.PRESS
-	s.camera.move_up_      = glfw.GetKey(w, glfw.KEY_SPACE) == glfw.PRESS
-	s.camera.move_down     = glfw.GetKey(w, glfw.KEY_LEFT_SHIFT) == glfw.PRESS
+	s.camera.move_up_      = glfw.GetKey(w, glfw.KEY_Q) == glfw.PRESS
+	s.camera.move_down     = glfw.GetKey(w, glfw.KEY_E) == glfw.PRESS
 }
 
-// GLFW mouse callback — camera look
+// Toggle mouse-driven camera orientation (C key).
+// ISO port of handle_camera_toggle() from suckless-ogl/src/app_input.c.
+@(private)
+toggle_camera :: proc(application: ^App) {
+	application.camera_enabled = !application.camera_enabled
+	if application.camera_enabled {
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+		application.scene.camera.first_mouse = true
+	} else {
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+	}
+}
+
+// Reset camera to default position and orientation (Space key).
+// ISO port of GLFW_KEY_SPACE handler from suckless-ogl/src/app_input.c.
+@(private)
+camera_reset :: proc(application: ^App) {
+	cam.init(&application.scene.camera,
+		settings.DEFAULT_CAMERA_DISTANCE,
+		settings.DEFAULT_CAMERA_YAW,
+		settings.DEFAULT_CAMERA_PITCH)
+}
+
+// GLFW mouse callback — camera look (only when camera_enabled).
+// ISO port of camera_process_mouse with smoothing.
 @(private)
 mouse_callback :: proc "c" (window: glfw.WindowHandle, xpos, ypos: f64) {
+	context = runtime.default_context()
+
 	app := cast(^App)glfw.GetWindowUserPointer(window)
 	if app == nil { return }
+	if !app.camera_enabled { return }
 
-	cam := &app.scene.camera
-	if cam.first_mouse {
-		cam.last_mouse_x = xpos
-		cam.last_mouse_y = ypos
-		cam.first_mouse = false
+	c := &app.scene.camera
+	if c.first_mouse {
+		c.last_mouse_x = xpos
+		c.last_mouse_y = ypos
+		c.first_mouse = false
 		return
 	}
 
-	xoffset := f32(xpos - cam.last_mouse_x)
-	yoffset := f32(cam.last_mouse_y - ypos)  // reversed: y goes bottom-to-top
-	cam.last_mouse_x = xpos
-	cam.last_mouse_y = ypos
+	xoffset := f32(xpos - c.last_mouse_x)
+	yoffset := f32(c.last_mouse_y - ypos)  // reversed: y goes bottom-to-top
+	c.last_mouse_x = xpos
+	c.last_mouse_y = ypos
 
-	// Feed into camera's mouse processing (imported at file scope via scene)
-	cam.yaw_target   += xoffset * cam.sensitivity
-	cam.pitch_target += yoffset * cam.sensitivity
+	cam.process_mouse(c, xoffset, yoffset)
+}
+
+// GLFW scroll callback — forward velocity impulse along camera front.
+// ISO port of camera_process_scroll from suckless-ogl/src/camera.c.
+@(private)
+scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
+	context = runtime.default_context()
+
+	app := cast(^App)glfw.GetWindowUserPointer(window)
+	if app == nil { return }
+	if !app.camera_enabled { return }
+
+	cam.process_scroll(&app.scene.camera, f32(yoffset))
 }
 
 // GLFW framebuffer resize callback.
