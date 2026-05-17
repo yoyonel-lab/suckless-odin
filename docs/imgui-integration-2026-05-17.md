@@ -20,15 +20,19 @@ deps/odin-imgui/          ← Bindings L-4/odin-imgui (GitLab)
 ├── imgui_impl_glfw/      ← Backend GLFW
 └── imgui_impl_opengl3/   ← Backend OpenGL3
 
-src/gui/gui.odin          ← Package GUI (278 lignes)
-├── Gui struct            ← État lifecycle ImGui
+src/gui/gui.odin          ← Package GUI
+├── Gui struct            ← État lifecycle ImGui + focus_search
 ├── Scene_State struct    ← Pointeurs vers l'état mutable de la scène
 ├── init/destroy          ← Lifecycle (GLFW + OpenGL3 backends)
 ├── new_frame/render      ← Frame ImGui
-├── update(state)         ← Fenêtre unique + tab bar
+├── update(state)         ← Fenêtre unique + search bar + tab bar
 ├── draw_tab_camera()     ← Onglet Camera (connecté live)
 ├── draw_tab_scene()      ← Onglet Scene (connecté live)
-└── draw_tab_rendering()  ← Onglet Rendering (placeholders grisés)
+├── draw_tab_rendering()  ← Onglet Rendering (placeholders grisés)
+├── draw_filtered_view()  ← Vue filtrée par recherche (toutes sections)
+├── fuzzy_match()         ← Matching multi-termes insensible à la casse
+├── wants_keyboard()      ← Query: ImGui capture-t-il le clavier ?
+└── wants_mouse()         ← Query: ImGui capture-t-il la souris ?
 ```
 
 ## Design decisions
@@ -69,14 +73,42 @@ src/gui/gui.odin          ← Package GUI (278 lignes)
 
 | Touche | Action |
 |--------|--------|
-| Escape | Quitter |
-| F2 | Toggle fenêtre ImGui |
+| Escape | Quitter (toujours actif) |
+| F2 | Toggle fenêtre ImGui (toujours actif) |
+| Ctrl+F | Focus barre de recherche (quand GUI visible) |
 | F1 | Cycle overlay texte |
 | F | Fullscreen |
 | C | Toggle contrôle caméra souris |
 | Space | Reset caméra |
 | WASD / QE | Mouvement caméra |
 | Scroll | Impulsion vélocité |
+
+## Gestion du focus clavier
+
+| Situation | Comportement |
+|-----------|-------------|
+| GUI visible, focus sur search input | Touches imprimables (A-Z, 0-9, ponctuation) capturées par ImGui — keybindings app désactivés |
+| GUI visible, focus ailleurs dans la fenêtre | Tous les keybindings app actifs |
+| GUI visible, Ctrl+F | Place le focus sur la barre de recherche |
+| GUI masqué | Tous les keybindings app actifs |
+| Touches F1/F2/Escape | Toujours actifs quel que soit le focus ImGui |
+| Mouvement caméra (WASD/QE) | Désactivé quand ImGui capture le clavier |
+
+## Recherche de paramètres (fuzzy search)
+
+Barre de recherche en haut de la fenêtre "Engine Controls" :
+
+- **Multi-termes** : les mots séparés par des espaces doivent tous matcher (AND)
+- **Insensible à la casse** : `bloom` = `Bloom` = `BLOOM`
+- **Recherche sur** : label affiché + mots-clés techniques + nom de section
+- **Exemples** :
+  - `blur` → Skybox Blur, Env LOD Blur
+  - `post-processing` → tous les effets post-FX
+  - `debug` → tous les modes debug/profiling
+  - `camera speed` → uniquement le slider Speed
+- **Mode filtré** : affichage plat groupé par catégorie (remplace les onglets)
+- **Aucun résultat** : message rouge "No matching parameters"
+- **Ctrl+F** : raccourci pour placer le focus sur la barre
 
 ## Compilation
 
