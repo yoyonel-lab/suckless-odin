@@ -1,6 +1,9 @@
 # suckless-odin — Justfile
 # Build, run, and lint recipes for the Odin OpenGL PBR engine port.
 
+# Build output base directory (each config gets its own subdir)
+build_base := "build"
+
 # Default recipe: build + run
 default: build run
 
@@ -8,21 +11,33 @@ default: build run
 
 # Debug build
 build:
-    odin build src/ -out:suckless-odin -debug
+    @mkdir -p {{build_base}}/debug
+    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug
 
 # Release build (optimized)
 build-release:
-    odin build src/ -out:suckless-odin -o:speed
+    @mkdir -p {{build_base}}/release
+    odin build src/ -out:{{build_base}}/release/suckless-odin -o:speed
 
 # Build with all vet checks + strict style (lint errors = build errors)
 build-strict:
-    odin build src/ -out:suckless-odin -debug -vet -strict-style -warnings-as-errors
+    @mkdir -p {{build_base}}/debug
+    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -vet -strict-style -warnings-as-errors
+
+# Sanitizer build (address + undefined behavior)
+build-sanitize:
+    @mkdir -p {{build_base}}/sanitize
+    odin build src/ -out:{{build_base}}/sanitize/suckless-odin -debug -sanitize:address
 
 # --- Run ---
 
-# Run the application
+# Run the application (debug)
 run:
-    ./suckless-odin
+    ./{{build_base}}/debug/suckless-odin
+
+# Run release build
+run-release:
+    ./{{build_base}}/release/suckless-odin
 
 # Build and run in one step
 br: build run
@@ -70,6 +85,24 @@ strip-semicolons:
 
 # --- Clean ---
 
-# Remove build artifacts
+# Remove all build artifacts
 clean:
-    rm -f suckless-odin
+    rm -rf {{build_base}}
+    rm -f *.o
+
+# --- CI (local) ---
+
+# Full CI pipeline (lint + build + all tests) — mirrors GitHub Actions
+ci: lint build test-unit test-cli test-shader test-gl-xvfb
+
+# GL tests under xvfb (headless, for CI or systems without display)
+test-gl-xvfb:
+    xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -define:ODIN_TEST_THREADS=1
+
+# Generate visual regression references (run once, commit results)
+gen-refs:
+    GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view
+
+# Generate refs under xvfb (headless)
+gen-refs-xvfb:
+    xvfb-run -a -s "-screen 0 1024x768x24" env GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view
