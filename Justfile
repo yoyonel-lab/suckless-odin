@@ -90,6 +90,12 @@ clean:
     rm -rf {{build_base}}
     rm -f *.o
 
+# --- Dependencies ---
+
+# Rebuild Dear ImGui library (requires python3, clang, ar)
+build-imgui:
+    cd deps/odin-imgui && python3 -m venv .venv && . .venv/bin/activate && pip install ply && python build.py
+
 # --- CI (local) ---
 
 # Full CI pipeline (lint + build + all tests) — mirrors GitHub Actions
