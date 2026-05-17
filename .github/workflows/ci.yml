@@ -12,8 +12,8 @@ on:
     types: [opened, reopened, synchronize]
 
 env:
-  ODIN_VERSION: "nightly+2026-05-03"
-  ODIN_URL: "https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-nightly+2026-05-03.tar.gz"
+  ODIN_VERSION: "dev-2026-05"
+  ODIN_URL: "https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz"
 
 jobs:
   # --- JOB 1: LINT & VET (fast, no GPU needed) ---
