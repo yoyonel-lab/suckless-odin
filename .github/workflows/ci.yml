@@ -152,8 +152,7 @@ jobs:
             libglfw3-dev \
             libgl1-mesa-dev \
             mesa-utils \
-            xvfb \
-            libegl1-mesa
+            xvfb
 
       - name: Checkout sibling assets (HDR textures)
         uses: actions/checkout@v4
