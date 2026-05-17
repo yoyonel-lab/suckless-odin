@@ -29,16 +29,24 @@ br: build run
 
 # --- Test ---
 
-# Run all tests (external + in-package)
-test: test-unit test-cli
+# Run all tests (external + in-package + shader + GL)
+test: test-unit test-cli test-shader test-gl
 
-# Unit tests (camera, settings, material)
+# Unit tests (camera, settings, material, rendering)
 test-unit:
     odin test tests/
 
 # CLI tests (in main package)
 test-cli:
     odin test src/
+
+# Shader CPU tests (in-package, tests private helpers)
+test-shader:
+    odin test src/rendering/shader/
+
+# Headless GL tests (shader compilation, GPU validation — single-threaded)
+test-gl:
+    odin test tests/gl/ -define:ODIN_TEST_THREADS=1
 
 # --- Lint ---
 
