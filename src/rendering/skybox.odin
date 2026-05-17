@@ -102,12 +102,14 @@ load_skybox_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
 		log.log_error("suckless-odin.skybox", "Failed to read %s", vert_path)
 		return 0, false
 	}
+	defer delete(vert_data)
 
 	frag_data, frag_err := os.read_entire_file_from_path(frag_path, context.allocator)
 	if frag_err != nil {
 		log.log_error("suckless-odin.skybox", "Failed to read %s", frag_path)
 		return 0, false
 	}
+	defer delete(frag_data)
 
 	program, ok := gl.load_shaders_source(string(vert_data), string(frag_data))
 	if !ok {

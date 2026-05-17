@@ -204,13 +204,15 @@ scene_destroy :: proc(s: ^Scene) {
 // Internal: load shader program with error handling
 @(private)
 load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
-	vert_src, vert_ok := read_shader_file(vert_path)
+	vert_data, vert_ok := read_shader_file(vert_path)
 	if !vert_ok { return 0, false }
+	defer delete(vert_data)
 
-	frag_src, frag_ok := read_shader_file(frag_path)
+	frag_data, frag_ok := read_shader_file(frag_path)
 	if !frag_ok { return 0, false }
+	defer delete(frag_data)
 
-	program, ok := gl.load_shaders_source(vert_src, frag_src)
+	program, ok := gl.load_shaders_source(string(vert_data), string(frag_data))
 	if !ok {
 		log.log_error("suckless-odin.scene", "Shader compilation failed: %s + %s", vert_path, frag_path)
 		return 0, false
@@ -226,11 +228,11 @@ load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
 }
 
 @(private)
-read_shader_file :: proc(path: string) -> (string, bool) {
+read_shader_file :: proc(path: string) -> ([]u8, bool) {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
 		log.log_error("suckless-odin.scene", "Failed to read shader: %s", path)
-		return "", false
+		return nil, false
 	}
-	return string(data), true
+	return data, true
 }

@@ -161,6 +161,7 @@ load_compute_shader :: proc(path: string) -> (u32, bool) {
 		log.log_error("suckless-odin.ibl", "Failed to read compute shader: %s", path)
 		return 0, false
 	}
+	defer delete(data)
 	src := string(data)
 
 	shader := gl.CreateShader(gl.COMPUTE_SHADER)

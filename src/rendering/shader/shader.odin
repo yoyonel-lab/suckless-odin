@@ -224,6 +224,9 @@ load_compute_shader :: proc(compute_path: string) -> ^Shader {
 destroy :: proc(shader: ^Shader) {
 	if shader == nil { return }
 	gl.DeleteProgram(shader.program)
+	for &entry in shader.entries {
+		delete(entry.name)
+	}
 	delete(shader.entries)
 	free(shader)
 }
@@ -285,7 +288,9 @@ cache_uniforms :: proc(shader: ^Shader) {
 		gl.GetActiveUniform(shader.program, u32(i), 256, &name_len, &size, &type_val, raw_data(&name_buf))
 
 		name := string(name_buf[:name_len])
-		location := gl.GetUniformLocation(shader.program, strings.clone_to_cstring(name))
+		name_cstr := strings.clone_to_cstring(name)
+		location := gl.GetUniformLocation(shader.program, name_cstr)
+		delete(name_cstr)
 
 		if location >= 0 {
 			append(&shader.entries, Uniform_Entry{
