@@ -7,11 +7,15 @@ import mt  "../core/math_types"
 import types "./types"
 import settings "../core/settings"
 
-// Multi-sphere instanced rendering via SSBO
-// ISO port of scene_init_instancing() / scene_init_ssbo() from suckless-ogl
+// Multi-sphere instanced rendering via SSBO.
+// Uses #soa (struct-of-arrays) for cache-friendly CPU-side iteration:
+//   - All positions contiguous → fast frustum culling
+//   - All roughness values contiguous → fast material animation
+//   - All prev_centers contiguous → fast motion blur updates
+// GPU SSBO still receives AoS (packed at upload time).
 Instanced_Spheres :: struct {
 	ssbo:       u32,
-	instances:  [dynamic]types.Sphere_Instance,
+	instances:  #soa [dynamic]types.Sphere_Instance,  // SoA layout for CPU cache locality
 	count:      i32,
 }
 
@@ -31,16 +35,13 @@ instanced_create :: proc(inst: ^Instanced_Spheres, mat_lib: ^Material_Lib) {
 	grid_w := f32(cols - 1) * spacing
 	grid_h := f32(rows - 1) * spacing
 
-	inst.instances = make([dynamic]types.Sphere_Instance, total_count)
+	inst.instances = make(#soa [dynamic]types.Sphere_Instance, total_count)
 	inst.count = i32(total_count)
 
 	for i in 0..<total_count {
 		grid_x := i % cols
 		grid_y := i / cols
 
-		// ISO port: pos_x = grid_x * spacing - grid_w * 0.5
-		//           pos_y = -(grid_y * spacing - grid_h * 0.5)
-		//           pos_z = 0
 		pos_x := f32(grid_x) * spacing - grid_w * HALF_OFFSET_MULTIPLIER
 		pos_y := -(f32(grid_y) * spacing - grid_h * HALF_OFFSET_MULTIPLIER)
 		position := mt.Vec3{pos_x, pos_y, 0.0}
@@ -51,7 +52,7 @@ instanced_create :: proc(inst: ^Instanced_Spheres, mat_lib: ^Material_Lib) {
 		model[3][1] = position.y
 		model[3][2] = position.z
 
-		// Material from library (ISO: direct copy from material_lib)
+		// Material from library
 		mat := &mat_lib.materials[i]
 
 		inst.instances[i] = types.Sphere_Instance{
@@ -64,20 +65,53 @@ instanced_create :: proc(inst: ^Instanced_Spheres, mat_lib: ^Material_Lib) {
 		}
 	}
 
-	// Create and upload SSBO
-	gl.GenBuffers(1, &inst.ssbo)
+	// Pack SoA → AoS and upload to SSBO
+	instanced_upload(inst)
+
+	log.log_info("suckless-odin.instanced", "Created %d sphere instances (SSBO binding %d, %dx%d grid, spacing=%.1f, #soa)",
+		total_count, SSBO_BINDING, cols, rows, spacing)
+}
+
+// Pack SoA → AoS staging buffer and upload to GPU SSBO.
+// Called once at init, and again if CPU-side data changes (animation, physics).
+instanced_upload :: proc(inst: ^Instanced_Spheres) {
+	count := int(inst.count)
+	if count == 0 { return }
+
+	// Pack from SoA to AoS (GPU expects struct-per-instance layout)
+	// Uses temp_allocator — freed automatically, no leak possible.
+	gpu_data := make([]types.Sphere_Instance, count, context.temp_allocator)
+	for i in 0..<count {
+		gpu_data[i] = inst.instances[i]
+	}
+
+	if inst.ssbo == 0 {
+		gl.GenBuffers(1, &inst.ssbo)
+	}
+
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
 	gl.BufferData(
 		gl.SHADER_STORAGE_BUFFER,
-		len(inst.instances) * size_of(types.Sphere_Instance),
-		raw_data(inst.instances[:]),
+		count * size_of(types.Sphere_Instance),
+		raw_data(gpu_data),
 		gl.DYNAMIC_DRAW,
 	)
 	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, SSBO_BINDING, inst.ssbo)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
+}
 
-	log.log_info("suckless-odin.instanced", "Created %d sphere instances (SSBO binding %d, %dx%d grid, spacing=%.1f)",
-		total_count, SSBO_BINDING, cols, rows, spacing)
+// Update prev_center from current model positions (motion blur preparation).
+// Benefits from SoA: iterates contiguous model[3] columns and prev_center arrays only,
+// avoiding loading albedo/metallic/roughness/ao into cache lines.
+instanced_update_prev_centers :: proc(inst: ^Instanced_Spheres) {
+	count := int(inst.count)
+	// Direct field-slice access — #soa gives us contiguous arrays per field
+	models := inst.instances.model[:]
+	prev_centers := inst.instances.prev_center[:]
+
+	for i in 0..<count {
+		prev_centers[i] = mt.Vec3{models[i][3][0], models[i][3][1], models[i][3][2]}
+	}
 }
 
 // Bind SSBO before draw
