@@ -97,7 +97,7 @@ clean:
 
 # Rebuild Dear ImGui library (requires python3, clang, ar)
 build-imgui:
-    cd deps/odin-imgui && rm -rf .venv && python3 -m venv .venv && . .venv/bin/activate && pip install -q ply && python build.py
+    cd deps/odin-imgui && rm -rf .venv && python3 -m venv .venv && . .venv/bin/activate && pip install -q ply && python ../../scripts/build_imgui_parallel.py
 
 # Update Dear ImGui submodule to latest upstream commit and rebuild
 update-imgui:
