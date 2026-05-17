@@ -1,0 +1,54 @@
+# suckless-odin — Justfile
+# Build, run, and lint recipes for the Odin OpenGL PBR engine port.
+
+# Default recipe: build + run
+default: build run
+
+# --- Build ---
+
+# Debug build
+build:
+    odin build src/ -out:suckless-odin -debug
+
+# Release build (optimized)
+build-release:
+    odin build src/ -out:suckless-odin -o:speed
+
+# Build with all vet checks + strict style (lint errors = build errors)
+build-strict:
+    odin build src/ -out:suckless-odin -debug -vet -strict-style -warnings-as-errors
+
+# --- Run ---
+
+# Run the application
+run:
+    ./suckless-odin
+
+# Build and run in one step
+br: build run
+
+# --- Lint ---
+
+# Full lint: vet + strict style (no binary output)
+lint:
+    odin check src/ -vet -strict-style -warnings-as-errors
+
+# Vet only (unused vars, imports, shadowing, casts)
+vet:
+    odin check src/ -vet
+
+# Style check only (1TBS, trailing commas, deprecated syntax)
+style:
+    odin check src/ -strict-style
+
+# --- Format ---
+
+# Remove unneeded semicolons
+strip-semicolons:
+    odin strip-semicolon src/
+
+# --- Clean ---
+
+# Remove build artifacts
+clean:
+    rm -f suckless-odin
