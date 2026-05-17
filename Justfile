@@ -52,19 +52,19 @@ test: test-unit test-cli test-shader test-gl
 
 # Unit tests (camera, settings, material, rendering)
 test-unit:
-    odin test tests/
+    odin test tests/ -out:/tmp/odin-test-unit
 
 # CLI tests (in main package)
 test-cli:
-    odin test src/
+    odin test src/ -out:/tmp/odin-test-cli
 
 # Shader CPU tests (in-package, tests private helpers)
 test-shader:
-    odin test src/rendering/shader/
+    odin test src/rendering/shader/ -out:/tmp/odin-test-shader
 
 # Headless GL tests (shader compilation, GPU validation — single-threaded)
 test-gl:
-    odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
+    odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
 
 # --- Lint ---
 
@@ -118,7 +118,7 @@ ci: lint build test-unit test-cli test-shader test-gl-xvfb
 
 # GL tests under xvfb (headless, for CI or systems without display)
 test-gl-xvfb:
-    xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
+    xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Generate visual regression references (DESTRUCTIVE — overwrites refs, requires confirmation)
 [confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
