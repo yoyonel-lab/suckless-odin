@@ -6,18 +6,44 @@
 
 ## Contexte
 
-Intégration de Dear ImGui (v1.91.7-docking) dans le moteur PBR Odin pour
+Intégration de Dear ImGui (v1.92.4-docking) dans le moteur PBR Odin pour
 remplacer les raccourcis clavier par une interface graphique unifiée. Toutes
 les options de rendu, debug et post-processing sont exposées dans une fenêtre
 unique à onglets.
 
+## Dépendance : odin-imgui (submodule)
+
+| Aspect | Valeur |
+|--------|--------|
+| Upstream | [steinarb1234/odin-imgui](https://github.com/steinarb1234/odin-imgui) |
+| Version ImGui | v1.92.4-docking |
+| Gestion | Git submodule (`deps/odin-imgui`) |
+| Binaire `.a` | Non versionné, construit localement (`just build-imgui`) |
+| Mise à jour | `just update-imgui` (pull latest + rebuild) |
+
+### Setup initial après clone
+
+```bash
+git submodule update --init              # Récupérer le submodule
+just build-imgui                         # Compiler imgui_linux_x64.a (~90s)
+just build                               # Build du projet
+```
+
+### Mise à jour de la dépendance
+
+```bash
+just update-imgui                        # Pull latest upstream + rebuild
+# Vérifier que le build + tests passent, puis commit le nouveau pointeur
+git add deps/odin-imgui && git commit -m "deps: update odin-imgui to <commit>"
+```
+
 ## Architecture
 
 ```
-deps/odin-imgui/          ← Bindings L-4/odin-imgui (GitLab)
-├── imgui_linux_x64.a     ← Bibliothèque statique précompilée (2.8 MB)
-├── imgui.odin            ← Bindings Odin (modifié: system:stdc++)
-├── imgui_impl_glfw/      ← Backend GLFW
+deps/odin-imgui/          ← Submodule steinarb1234/odin-imgui
+├── imgui_linux_x64.a     ← Construit localement (non versionné)
+├── imgui.odin            ← Bindings Odin (system:c++ → linker flags)
+├── imgui_impl_glfw/      ← Backend GLFW (requiert -lX11)
 └── imgui_impl_opengl3/   ← Backend OpenGL3
 
 src/gui/gui.odin          ← Package GUI
@@ -43,7 +69,7 @@ src/gui/gui.odin          ← Package GUI
 | Pas de raccourcis clavier pour les toggles | Tout passe par ImGui (sauf F2 toggle, WASD, Escape) |
 | `Scene_State` avec pointeurs | Évite l'import circulaire gui→scene |
 | Placeholders `BeginDisabled()` | Interface prête pour le futur, visuellement claire |
-| `system:stdc++` au lieu de `system:c++` | libc++ non installée ; `nm` confirme 0 symboles libc++ |
+| Extra linker flags dans Justfile | libc++ dans linuxbrew + X11 pour imgui_impl_glfw |
 
 ## Contrôles connectés (live)
 
@@ -113,18 +139,20 @@ Barre de recherche en haut de la fenêtre "Engine Controls" :
 ## Compilation
 
 ```bash
-just build          # Build debug (inclut ImGui)
-just build-imgui    # Recompile la bibliothèque ImGui depuis les sources
+just build-imgui    # (initial) Compile imgui_linux_x64.a depuis les sources
+just build          # Build debug (linke ImGui via extra-linker-flags)
+just update-imgui   # Met à jour le submodule + rebuild
 just lint           # odin check -vet -strict-style -warnings-as-errors
 just test           # 16 tests GL + 31 unit tests
 ```
 
 ## Problèmes résolus
 
-1. **`-lc++` linker error** → Remplacé par `system:stdc++` dans `imgui.odin`
-2. **Unused import `gl`** → Retiré du package gui
-3. **Tone mapping cassait le rendu ISO** → Retiré du shader, exposure grisée dans l'UI
-4. **Import circulaire gui↔scene** → `Scene_State` struct avec pointeurs bruts
+1. **`-lc++` linker error** → `extra-linker-flags:"-L/home/linuxbrew/.linuxbrew/lib"` dans Justfile
+2. **X11 undefined refs** → `-lX11` dans extra-linker-flags (imgui_impl_glfw v1.92+ appelle X11 directement)
+3. **Unused import `gl`** → Retiré du package gui
+4. **Tone mapping cassait le rendu ISO** → Retiré du shader, exposure grisée dans l'UI
+5. **Import circulaire gui↔scene** → `Scene_State` struct avec pointeurs bruts
 
 ## Prochaines étapes
 

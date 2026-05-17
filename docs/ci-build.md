@@ -100,7 +100,24 @@ just ci              # lint + build + all tests (with xvfb)
 just test-gl-xvfb   # GL tests only, headless
 ```
 
-## Odin Compiler
+## Dependencies
+
+### Dear ImGui (odin-imgui submodule)
+
+| Aspect | Valeur |
+|--------|--------|
+| Upstream | [steinarb1234/odin-imgui](https://github.com/steinarb1234/odin-imgui) |
+| Gestion | Git submodule at `deps/odin-imgui` |
+| Binaire | `imgui_linux_x64.a` — construit localement, non versionné |
+| Build requires | `python3`, `clang`, `ar`, `git` |
+
+```bash
+git submodule update --init    # After clone
+just build-imgui               # Compile .a (~90s)
+just update-imgui              # Pull latest + rebuild
+```
+
+### HDR Asset Dependency
 
 The CI uses a pinned Odin nightly release, cached between runs:
 - Version: `nightly+2026-05-03`

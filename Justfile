@@ -5,7 +5,7 @@
 build_base := "build"
 
 # Extra linker flags (libc++ from linuxbrew, X11 for imgui_impl_glfw)
-extra_linker_flags := "-L/home/linuxbrew/.linuxbrew/lib -lX11"
+extra_linker_flags := "-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11"
 
 # Default recipe: build + run
 default: build run
@@ -64,7 +64,7 @@ test-shader:
 
 # Headless GL tests (shader compilation, GPU validation — single-threaded)
 test-gl:
-    odin test tests/gl/ -define:ODIN_TEST_THREADS=1
+    odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
 
 # --- Lint ---
 
@@ -97,7 +97,7 @@ clean:
 
 # Rebuild Dear ImGui library (requires python3, clang, ar)
 build-imgui:
-    cd deps/odin-imgui && python3 -m venv .venv && . .venv/bin/activate && pip install ply && python build.py
+    cd deps/odin-imgui && rm -rf .venv && python3 -m venv .venv && . .venv/bin/activate && pip install -q ply && python build.py
 
 # Update Dear ImGui submodule to latest upstream commit and rebuild
 update-imgui:
@@ -112,12 +112,12 @@ ci: lint build test-unit test-cli test-shader test-gl-xvfb
 
 # GL tests under xvfb (headless, for CI or systems without display)
 test-gl-xvfb:
-    xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -define:ODIN_TEST_THREADS=1
+    xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Generate visual regression references (run once, commit results)
 gen-refs:
-    GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view
+    GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Generate refs under xvfb (headless)
 gen-refs-xvfb:
-    xvfb-run -a -s "-screen 0 1024x768x24" env GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view
+    xvfb-run -a -s "-screen 0 1024x768x24" env GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{extra_linker_flags}}"
