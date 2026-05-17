@@ -11,7 +11,7 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 | Fichiers source | ~45 `.c` + ~35 `.h` | 17 `.odin` |
 | Shaders GLSL | 55+ | 9 |
 | Tests | 63 | 0 |
-| Keybindings | ~67 | 3 (Escape, F, WASD/mouse) |
+| Keybindings | ~67 | 9 (Escape, F, F1, WASD, Q/E, C, Space, Scroll, mouse) |
 | Effets post-process | 13 | 0 |
 
 ---
@@ -47,9 +47,9 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 | Mouse smoothing | `camera.c` | `camera/camera.odin` | ✅ |
 | Rotation smoothing | `camera.c` | `camera/camera.odin` | ✅ |
 | Head bobbing | `camera.c` | `camera/camera.odin` | ✅ |
-| Scroll impulse (zoom) | `camera.c` | `camera/camera.odin` | ✅ |
-| Reset caméra (Space) | `app_input.c` | — | ❌ |
-| Toggle mouselook (C) | `app_input.c` | — | ❌ |
+| Scroll impulse (vélocité front) | `camera.c` | `camera/camera.odin` | ✅ |
+| Reset caméra (Space) | `app_input.c` | `app/app.odin` | ✅ |
+| Toggle mouselook (C) | `app_input.c` | `app/app.odin` | ✅ |
 
 ### 3. Rendu
 
@@ -146,9 +146,9 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 
 | Feature | C11 | Odin | Statut |
 |---------|-----|------|--------|
-| Clavier WASD + Space/Shift | `app_input.c` | `app/app.odin` | ✅ |
-| Souris (mouselook) | `camera_input.c` | `app/app.odin` | ✅ |
-| Scroll (impulse caméra) | `camera_input.c` | — | ❌ |
+| Clavier WASD + Q/E (up/down) | `app_input.c` | `app/app.odin` | ✅ |
+| Souris (mouselook, toggle C) | `camera_input.c` | `app/app.odin` | ✅ |
+| Scroll (impulse vélocité front) | `camera_input.c` | `app/app.odin` | ✅ |
 | AppBindingRegistry (67 bindings) | `app_binding.c` | — | ❌ |
 | Gamepad support (sticks, triggers, buttons) | `gamepad_input.c` | — | ❌ |
 | PostProcessInputContext (effet toggles) | `postprocess_input.c` | — | ❌ |
@@ -158,7 +158,7 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 
 | Feature | C11 | Odin | Statut |
 |---------|-----|------|--------|
-| Text overlay FPS/position (F1) | `app_ui.c` | — | ❌ |
+| Text overlay FPS/position (F1) | `app_ui.c` | `rendering/overlay.odin` | ✅ |
 | Help overlay keyboard (F2) | `app_ui.c`, `app_binding.c` | — | ❌ |
 | Help overlay gamepad (F2) | `app_ui.c` | — | ❌ |
 | GPU timeline (F3) | `gpu_profiler.c` | — | ❌ |
@@ -202,19 +202,16 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 |--------|--------|--------------|
 | Escape | Quitter | `app/app.odin` |
 | F | Toggle fullscreen | `app/app.odin` |
+| F1 | Toggle overlay (3 modes) | `app/app.odin` → `scene/scene.odin` |
 | W/A/S/D | Déplacement caméra | `app/app.odin` |
-| Space | Monter | `app/app.odin` |
-| Left Shift | Descendre | `app/app.odin` |
-| Souris | Mouselook | `app/app.odin` |
+| Q | Monter | `app/app.odin` |
+| E | Descendre | `app/app.odin` |
+| Space | Reset caméra (position + orientation) | `app/app.odin` |
+| C | Toggle mouselook (curseur visible/caché) | `app/app.odin` |
+| Scroll | Impulse vélocité (front caméra) | `app/app.odin` → `camera/camera.odin` |
+| Souris | Mouselook (quand camera_enabled) | `app/app.odin` → `camera/camera.odin` |
 
 ### Non portés ❌ (par catégorie)
-
-#### Movement
-| Touche | Action | Priorité |
-|--------|--------|----------|
-| C | Toggle mouselook | P1 |
-| Space | Reset caméra | P1 |
-| Scroll | Impulse caméra | P2 |
 
 #### Visuals
 | Touche | Action | Priorité |
@@ -254,7 +251,6 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 #### System
 | Touche | Action | Priorité |
 |--------|--------|----------|
-| F1 | Text overlay | P1 |
 | F2 | Help overlay | P2 |
 | F3 | GPU timeline | P3 |
 | F4 | GPU metrics log | P3 |
@@ -272,12 +268,12 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 ### Phase 1 — Interaction de base (Priorité P1)
 Quick wins, pas de nouveau shader/FBO requis.
 
-1. **Reset caméra** (Space) — remettre position/yaw/pitch aux défauts
-2. **Toggle mouselook** (C) — capture/relâche curseur
+1. ~~**Reset caméra** (Space)~~ ✅ — `app/app.odin` → `camera.init()`
+2. ~~**Toggle mouselook** (C)~~ ✅ — `app/app.odin` → `camera_enabled` + curseur
 3. **Toggle skybox** (K) — skip le draw call skybox
 4. **Screenshot** (Shift+F12) — `glReadPixels` → stb_image_write PNG
 5. **Hot-reload shaders** (R) — recompiler shaders à chaud
-6. **Text overlay FPS** (F1) — ImGui ou texte brut OpenGL
+6. ~~**Text overlay FPS** (F1)~~ ✅ — `rendering/overlay.odin` (stb_truetype, 3 modes)
 
 ### Phase 2 — Post-Processing Pipeline (Priorité P2)
 Requiert : Scene FBO (MRT), ping-pong buffers, fullscreen quad pass.
