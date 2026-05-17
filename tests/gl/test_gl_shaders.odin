@@ -5,7 +5,6 @@
 package test_gl
 
 import "core:testing"
-import "core:strings"
 import "core:fmt"
 
 import "vendor:glfw"

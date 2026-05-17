@@ -4,8 +4,6 @@ import gl "vendor:OpenGL"
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "core:mem"
-import "core:slice"
 
 import log "../../core/log"
 
@@ -226,9 +224,6 @@ load_compute_shader :: proc(compute_path: string) -> ^Shader {
 destroy :: proc(shader: ^Shader) {
 	if shader == nil { return }
 	gl.DeleteProgram(shader.program)
-	for &entry in shader.entries {
-		// entries use tprintf strings, no explicit free needed in temp allocator
-	}
 	delete(shader.entries)
 	free(shader)
 }
