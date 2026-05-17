@@ -33,6 +33,11 @@ Scene :: struct {
 	loc_view:       i32,
 	loc_projection: i32,
 	loc_cam_pos:    i32,
+
+	// Runtime toggles
+	skybox_visible:   bool,
+	wireframe_enabled: bool,
+	exposure:         f32,
 }
 
 HDR_PATH      :: "../suckless-ogl/assets/textures/hdr/cedar_bridge_2_4k.hdr"
@@ -79,6 +84,11 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> bool {
 	s.loc_projection = gl.GetUniformLocation(s.pbr_program, "u_projection")
 	s.loc_cam_pos    = gl.GetUniformLocation(s.pbr_program, "u_cam_pos")
 
+	// Runtime toggles (defaults)
+	s.skybox_visible = true
+	s.wireframe_enabled = false
+	s.exposure = settings.DEFAULT_EXPOSURE
+
 	// Text overlay
 	if !rendering.overlay_create(&s.overlay) {
 		log.log_warning("suckless-odin.scene", "Failed to create text overlay (non-fatal)")
@@ -100,9 +110,15 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
 
 	// 1. Skybox (drawn first, depth <= 1.0)
-	rendering.skybox_render(&s.skybox, view, proj)
+	if s.skybox_visible {
+		rendering.skybox_render(&s.skybox, view, proj)
+	}
 
 	// 2. PBR spheres (instanced billboard)
+	if s.wireframe_enabled {
+		gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+	}
+
 	gl.UseProgram(s.pbr_program)
 
 	gl.UniformMatrix4fv(s.loc_view, 1, false, &view[0][0])
@@ -117,6 +133,10 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	rendering.instanced_draw(&s.spheres, &s.billboard)
 
 	gl.UseProgram(0)
+
+	if s.wireframe_enabled {
+		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+	}
 
 	// 3. Text overlay (on top of everything)
 	rendering.overlay_render(&s.overlay, width, height, s.camera.position, s.camera.yaw, s.camera.pitch)
@@ -149,6 +169,21 @@ scene_update :: proc(s: ^Scene, dt: f32) {
 // Toggle text overlay mode (F1): Off → FPS+Position → FPS+Position+Env → Off
 scene_toggle_overlay :: proc(s: ^Scene) {
 	rendering.overlay_cycle(&s.overlay)
+}
+
+// Toggle skybox visibility (K key).
+scene_toggle_skybox :: proc(s: ^Scene) {
+	s.skybox_visible = !s.skybox_visible
+}
+
+// Toggle wireframe rendering mode (Z key).
+scene_toggle_wireframe :: proc(s: ^Scene) {
+	s.wireframe_enabled = !s.wireframe_enabled
+}
+
+// Adjust exposure by delta (KP+/KP- keys).
+scene_adjust_exposure :: proc(s: ^Scene, delta: f32) {
+	s.exposure = clamp(s.exposure + delta, 0.1, 10.0)
 }
 
 scene_destroy :: proc(s: ^Scene) {
