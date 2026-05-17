@@ -33,6 +33,7 @@ jobs:
           if [ ! -f /opt/odin/odin ]; then
             mkdir -p /opt/odin
             curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+            make -C /opt/odin/vendor/stb/src
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
@@ -65,6 +66,7 @@ jobs:
           if [ ! -f /opt/odin/odin ]; then
             mkdir -p /opt/odin
             curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+            make -C /opt/odin/vendor/stb/src
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
@@ -103,6 +105,7 @@ jobs:
           if [ ! -f /opt/odin/odin ]; then
             mkdir -p /opt/odin
             curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+            make -C /opt/odin/vendor/stb/src
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
@@ -138,6 +141,7 @@ jobs:
           if [ ! -f /opt/odin/odin ]; then
             mkdir -p /opt/odin
             curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+            make -C /opt/odin/vendor/stb/src
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
