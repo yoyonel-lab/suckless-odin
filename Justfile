@@ -27,6 +27,19 @@ run:
 # Build and run in one step
 br: build run
 
+# --- Test ---
+
+# Run all tests (external + in-package)
+test: test-unit test-cli
+
+# Unit tests (camera, settings, material)
+test-unit:
+    odin test tests/
+
+# CLI tests (in main package)
+test-cli:
+    odin test src/
+
 # --- Lint ---
 
 # Full lint: vet + strict style (no binary output)
