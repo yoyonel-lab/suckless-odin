@@ -2,7 +2,7 @@ package types
 
 import mt "../../core/math_types"
 
-// Per-instance data sent to the shader via an instanced VBO.
+// Per-instance data sent to the shader via SSBO (binding 2).
 // ISO port of SphereInstance from sphere_types.h.
 // 64-byte aligned for optimal GPU throughput and SIMD compatibility.
 Sphere_Instance :: struct #align(64) {
