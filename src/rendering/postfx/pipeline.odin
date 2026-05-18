@@ -16,6 +16,7 @@ Pipeline :: struct {
 
 	// Multi-pass effects
 	bloom_fx:         Bloom_FX,
+	dof_fx:           Dof_FX,
 	auto_exposure_fx: Auto_Exposure_FX,
 
 	// GPU profiling
@@ -45,6 +46,7 @@ Pipeline :: struct {
 	tonemapper:    Tonemap_Params,
 	bloom:         Bloom_Params,
 	fxaa:          FXAA_Params,
+	dof:           Dof_Params,
 
 	// Per-frame data
 	time:      f32,
@@ -98,12 +100,21 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
 	gl.UseProgram(p.composite_program)
 	set_uniform_i32(p.composite_program, "screenTexture", TEX_UNIT_SCENE)
 	set_uniform_i32(p.composite_program, "bloomTexture", TEX_UNIT_BLOOM)
+	set_uniform_i32(p.composite_program, "depthTexture", TEX_UNIT_DEPTH)
 	set_uniform_i32(p.composite_program, "autoExposureTexture", TEX_UNIT_EXPOSURE)
+	set_uniform_i32(p.composite_program, "dofBlurTexture", TEX_UNIT_DOF)
 	gl.UseProgram(0)
 
 	// Create bloom multi-pass effect
 	if !bloom_create(&p.bloom_fx, width, height) {
 		log.log_error("suckless-odin.postfx", "Failed to create bloom effect")
+		pipeline_destroy(p)
+		return false
+	}
+
+	// Create DoF pre-blur resources
+	if !dof_create(&p.dof_fx, width, height) {
+		log.log_error("suckless-odin.postfx", "Failed to create DoF effect")
 		pipeline_destroy(p)
 		return false
 	}
@@ -127,6 +138,7 @@ pipeline_destroy :: proc(p: ^Pipeline) {
 	shader_cache_destroy(&p.shader_cache)
 	gpu_timers_destroy(&p.timers)
 	auto_exposure_destroy(&p.auto_exposure_fx)
+	dof_destroy(&p.dof_fx)
 	bloom_destroy(&p.bloom_fx)
 	if p.composite_program != 0 {
 		gl.DeleteProgram(p.composite_program)
@@ -176,6 +188,11 @@ pipeline_end :: proc(p: ^Pipeline) {
 	}
 	gpu_timer_end(&p.timers, .Bloom)
 
+	// Run DoF pre-blur if enabled (reuses bloom shaders)
+	if .Dof in p.active_effects {
+		dof_render(&p.dof_fx, &p.bloom_fx, &p.dof, p.scene_color_tex, &p.quad)
+	}
+
 	// Run auto-exposure compute passes if enabled
 	if .Auto_Exposure in p.active_effects {
 		auto_exposure_render(&p.auto_exposure_fx, p.scene_color_tex, p.dt)
@@ -214,6 +231,14 @@ pipeline_end :: proc(p: ^Pipeline) {
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_EXPOSURE)
 	gl.BindTexture(gl.TEXTURE_2D, auto_exposure_get_texture(&p.auto_exposure_fx))
 
+	// Bind depth texture (for DoF CoC calculation)
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_DEPTH)
+	gl.BindTexture(gl.TEXTURE_2D, p.depth_tex)
+
+	// Bind DoF blur texture (1/4 res pre-blurred scene)
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_DOF)
+	gl.BindTexture(gl.TEXTURE_2D, dof_get_texture(&p.dof_fx))
+
 	// Draw fullscreen quad (final composite)
 	quad_draw(&p.quad)
 
@@ -236,6 +261,7 @@ pipeline_resize :: proc(p: ^Pipeline, width, height: i32) {
 	destroy_framebuffer(p)
 	create_framebuffer(p)
 	bloom_resize(&p.bloom_fx, width, height)
+	dof_resize(&p.dof_fx, width, height)
 	p.ubo_dirty = true
 
 	log.log_info("suckless-odin.postfx", "Pipeline resized (%dx%d)", width, height)
@@ -326,6 +352,12 @@ init_defaults :: proc(p: ^Pipeline) {
 		subpix             = DEFAULT_FXAA_SUBPIX,
 		edge_threshold     = DEFAULT_FXAA_EDGE_THRESHOLD,
 		edge_threshold_min = DEFAULT_FXAA_EDGE_THRESHOLD_MIN,
+	}
+	p.dof = {
+		focal_distance   = DEFAULT_DOF_FOCAL_DISTANCE,
+		focal_range      = DEFAULT_DOF_FOCAL_RANGE,
+		bokeh_scale      = DEFAULT_DOF_BOKEH_SCALE,
+		anamorphic_ratio = DEFAULT_DOF_ANAMORPHIC_RATIO,
 	}
 }
 
@@ -427,6 +459,11 @@ upload_ubo :: proc(p: ^Pipeline) {
 		fxaa_subpix             = p.fxaa.subpix,
 		fxaa_edge_threshold     = p.fxaa.edge_threshold,
 		fxaa_edge_threshold_min = p.fxaa.edge_threshold_min,
+
+		dof_focal_distance   = p.dof.focal_distance,
+		dof_focal_range      = p.dof.focal_range,
+		dof_bokeh_scale      = p.dof.bokeh_scale,
+		dof_anamorphic_ratio = p.dof.anamorphic_ratio,
 	}
 
 	gl.BindBuffer(gl.UNIFORM_BUFFER, p.settings_ubo)

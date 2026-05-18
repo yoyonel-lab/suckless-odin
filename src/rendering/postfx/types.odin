@@ -96,6 +96,13 @@ Auto_Exposure_Params :: struct {
 	key_value:     f32,
 }
 
+Dof_Params :: struct {
+	focal_distance:   f32,
+	focal_range:      f32,
+	bokeh_scale:      f32,
+	anamorphic_ratio: f32,
+}
+
 // --- Default Values ---
 
 DEFAULT_VIGNETTE_INTENSITY  :: 0.8
@@ -136,6 +143,12 @@ DEFAULT_AUTO_SPEED_UP         :: 2.0
 DEFAULT_AUTO_SPEED_DOWN       :: 1.0
 DEFAULT_AUTO_KEY_VALUE        :: 0.20
 DEFAULT_AUTO_EXPOSURE_INITIAL :: 1.2
+
+// DoF defaults (matches legacy suckless-ogl)
+DEFAULT_DOF_FOCAL_DISTANCE   :: 20.0
+DEFAULT_DOF_FOCAL_RANGE      :: 5.0
+DEFAULT_DOF_BOKEH_SCALE      :: 10.0
+DEFAULT_DOF_ANAMORPHIC_RATIO :: 1.0
 
 // --- UBO Layout (std140, binding 0) ---
 // Must match the GLSL PostProcessBlock layout exactly.
@@ -203,6 +216,12 @@ Post_FX_UBO :: struct #packed {
 	fxaa_edge_threshold:     f32,
 	fxaa_edge_threshold_min: f32,
 	_pad10:                  f32,
+
+	// DoF (16 bytes)
+	dof_focal_distance:   f32,
+	dof_focal_range:      f32,
+	dof_bokeh_scale:      f32,
+	dof_anamorphic_ratio: f32,
 }
 
 // Texture unit assignments for post-processing samplers.
@@ -211,3 +230,4 @@ TEX_UNIT_BLOOM    :: 1
 TEX_UNIT_DEPTH    :: 2
 TEX_UNIT_EXPOSURE :: 3
 TEX_UNIT_VELOCITY :: 4
+TEX_UNIT_DOF      :: 5

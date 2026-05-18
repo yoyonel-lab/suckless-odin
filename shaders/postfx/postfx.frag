@@ -10,8 +10,12 @@ layout(location = 0) out vec4 FragColor;
 layout(binding = 0) uniform sampler2D screenTexture;
 // Bloom texture (from multi-pass bloom)
 layout(binding = 1) uniform sampler2D bloomTexture;
+// Depth buffer (for DoF CoC)
+layout(binding = 2) uniform sampler2D depthTexture;
 // Auto-exposure texture (1x1, R=exposure value)
 layout(binding = 3) uniform sampler2D autoExposureTexture;
+// DoF blur texture (1/4 res pre-blurred scene)
+layout(binding = 5) uniform sampler2D dofBlurTexture;
 
 // --- UBO: Post-Processing Parameters (std140, binding 0) ---
 layout(std140, binding = 0) uniform PostProcessBlock
@@ -85,6 +89,12 @@ layout(std140, binding = 0) uniform PostProcessBlock
 	float fxaaQualityEdgeThreshold;
 	float fxaaQualityEdgeThresholdMin;
 	float _pad10;
+
+	// DoF (16 bytes)
+	float d_focalDistance;
+	float d_focalRange;
+	float d_bokehScale;
+	float d_anamorphicRatio;
 };
 
 // --- Effect flag helpers ---
@@ -132,6 +142,8 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #endif
 
 #define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
+#define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
+#define enableDoFDebug      ((activeEffects & (1u << 7u)) != 0u)
 
 // ============================================================================
 // EFFECT: CHROMATIC ABERRATION
@@ -401,6 +413,54 @@ vec3 applyGrain(vec3 color, vec2 uv)
 // ============================================================================
 // MAIN
 // ============================================================================
+// EFFECT: DEPTH OF FIELD
+// ============================================================================
+vec3 applyDoF(vec3 color, vec2 uv)
+{
+	float depth = texture(depthTexture, uv).r;
+
+	// Skybox early exit
+	if (depth >= 0.99999) return color;
+
+	// Linearize depth (perspective projection reverse)
+	const float zNear = 0.1;
+	const float zFar = 1000.0;
+	float z_ndc = 2.0 * depth - 1.0;
+	float dist = (2.0 * zNear * zFar) / (zFar + zNear - z_ndc * (zFar - zNear));
+
+	// Circle of Confusion (simplified thin-lens)
+	float coc = abs(dist - d_focalDistance) / (dist + 0.0001);
+
+	// Focal range: sharp zone with smooth transitions
+	float blurFactor = 0.0;
+	float distDiff = abs(dist - d_focalDistance);
+	if (distDiff > d_focalRange) {
+		float transition = 5.0;
+		blurFactor = clamp((distDiff - d_focalRange) / transition, 0.0, 1.0);
+	}
+
+	blurFactor *= clamp(coc * d_bokehScale, 0.0, 1.0);
+	blurFactor = clamp(blurFactor, 0.0, 1.0);
+
+	// Mix with pre-blurred texture
+	if (blurFactor > 0.01) {
+		vec3 blurredColor = texture(dofBlurTexture, uv).rgb;
+		color = mix(color, blurredColor, blurFactor);
+	}
+
+	// Debug visualization
+	if (enableDoFDebug) {
+		if (dist < d_focalDistance - d_focalRange) {
+			color = mix(color, vec3(0.0, 1.0, 0.0), 0.3);  // near = green
+		} else if (dist > d_focalDistance + d_focalRange) {
+			color = mix(color, vec3(0.0, 0.0, 1.0), 0.3);  // far = blue
+		}
+	}
+
+	return color;
+}
+
+// ============================================================================
 void main()
 {
 	vec3 color;
@@ -417,22 +477,27 @@ void main()
 		color = applyFXAA(color, TexCoords);
 	}
 
-	// 3. Bloom mix (additive from separate bloom texture)
+	// 3. Depth of Field (mix sharp/blurred based on CoC from depth)
+	if (enableDoF) {
+		color = applyDoF(color, TexCoords);
+	}
+
+	// 4. Bloom mix (additive from separate bloom texture)
 	if (enableBloom) {
 		color = applyBloom(color);
 	}
 
-	// 4. Exposure (HDR brightness)
+	// 5. Exposure (HDR brightness)
 	if (enableExposure) {
 		color = applyExposure(color);
 	}
 
-	// 5. Tonemapping (HDR → LDR)
+	// 6. Tonemapping (HDR → LDR)
 	if (enableTonemap) {
 		color = unrealTonemap(color);
 	}
 
-	// 6. Color grading (post-tonemap, LDR space)
+	// 7. Color grading (post-tonemap, LDR space)
 	if (enableColorGrading) {
 		color = pow(max(color, vec3(0.0)), vec3(1.0 / cg_gamma));
 		color = (color - 0.5) * cg_contrast + 0.5;
@@ -441,12 +506,12 @@ void main()
 		color = color * cg_gain + cg_offset;
 	}
 
-	// 7. Vignette
+	// 8. Vignette
 	if (enableVignette) {
 		color = applyVignette(color, TexCoords);
 	}
 
-	// 8. Grain (applied last before output)
+	// 9. Grain (applied last before output)
 	if (enableGrain) {
 		color = applyGrain(color, TexCoords);
 	}
