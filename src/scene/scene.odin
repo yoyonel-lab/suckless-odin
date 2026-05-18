@@ -150,10 +150,11 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 	}
 
-	// 3. Text overlay (on top of everything)
-	rendering.overlay_render(&s.overlay, width, height, s.camera.position, s.camera.yaw, s.camera.pitch)
-
+	// 3. End post-processing (composite to screen)
 	postfx.pipeline_end(&s.postfx_pipeline)
+
+	// 4. Text overlay (rendered AFTER post-fx, directly to screen)
+	rendering.overlay_render(&s.overlay, width, height, s.camera.position, s.camera.yaw, s.camera.pitch)
 }
 
 scene_update :: proc(s: ^Scene, dt: f32) {
