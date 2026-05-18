@@ -145,14 +145,31 @@ draw_postfx_section :: proc(state: Scene_State) {
 		imgui.Unindent()
 	}
 
+	// --- Auto-Exposure ---
+	ae_on := postfx.Post_Effect.Auto_Exposure in p.active_effects
+	if imgui.Checkbox("Auto-Exposure", &ae_on) {
+		postfx.pipeline_toggle(p, .Auto_Exposure)
+	}
+	if ae_on {
+		imgui.Indent()
+		imgui.SliderFloat("Min Luminance", &p.auto_exposure_fx.params.min_luminance, 0.001, 1.0)
+		imgui.SliderFloat("Max Luminance", &p.auto_exposure_fx.params.max_luminance, 100.0, 50000.0)
+		imgui.SliderFloat("Speed Up", &p.auto_exposure_fx.params.speed_up, 0.1, 10.0)
+		imgui.SliderFloat("Speed Down", &p.auto_exposure_fx.params.speed_down, 0.1, 10.0)
+		imgui.SliderFloat("Key Value", &p.auto_exposure_fx.params.key_value, 0.01, 1.0)
+		imgui.Spacing()
+		imgui.Text("Current: %.3f", p.auto_exposure_fx.current_exposure)
+		imgui.Text("Scene Lum: %.4f", p.auto_exposure_fx.current_scene_lum)
+		imgui.Text("Target: %.3f", p.auto_exposure_fx.current_target)
+		imgui.Unindent()
+	}
+
 	// --- Not yet implemented effects ---
 	imgui.BeginDisabled()
 	dof_placeholder := false
 	mb_placeholder := false
-	ae_placeholder := false
 	imgui.Checkbox("Depth of Field", &dof_placeholder)
 	imgui.Checkbox("Motion Blur", &mb_placeholder)
-	imgui.Checkbox("Auto-Exposure", &ae_placeholder)
 	imgui.EndDisabled()
 
 	imgui.Spacing()
