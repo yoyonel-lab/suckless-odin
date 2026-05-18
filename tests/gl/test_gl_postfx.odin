@@ -275,3 +275,27 @@ test_lum_adapt_uniforms_exist :: proc(t: ^testing.T) {
 
 	gl.UseProgram(0)
 }
+
+// --- DoF Integration Tests ---
+
+@(test)
+test_postfx_dof_samplers_exist :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/postfx.frag")
+	if !ok {
+		testing.expect(t, false, "cannot test DoF samplers: program failed to link")
+		return
+	}
+	defer gl.DeleteProgram(program)
+
+	gl.UseProgram(program)
+
+	depth_loc := gl.GetUniformLocation(program, "depthTexture")
+	testing.expectf(t, depth_loc >= 0, "depthTexture uniform not found (loc=%d)", depth_loc)
+
+	dof_loc := gl.GetUniformLocation(program, "dofBlurTexture")
+	testing.expectf(t, dof_loc >= 0, "dofBlurTexture uniform not found (loc=%d)", dof_loc)
+
+	gl.UseProgram(0)
+}
