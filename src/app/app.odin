@@ -141,6 +141,7 @@ run :: proc(application: ^App) {
 			env_texture_id      = application.scene.env_texture.id,
 			env_texture_width   = application.scene.env_texture.width,
 			env_texture_height  = application.scene.env_texture.height,
+			postfx              = &application.scene.postfx_pipeline,
 		})
 		gui.render(&application.imgui)
 
@@ -316,5 +317,12 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 // GLFW framebuffer resize callback.
 @(private)
 framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
+	context = runtime.default_context()
 	gl.Viewport(0, 0, width, height)
+	app := cast(^App)glfw.GetWindowUserPointer(window)
+	if app != nil {
+		app.width = width
+		app.height = height
+		scene.scene_resize(&app.scene, width, height)
+	}
 }

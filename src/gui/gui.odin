@@ -9,6 +9,7 @@ import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
 import "../core/search"
+import postfx "../rendering/postfx"
 
 // Forward-declare scene data needed by GUI panels.
 // Avoids circular import by accepting raw pointers from app.
@@ -18,6 +19,9 @@ Scene_State :: struct {
 	wireframe_enabled: ^bool,
 	exposure:          ^f32,
 	skybox_blur_lod:   ^f32,
+
+	// Post-processing pipeline (live controls)
+	postfx: ^postfx.Pipeline,
 
 	// IBL debug textures (GL handles)
 	ibl_irradiance_map: u32,
@@ -142,7 +146,11 @@ update :: proc(g: ^Gui, state: Scene_State) {
 					imgui.EndTabItem()
 				}
 				if imgui.BeginTabItem("Rendering") {
-					draw_tab_rendering()
+					draw_tab_rendering(state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("Post-FX") {
+					draw_postfx_section(state)
 					imgui.EndTabItem()
 				}
 				if imgui.BeginTabItem("IBL Debug", flags = g.ibl_debug_open ? imgui.TabItemFlags{.SetSelected} : {}) {
@@ -528,7 +536,7 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 // ─── Tab: Rendering (all debug views & post-FX, greyed until implemented) ────
 
 @(private)
-draw_tab_rendering :: proc() {
+draw_tab_rendering :: proc(state: Scene_State) {
 	// --- PBR Debug Modes ---
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "PBR Debug Modes")
 	imgui.Separator()
@@ -544,35 +552,12 @@ draw_tab_rendering :: proc() {
 	imgui.EndDisabled()
 	imgui.Spacing()
 
-	// --- Post-Processing ---
-	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Post-Processing")
-	imgui.Separator()
-	imgui.BeginDisabled()
-
-	placeholder := false
-	placeholder_f: f32 = 0.5
-
-	imgui.Checkbox("Bloom", &placeholder)
-	imgui.SliderFloat("Bloom Intensity", &placeholder_f, 0.0, 2.0)
-	imgui.Checkbox("Depth of Field", &placeholder)
-	imgui.SliderFloat("DoF Focus Dist", &placeholder_f, 0.0, 100.0)
-	imgui.Checkbox("Auto-Exposure", &placeholder)
-	imgui.SliderFloat("Manual Exposure", &placeholder_f, 0.1, 10.0)
-	imgui.Checkbox("Motion Blur", &placeholder)
-	imgui.Checkbox("FXAA", &placeholder)
-	imgui.Checkbox("Vignette", &placeholder)
-	imgui.Checkbox("Film Grain", &placeholder)
-	imgui.Checkbox("Chromatic Aberration", &placeholder)
-	imgui.Checkbox("Color Grading (LUT)", &placeholder)
-
-	imgui.EndDisabled()
-	imgui.Spacing()
-
 	// --- Debug Views ---
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Debug Views")
 	imgui.Separator()
 	imgui.BeginDisabled()
 
+	placeholder := false
 	imgui.Checkbox("Bloom Debug", &placeholder)
 	imgui.Checkbox("DoF Debug", &placeholder)
 	imgui.Checkbox("Exposure Histogram", &placeholder)
@@ -601,6 +586,7 @@ draw_tab_rendering :: proc() {
 	imgui.Separator()
 	imgui.BeginDisabled()
 
+	placeholder_f: f32 = 0.0
 	imgui.Checkbox("Light Probes Debug", &placeholder)
 	imgui.Checkbox("N-Body Simulation", &placeholder)
 	imgui.SliderFloat("Sim Speed", &placeholder_f, 0.0, 5.0)
@@ -725,57 +711,22 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 	if section_has_matches(filter, RENDERING_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Rendering")
 		imgui.Separator()
+
+		// Live PostFX controls
+		match_count += draw_postfx_filtered(state, filter)
+
+		// PBR debug (still disabled)
 		imgui.BeginDisabled()
 
-		placeholder := false
-		placeholder_f: f32 = 0.5
-
-		if fuzzy_match(filter, "PBR Debug Mode", "post-processing post processing rendering albedo normal metallic roughness ao irradiance prefilter brdf") {
+		if fuzzy_match(filter, "PBR Debug Mode", "rendering albedo normal metallic roughness ao irradiance prefilter brdf") {
 			pbr_debug_mode: i32 = 0
 			imgui.Combo("Debug Mode", &pbr_debug_mode,
 				"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance\x00Prefilter\x00BRDF LUT\x00GI Probes\x00")
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Specular Anti-Aliasing", "post-processing post processing rendering aa filtering") {
-			imgui.Checkbox("Specular Anti-Aliasing", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Bloom", "post-processing post processing rendering glow effect") {
-			imgui.Checkbox("Bloom", &placeholder)
-			imgui.SliderFloat("Bloom Intensity", &placeholder_f, 0.0, 2.0)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Depth of Field", "post-processing post processing rendering dof bokeh blur focus") {
-			imgui.Checkbox("Depth of Field", &placeholder)
-			imgui.SliderFloat("DoF Focus Dist", &placeholder_f, 0.0, 100.0)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Auto-Exposure", "post-processing post processing rendering adaptation luminance eye") {
-			imgui.Checkbox("Auto-Exposure", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Motion Blur", "post-processing post processing rendering velocity tile") {
-			imgui.Checkbox("Motion Blur", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "FXAA", "post-processing post processing rendering anti-aliasing antialiasing smooth") {
-			imgui.Checkbox("FXAA", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Vignette", "post-processing post processing rendering border darken") {
-			imgui.Checkbox("Vignette", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Film Grain", "post-processing post processing rendering noise cinematic") {
-			imgui.Checkbox("Film Grain", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Chromatic Aberration", "post-processing post processing rendering color fringe lens") {
-			imgui.Checkbox("Chromatic Aberration", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Color Grading", "post-processing post processing rendering lut tone color correction") {
-			imgui.Checkbox("Color Grading (LUT)", &placeholder)
+		if fuzzy_match(filter, "Specular Anti-Aliasing", "rendering aa filtering") {
+			placeholder_aa := false
+			imgui.Checkbox("Specular Anti-Aliasing", &placeholder_aa)
 			match_count += 1
 		}
 
@@ -954,7 +905,7 @@ CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov
 SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon"
 
 @(private)
-RENDERING_KEYWORDS :: "rendering post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus"
+RENDERING_KEYWORDS :: "rendering postfx post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus exposure tonemap tonemapping saturation contrast gamma"
 
 @(private)
 DEBUG_KEYWORDS :: "debug debug views bloom dof exposure histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization"

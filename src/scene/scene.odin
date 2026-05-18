@@ -8,6 +8,7 @@ import mt "../core/math_types"
 import settings "../core/settings"
 import cam "../camera"
 import "../rendering"
+import postfx "../rendering/postfx"
 
 // Scene holds the camera, rendering resources, and all subsystems.
 Scene :: struct {
@@ -25,6 +26,9 @@ Scene :: struct {
 
 	// IBL resources (irradiance, prefilter, BRDF LUT)
 	ibl:         rendering.IBL_Resources,
+
+	// Post-processing pipeline
+	postfx_pipeline: postfx.Pipeline,
 
 	// Text overlay (F1)
 	overlay:     rendering.Text_Overlay,
@@ -89,6 +93,12 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> bool {
 	s.wireframe_enabled = false
 	s.exposure = settings.DEFAULT_EXPOSURE
 
+	// Post-processing pipeline
+	if !postfx.pipeline_create(&s.postfx_pipeline, width, height) {
+		log.log_error("suckless-odin.scene", "Failed to create postfx pipeline")
+		return false
+	}
+
 	// Text overlay
 	if !rendering.overlay_create(&s.overlay) {
 		log.log_warning("suckless-odin.scene", "Failed to create text overlay (non-fatal)")
@@ -99,6 +109,8 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> bool {
 }
 
 scene_render :: proc(s: ^Scene, width, height: i32) {
+	postfx.pipeline_begin(&s.postfx_pipeline)
+
 	aspect := f32(width) / f32(max(height, 1))
 	fov_rad := mt.radians(s.camera.zoom)
 
@@ -140,9 +152,12 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 
 	// 3. Text overlay (on top of everything)
 	rendering.overlay_render(&s.overlay, width, height, s.camera.position, s.camera.yaw, s.camera.pitch)
+
+	postfx.pipeline_end(&s.postfx_pipeline)
 }
 
 scene_update :: proc(s: ^Scene, dt: f32) {
+	postfx.pipeline_update(&s.postfx_pipeline, dt)
 	rendering.overlay_update(&s.overlay, dt)
 	cam.build_keyboard_input(&s.camera)
 
@@ -184,9 +199,17 @@ scene_toggle_wireframe :: proc(s: ^Scene) {
 // Adjust exposure by delta (KP+/KP- keys).
 scene_adjust_exposure :: proc(s: ^Scene, delta: f32) {
 	s.exposure = clamp(s.exposure + delta, 0.1, 10.0)
+	s.postfx_pipeline.exposure.exposure = s.exposure
+	s.postfx_pipeline.ubo_dirty = true
+}
+
+// Resize postfx pipeline (call from framebuffer callback).
+scene_resize :: proc(s: ^Scene, width, height: i32) {
+	postfx.pipeline_resize(&s.postfx_pipeline, width, height)
 }
 
 scene_destroy :: proc(s: ^Scene) {
+	postfx.pipeline_destroy(&s.postfx_pipeline)
 	rendering.overlay_destroy(&s.overlay)
 	if s.pbr_program != 0 {
 		gl.DeleteProgram(s.pbr_program)
