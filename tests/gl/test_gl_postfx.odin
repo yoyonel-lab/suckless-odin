@@ -202,5 +202,76 @@ test_postfx_uniforms_exist :: proc(t: ^testing.T) {
 	bloom_loc := gl.GetUniformLocation(program, "bloomTexture")
 	testing.expectf(t, bloom_loc >= 0, "bloomTexture uniform not found (loc=%d)", bloom_loc)
 
+	autoexp_loc := gl.GetUniformLocation(program, "autoExposureTexture")
+	testing.expectf(t, autoexp_loc >= 0, "autoExposureTexture uniform not found (loc=%d)", autoexp_loc)
+
+	gl.UseProgram(0)
+}
+
+// --- Auto-Exposure Compute Shader Tests ---
+
+@(test)
+test_lum_downsample_compute_compiles :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	source, ok := shader.read_file("shaders/postfx/lum_downsample.comp")
+	testing.expect(t, ok, "failed to read lum_downsample.comp")
+	defer delete(source)
+
+	shader_id, compile_ok := shader.compile(source, gl.COMPUTE_SHADER)
+	testing.expect(t, compile_ok, "lum_downsample.comp compilation failed")
+	if compile_ok { gl.DeleteShader(shader_id) }
+}
+
+@(test)
+test_lum_adapt_compute_compiles :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	source, ok := shader.read_file("shaders/postfx/lum_adapt.comp")
+	testing.expect(t, ok, "failed to read lum_adapt.comp")
+	defer delete(source)
+
+	shader_id, compile_ok := shader.compile(source, gl.COMPUTE_SHADER)
+	testing.expect(t, compile_ok, "lum_adapt.comp compilation failed")
+	if compile_ok { gl.DeleteShader(shader_id) }
+}
+
+@(test)
+test_lum_downsample_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_compute("shaders/postfx/lum_downsample.comp")
+	testing.expect(t, ok, "lum_downsample compute program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_lum_adapt_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_compute("shaders/postfx/lum_adapt.comp")
+	testing.expect(t, ok, "lum_adapt compute program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_lum_adapt_uniforms_exist :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_compute("shaders/postfx/lum_adapt.comp")
+	if !ok {
+		testing.expect(t, false, "cannot test uniforms: program failed to link")
+		return
+	}
+	defer gl.DeleteProgram(program)
+
+	gl.UseProgram(program)
+
+	uniforms := [?]cstring{"deltaTime", "minLuminance", "maxLuminance", "speedUp", "speedDown", "keyValue"}
+	for name in uniforms {
+		loc := gl.GetUniformLocation(program, name)
+		testing.expectf(t, loc >= 0, "uniform '%s' not found in lum_adapt (loc=%d)", name, loc)
+	}
+
 	gl.UseProgram(0)
 }
