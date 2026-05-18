@@ -59,12 +59,9 @@ shader_cache_compile :: proc(cache: ^Shader_Cache, effects: Effect_Flags) -> u32
 		return 0
 	}
 
-	// Set sampler uniforms
+	// Set ALL sampler uniforms (fixes missing depth/exposure/dof bindings)
 	gl.UseProgram(program)
-	loc_screen := gl.GetUniformLocation(program, "screenTexture")
-	if loc_screen >= 0 { gl.Uniform1i(loc_screen, TEX_UNIT_SCENE) }
-	loc_bloom := gl.GetUniformLocation(program, "bloomTexture")
-	if loc_bloom >= 0 { gl.Uniform1i(loc_bloom, TEX_UNIT_BLOOM) }
+	set_sampler_uniforms(program)
 	gl.UseProgram(0)
 
 	// Store in cache
@@ -91,6 +88,7 @@ shader_cache_destroy :: proc(cache: ^Shader_Cache) {
 @(private)
 build_defines_preamble :: proc(effects: Effect_Flags) -> string {
 	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
 
 	// Static defines that override runtime bitfield checks
 	if .Vignette in effects      { fmt.sbprintf(&b, "#define STATIC_VIGNETTE 1\n") }
@@ -102,5 +100,5 @@ build_defines_preamble :: proc(effects: Effect_Flags) -> string {
 	if .FXAA in effects          { fmt.sbprintf(&b, "#define STATIC_FXAA 1\n") }
 	if .Tonemap in effects       { fmt.sbprintf(&b, "#define STATIC_TONEMAP 1\n") }
 
-	return strings.to_string(b)
+	return strings.clone(strings.to_string(b))
 }
