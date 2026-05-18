@@ -30,39 +30,28 @@ Auto_Exposure_FX :: struct {
 }
 
 // Create auto-exposure resources.
-auto_exposure_create :: proc(fx: ^Auto_Exposure_FX) -> bool {
-	// Load compute shaders
-	downsample, ds_ok := shader.load_compute("shaders/postfx/lum_downsample.comp")
-	if !ds_ok {
-		log.log_error("suckless-odin.postfx.auto_exposure", "Failed to load lum_downsample.comp")
-		return false
-	}
-	fx.downsample_program = downsample
+auto_exposure_create :: proc(fx: ^Auto_Exposure_FX) -> (ok: bool) {
+	defer if !ok { auto_exposure_destroy(fx) }
 
-	adapt, adapt_ok := shader.load_compute("shaders/postfx/lum_adapt.comp")
-	if !adapt_ok {
-		log.log_error("suckless-odin.postfx.auto_exposure", "Failed to load lum_adapt.comp")
-		gl.DeleteProgram(downsample)
-		fx.downsample_program = 0
-		return false
-	}
-	fx.adapt_program = adapt
+	// Load compute shaders
+	fx.downsample_program = shader.load_compute("shaders/postfx/lum_downsample.comp") or_return
+	fx.adapt_program = shader.load_compute("shaders/postfx/lum_adapt.comp") or_return
 
 	// Create 64x64 R32F luminance texture
-	gl.GenTextures(1, &fx.lum_tex)
-	gl.BindTexture(gl.TEXTURE_2D, fx.lum_tex)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R32F, LUM_MAP_SIZE, LUM_MAP_SIZE, 0, gl.RED, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	fx.lum_tex = create_texture_2d(
+		LUM_MAP_SIZE, LUM_MAP_SIZE,
+		gl.R32F, gl.RED,
+		filter = .Nearest,
+	)
 
 	// Create 1x1 RGBA32F exposure texture (persistent across frames)
-	gl.GenTextures(1, &fx.exposure_tex)
-	gl.BindTexture(gl.TEXTURE_2D, fx.exposure_tex)
 	initial_data := [4]f32{DEFAULT_AUTO_EXPOSURE_INITIAL, 0.0, 0.0, 0.0}
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1, 1, 0, gl.RGBA, gl.FLOAT, &initial_data[0])
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+	fx.exposure_tex = create_texture_2d(
+		1, 1,
+		gl.RGBA32F, gl.RGBA,
+		filter = .Nearest,
+		data = &initial_data[0],
+	)
 
 	// Create PBOs for async readback
 	gl.GenBuffers(2, raw_data(&fx.readback_pbo))
@@ -88,22 +77,10 @@ auto_exposure_create :: proc(fx: ^Auto_Exposure_FX) -> bool {
 
 // Destroy auto-exposure resources.
 auto_exposure_destroy :: proc(fx: ^Auto_Exposure_FX) {
-	if fx.downsample_program != 0 {
-		gl.DeleteProgram(fx.downsample_program)
-		fx.downsample_program = 0
-	}
-	if fx.adapt_program != 0 {
-		gl.DeleteProgram(fx.adapt_program)
-		fx.adapt_program = 0
-	}
-	if fx.lum_tex != 0 {
-		gl.DeleteTextures(1, &fx.lum_tex)
-		fx.lum_tex = 0
-	}
-	if fx.exposure_tex != 0 {
-		gl.DeleteTextures(1, &fx.exposure_tex)
-		fx.exposure_tex = 0
-	}
+	delete_program(&fx.downsample_program)
+	delete_program(&fx.adapt_program)
+	delete_texture(&fx.lum_tex)
+	delete_texture(&fx.exposure_tex)
 	if fx.readback_pbo[0] != 0 {
 		gl.DeleteBuffers(2, raw_data(&fx.readback_pbo))
 		fx.readback_pbo = {}
@@ -127,16 +104,15 @@ auto_exposure_render :: proc(fx: ^Auto_Exposure_FX, scene_tex: u32, dt: f32) {
 	gl.BindTexture(gl.TEXTURE_2D, fx.lum_tex)
 	gl.BindImageTexture(1, fx.exposure_tex, 0, gl.FALSE, 0, gl.READ_WRITE, gl.RGBA32F)
 
-	set_compute_uniform_f32(fx.adapt_program, "deltaTime", dt)
-	set_compute_uniform_f32(fx.adapt_program, "minLuminance", fx.params.min_luminance)
-	set_compute_uniform_f32(fx.adapt_program, "maxLuminance", fx.params.max_luminance)
-	set_compute_uniform_f32(fx.adapt_program, "speedUp", fx.params.speed_up)
-	set_compute_uniform_f32(fx.adapt_program, "speedDown", fx.params.speed_down)
-	set_compute_uniform_f32(fx.adapt_program, "keyValue", fx.params.key_value)
+	set_uniform_f32(fx.adapt_program, "deltaTime", dt)
+	set_uniform_f32(fx.adapt_program, "minLuminance", fx.params.min_luminance)
+	set_uniform_f32(fx.adapt_program, "maxLuminance", fx.params.max_luminance)
+	set_uniform_f32(fx.adapt_program, "speedUp", fx.params.speed_up)
+	set_uniform_f32(fx.adapt_program, "speedDown", fx.params.speed_down)
+	set_uniform_f32(fx.adapt_program, "keyValue", fx.params.key_value)
 
 	gl.DispatchCompute(1, 1, 1) // single workgroup: 256 threads reduce 64x64
 	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.TEXTURE_FETCH_BARRIER_BIT)
-
 	gl.UseProgram(0)
 
 	// Async readback for GUI (non-blocking, 2-frame latency)
@@ -175,12 +151,4 @@ auto_exposure_readback :: proc(fx: ^Auto_Exposure_FX) {
 
 	gl.BindBuffer(gl.PIXEL_PACK_BUFFER, 0)
 	fx.readback_frame += 1
-}
-
-@(private)
-set_compute_uniform_f32 :: proc(program: u32, name: cstring, value: f32) {
-	loc := gl.GetUniformLocation(program, name)
-	if loc >= 0 {
-		gl.Uniform1f(loc, value)
-	}
 }

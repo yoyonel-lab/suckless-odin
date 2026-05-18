@@ -47,10 +47,7 @@ quad_draw :: proc(q: ^Fullscreen_Quad) {
 
 // Destroy fullscreen quad resources.
 quad_destroy :: proc(q: ^Fullscreen_Quad) {
-	if q.vbo != 0 {
-		gl.DeleteBuffers(1, &q.vbo)
-		q.vbo = 0
-	}
+	delete_buffer(&q.vbo)
 	if q.vao != 0 {
 		gl.DeleteVertexArrays(1, &q.vao)
 		q.vao = 0

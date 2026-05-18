@@ -2,8 +2,8 @@ package postfx
 
 import gl "vendor:OpenGL"
 
-import log "../../core/log"
 import shader "../shader"
+import log "../../core/log"
 
 // Number of bloom mip levels (half-res cascade).
 BLOOM_MIP_LEVELS :: 5
@@ -25,39 +25,24 @@ Bloom_FX :: struct {
 }
 
 // Initialize bloom resources (shaders, FBO, mip textures).
-bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> bool {
+bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> (ok: bool) {
+	defer if !ok { bloom_destroy(b) }
+
 	// Load shaders (all use the same vertex shader)
-	prefilter, ok_pf := shader.load_program(
+	b.prefilter_program = shader.load_program(
 		"shaders/postfx/postfx.vert",
 		"shaders/postfx/bloom_prefilter.frag",
-	)
-	if !ok_pf {
-		log.log_error("suckless-odin.postfx.bloom", "Failed to load prefilter shader")
-		return false
-	}
-	b.prefilter_program = prefilter
+	) or_return
 
-	downsample, ok_ds := shader.load_program(
+	b.downsample_program = shader.load_program(
 		"shaders/postfx/postfx.vert",
 		"shaders/postfx/bloom_downsample.frag",
-	)
-	if !ok_ds {
-		log.log_error("suckless-odin.postfx.bloom", "Failed to load downsample shader")
-		bloom_destroy(b)
-		return false
-	}
-	b.downsample_program = downsample
+	) or_return
 
-	upsample, ok_us := shader.load_program(
+	b.upsample_program = shader.load_program(
 		"shaders/postfx/postfx.vert",
 		"shaders/postfx/bloom_upsample.frag",
-	)
-	if !ok_us {
-		log.log_error("suckless-odin.postfx.bloom", "Failed to load upsample shader")
-		bloom_destroy(b)
-		return false
-	}
-	b.upsample_program = upsample
+	) or_return
 
 	// Create FBO (single FBO, re-attach textures per pass)
 	gl.GenFramebuffers(1, &b.fbo)
@@ -74,18 +59,7 @@ bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> bool {
 
 		b.mips[i].width = mip_w
 		b.mips[i].height = mip_h
-
-		gl.GenTextures(1, &b.mips[i].texture)
-		gl.BindTexture(gl.TEXTURE_2D, b.mips[i].texture)
-		gl.TexImage2D(
-			gl.TEXTURE_2D, 0, gl.R11F_G11F_B10F,
-			mip_w, mip_h, 0,
-			gl.RGB, gl.FLOAT, nil,
-		)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		b.mips[i].texture = create_texture_2d(mip_w, mip_h, gl.R11F_G11F_B10F, gl.RGB)
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -96,28 +70,13 @@ bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> bool {
 
 // Destroy all bloom GPU resources.
 bloom_destroy :: proc(b: ^Bloom_FX) {
-	if b.fbo != 0 {
-		gl.DeleteFramebuffers(1, &b.fbo)
-		b.fbo = 0
+	delete_fbo(&b.fbo)
+	for &mip in b.mips {
+		delete_texture(&mip.texture)
 	}
-	for i in 0 ..< BLOOM_MIP_LEVELS {
-		if b.mips[i].texture != 0 {
-			gl.DeleteTextures(1, &b.mips[i].texture)
-			b.mips[i].texture = 0
-		}
-	}
-	if b.prefilter_program != 0 {
-		gl.DeleteProgram(b.prefilter_program)
-		b.prefilter_program = 0
-	}
-	if b.downsample_program != 0 {
-		gl.DeleteProgram(b.downsample_program)
-		b.downsample_program = 0
-	}
-	if b.upsample_program != 0 {
-		gl.DeleteProgram(b.upsample_program)
-		b.upsample_program = 0
-	}
+	delete_program(&b.prefilter_program)
+	delete_program(&b.downsample_program)
+	delete_program(&b.upsample_program)
 }
 
 // Render bloom passes: prefilter → downsample → upsample.
@@ -125,6 +84,7 @@ bloom_destroy :: proc(b: ^Bloom_FX) {
 // Result is in mips[0].texture, ready to be bound as bloom texture unit.
 bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, quad: ^Fullscreen_Quad) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, b.fbo)
+	defer gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	gl.Disable(gl.DEPTH_TEST)
 
 	// --- 1. Prefilter: extract bright pixels → mip[0] ---
@@ -163,6 +123,7 @@ bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, quad
 	gl.Uniform1f(0, params.radius)
 
 	gl.Enable(gl.BLEND)
+	defer gl.Disable(gl.BLEND)
 	gl.BlendFunc(gl.ONE, gl.ONE)
 	gl.BlendEquation(gl.FUNC_ADD)
 
@@ -178,9 +139,6 @@ bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, quad
 
 		quad_draw(quad)
 	}
-
-	gl.Disable(gl.BLEND)
-	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
 
 // Resize bloom mip chain (call on window resize).

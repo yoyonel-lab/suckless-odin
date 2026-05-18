@@ -17,34 +17,19 @@ Dof_FX :: struct {
 }
 
 // Create DoF resources (textures + FBO). Width/height are full resolution.
-dof_create :: proc(d: ^Dof_FX, width, height: i32) -> bool {
-	d.width = width / 4
-	d.height = height / 4
-	if d.width < 1 { d.width = 1 }
-	if d.height < 1 { d.height = 1 }
+dof_create :: proc(d: ^Dof_FX, width, height: i32) -> (ok: bool) {
+	defer if !ok { dof_destroy(d) }
+
+	d.width = max(width / 4, 1)
+	d.height = max(height / 4, 1)
 
 	gl.GenFramebuffers(1, &d.fbo)
-	gl.BindFramebuffer(gl.FRAMEBUFFER, d.fbo)
 
 	// Blur texture (final result sampled by uber-shader)
-	gl.GenTextures(1, &d.blur_tex)
-	gl.BindTexture(gl.TEXTURE_2D, d.blur_tex)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R11F_G11F_B10F, d.width, d.height, 0, gl.RGB, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	d.blur_tex = create_texture_2d(d.width, d.height, gl.R11F_G11F_B10F, gl.RGB)
 
 	// Temp texture (intermediate for ping-pong)
-	gl.GenTextures(1, &d.temp_tex)
-	gl.BindTexture(gl.TEXTURE_2D, d.temp_tex)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R11F_G11F_B10F, d.width, d.height, 0, gl.RGB, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-
-	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	d.temp_tex = create_texture_2d(d.width, d.height, gl.R11F_G11F_B10F, gl.RGB)
 
 	log.log_info("suckless-odin.postfx.dof", "DoF created (%dx%d quarter-res)", d.width, d.height)
 	return true
@@ -52,18 +37,9 @@ dof_create :: proc(d: ^Dof_FX, width, height: i32) -> bool {
 
 // Destroy DoF resources.
 dof_destroy :: proc(d: ^Dof_FX) {
-	if d.fbo != 0 {
-		gl.DeleteFramebuffers(1, &d.fbo)
-		d.fbo = 0
-	}
-	if d.blur_tex != 0 {
-		gl.DeleteTextures(1, &d.blur_tex)
-		d.blur_tex = 0
-	}
-	if d.temp_tex != 0 {
-		gl.DeleteTextures(1, &d.temp_tex)
-		d.temp_tex = 0
-	}
+	delete_fbo(&d.fbo)
+	delete_texture(&d.blur_tex)
+	delete_texture(&d.temp_tex)
 }
 
 // Render DoF pre-blur pass. Reuses bloom's downsample + upsample programs.
@@ -72,6 +48,7 @@ dof_destroy :: proc(d: ^Dof_FX) {
 // src_texture: full-res HDR scene color.
 dof_render :: proc(d: ^Dof_FX, bloom_fx: ^Bloom_FX, params: ^Dof_Params, src_texture: u32, quad: ^Fullscreen_Quad) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, d.fbo)
+	defer gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	gl.Disable(gl.DEPTH_TEST)
 
 	// Pass 1: 13-tap downsample scene → temp (1/4 res)
@@ -100,16 +77,12 @@ dof_render :: proc(d: ^Dof_FX, bloom_fx: ^Bloom_FX, params: ^Dof_Params, src_tex
 	// No additive blend for DoF — replace
 	gl.Disable(gl.BLEND)
 	quad_draw(quad)
-
-	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
 
 // Resize DoF textures on window resize (width/height are full resolution).
 dof_resize :: proc(d: ^Dof_FX, width, height: i32) {
-	d.width = width / 4
-	d.height = height / 4
-	if d.width < 1 { d.width = 1 }
-	if d.height < 1 { d.height = 1 }
+	d.width = max(width / 4, 1)
+	d.height = max(height / 4, 1)
 
 	gl.BindTexture(gl.TEXTURE_2D, d.blur_tex)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R11F_G11F_B10F, d.width, d.height, 0, gl.RGB, gl.FLOAT, nil)

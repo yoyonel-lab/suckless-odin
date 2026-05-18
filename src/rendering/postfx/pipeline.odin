@@ -59,7 +59,9 @@ Pipeline :: struct {
 }
 
 // Initialize the post-processing pipeline.
-pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
+pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
+	defer if !ok { pipeline_destroy(p) }
+
 	p.width = width
 	p.height = height
 	p.enabled = true
@@ -75,10 +77,7 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
 	quad_create(&p.quad)
 
 	// Create HDR framebuffer
-	if !create_framebuffer(p) {
-		log.log_error("suckless-odin.postfx", "Failed to create framebuffer")
-		return false
-	}
+	create_framebuffer(p) or_return
 
 	// Create UBO
 	gl.GenBuffers(1, &p.settings_ubo)
@@ -88,43 +87,20 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
 	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
 
 	// Load composite shader
-	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/postfx.frag")
-	if !ok {
-		log.log_error("suckless-odin.postfx", "Failed to load composite shader")
-		pipeline_destroy(p)
-		return false
-	}
-	p.composite_program = program
+	p.composite_program = shader.load_program(
+		"shaders/postfx/postfx.vert",
+		"shaders/postfx/postfx.frag",
+	) or_return
 
 	// Set sampler uniforms (fixed texture unit bindings)
 	gl.UseProgram(p.composite_program)
-	set_uniform_i32(p.composite_program, "screenTexture", TEX_UNIT_SCENE)
-	set_uniform_i32(p.composite_program, "bloomTexture", TEX_UNIT_BLOOM)
-	set_uniform_i32(p.composite_program, "depthTexture", TEX_UNIT_DEPTH)
-	set_uniform_i32(p.composite_program, "autoExposureTexture", TEX_UNIT_EXPOSURE)
-	set_uniform_i32(p.composite_program, "dofBlurTexture", TEX_UNIT_DOF)
+	set_sampler_uniforms(p.composite_program)
 	gl.UseProgram(0)
 
-	// Create bloom multi-pass effect
-	if !bloom_create(&p.bloom_fx, width, height) {
-		log.log_error("suckless-odin.postfx", "Failed to create bloom effect")
-		pipeline_destroy(p)
-		return false
-	}
-
-	// Create DoF pre-blur resources
-	if !dof_create(&p.dof_fx, width, height) {
-		log.log_error("suckless-odin.postfx", "Failed to create DoF effect")
-		pipeline_destroy(p)
-		return false
-	}
-
-	// Create auto-exposure compute pipeline
-	if !auto_exposure_create(&p.auto_exposure_fx) {
-		log.log_error("suckless-odin.postfx", "Failed to create auto-exposure")
-		pipeline_destroy(p)
-		return false
-	}
+	// Create sub-effects
+	bloom_create(&p.bloom_fx, width, height) or_return
+	dof_create(&p.dof_fx, width, height) or_return
+	auto_exposure_create(&p.auto_exposure_fx) or_return
 
 	// GPU timers for profiling
 	gpu_timers_create(&p.timers)
@@ -140,15 +116,9 @@ pipeline_destroy :: proc(p: ^Pipeline) {
 	auto_exposure_destroy(&p.auto_exposure_fx)
 	dof_destroy(&p.dof_fx)
 	bloom_destroy(&p.bloom_fx)
-	if p.composite_program != 0 {
-		gl.DeleteProgram(p.composite_program)
-		p.composite_program = 0
-	}
+	delete_program(&p.composite_program)
 	destroy_framebuffer(p)
-	if p.settings_ubo != 0 {
-		gl.DeleteBuffers(1, &p.settings_ubo)
-		p.settings_ubo = 0
-	}
+	delete_buffer(&p.settings_ubo)
 	quad_destroy(&p.quad)
 	log.log_info("suckless-odin.postfx", "Pipeline destroyed")
 }
@@ -353,63 +323,42 @@ init_defaults :: proc(p: ^Pipeline) {
 		edge_threshold     = DEFAULT_FXAA_EDGE_THRESHOLD,
 		edge_threshold_min = DEFAULT_FXAA_EDGE_THRESHOLD_MIN,
 	}
-	p.dof = {
-		focal_distance   = DEFAULT_DOF_FOCAL_DISTANCE,
-		focal_range      = DEFAULT_DOF_FOCAL_RANGE,
-		bokeh_scale      = DEFAULT_DOF_BOKEH_SCALE,
-		anamorphic_ratio = DEFAULT_DOF_ANAMORPHIC_RATIO,
-	}
+	p.dof = DEFAULT_DOF_PARAMS
 }
 
 @(private)
-create_framebuffer :: proc(p: ^Pipeline) -> bool {
+create_framebuffer :: proc(p: ^Pipeline) -> (ok: bool) {
 	gl.GenFramebuffers(1, &p.scene_fbo)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, p.scene_fbo)
 
 	// HDR color texture (RGBA16F)
-	gl.GenTextures(1, &p.scene_color_tex)
-	gl.BindTexture(gl.TEXTURE_2D, p.scene_color_tex)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, p.width, p.height, 0, gl.RGBA, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	p.scene_color_tex = create_texture_2d(p.width, p.height, gl.RGBA16F)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, p.scene_color_tex, 0)
 
 	// Depth texture (D32F for precision)
-	gl.GenTextures(1, &p.depth_tex)
-	gl.BindTexture(gl.TEXTURE_2D, p.depth_tex)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT32F, p.width, p.height, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	p.depth_tex = create_texture_2d(
+		p.width, p.height,
+		gl.DEPTH_COMPONENT32F, gl.DEPTH_COMPONENT,
+		filter = .Nearest,
+	)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, p.depth_tex, 0)
 
 	// Check completeness
 	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	if status != gl.FRAMEBUFFER_COMPLETE {
 		log.log_error("suckless-odin.postfx", "Framebuffer incomplete: 0x%X", status)
-		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		return false
 	}
 
-	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	return true
 }
 
 @(private)
 destroy_framebuffer :: proc(p: ^Pipeline) {
-	if p.scene_color_tex != 0 {
-		gl.DeleteTextures(1, &p.scene_color_tex)
-		p.scene_color_tex = 0
-	}
-	if p.depth_tex != 0 {
-		gl.DeleteTextures(1, &p.depth_tex)
-		p.depth_tex = 0
-	}
-	if p.scene_fbo != 0 {
-		gl.DeleteFramebuffers(1, &p.scene_fbo)
-		p.scene_fbo = 0
-	}
+	delete_texture(&p.scene_color_tex)
+	delete_texture(&p.depth_tex)
+	delete_fbo(&p.scene_fbo)
 }
 
 @(private)
@@ -471,12 +420,4 @@ upload_ubo :: proc(p: ^Pipeline) {
 	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
 
 	p.ubo_dirty = false
-}
-
-@(private)
-set_uniform_i32 :: proc(program: u32, name: cstring, value: i32) {
-	loc := gl.GetUniformLocation(program, name)
-	if loc >= 0 {
-		gl.Uniform1i(loc, value)
-	}
 }

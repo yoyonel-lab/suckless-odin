@@ -15,6 +15,7 @@ Preset :: struct {
 	tonemapper:    Tonemap_Params,
 	bloom:         Bloom_Params,
 	fxaa:          FXAA_Params,
+	dof:           Dof_Params,
 }
 
 // All available presets (indexed by Preset_Id).
@@ -59,6 +60,7 @@ PRESETS :: [Preset_Id]Preset{
 		tonemapper    = {slope = DEFAULT_TONEMAP_SLOPE, toe = DEFAULT_TONEMAP_TOE, shoulder = DEFAULT_TONEMAP_SHOULDER, black_clip = DEFAULT_TONEMAP_BLACK_CLIP, white_clip = DEFAULT_TONEMAP_WHITE_CLIP},
 		bloom         = {intensity = DEFAULT_BLOOM_INTENSITY, threshold = DEFAULT_BLOOM_THRESHOLD, soft_threshold = DEFAULT_BLOOM_SOFT_THRESHOLD, radius = DEFAULT_BLOOM_RADIUS},
 		fxaa          = {subpix = DEFAULT_FXAA_SUBPIX, edge_threshold = DEFAULT_FXAA_EDGE_THRESHOLD, edge_threshold_min = DEFAULT_FXAA_EDGE_THRESHOLD_MIN},
+		dof           = DEFAULT_DOF_PARAMS,
 	},
 	.Subtle = {
 		name    = "Subtle",
@@ -80,6 +82,7 @@ PRESETS :: [Preset_Id]Preset{
 		tonemapper    = {slope = 1.0, toe = 0.1, shoulder = 0.3, black_clip = 0.0, white_clip = 0.0},
 		bloom         = {intensity = 0.0, threshold = 1.0, soft_threshold = 0.5, radius = 1.0},
 		fxaa          = {subpix = DEFAULT_FXAA_SUBPIX, edge_threshold = DEFAULT_FXAA_EDGE_THRESHOLD, edge_threshold_min = DEFAULT_FXAA_EDGE_THRESHOLD_MIN},
+		dof           = DEFAULT_DOF_PARAMS,
 	},
 	.Cinematic = {
 		name    = "Cinematic",
@@ -101,6 +104,7 @@ PRESETS :: [Preset_Id]Preset{
 		tonemapper    = {slope = 1.2, toe = 0.2, shoulder = 0.5, black_clip = 0.01, white_clip = 0.02},
 		bloom         = {intensity = 0.3, threshold = 0.8, soft_threshold = 0.6, radius = 1.2},
 		fxaa          = {subpix = DEFAULT_FXAA_SUBPIX, edge_threshold = DEFAULT_FXAA_EDGE_THRESHOLD, edge_threshold_min = DEFAULT_FXAA_EDGE_THRESHOLD_MIN},
+		dof           = DEFAULT_DOF_PARAMS,
 	},
 	.Vibrant = {
 		name    = "Vibrant",
@@ -122,6 +126,7 @@ PRESETS :: [Preset_Id]Preset{
 		tonemapper    = {slope = 1.0, toe = 0.1, shoulder = 0.4, black_clip = 0.0, white_clip = 0.0},
 		bloom         = {intensity = 0.5, threshold = 0.6, soft_threshold = 0.7, radius = 1.5},
 		fxaa          = {subpix = 0.75, edge_threshold = 0.125, edge_threshold_min = 0.063},
+		dof           = DEFAULT_DOF_PARAMS,
 	},
 	.Clean = {
 		name    = "Clean",
@@ -143,6 +148,7 @@ PRESETS :: [Preset_Id]Preset{
 		tonemapper    = {slope = 1.0, toe = 0.0, shoulder = 0.0, black_clip = 0.0, white_clip = 0.0},
 		bloom         = {intensity = 0.0, threshold = 1.0, soft_threshold = 0.5, radius = 1.0},
 		fxaa          = {subpix = 0.75, edge_threshold = 0.125, edge_threshold_min = 0.063},
+		dof           = DEFAULT_DOF_PARAMS,
 	},
 }
 
@@ -160,5 +166,6 @@ pipeline_apply_preset :: proc(p: ^Pipeline, id: Preset_Id) {
 	p.tonemapper     = preset.tonemapper
 	p.bloom          = preset.bloom
 	p.fxaa           = preset.fxaa
+	p.dof            = preset.dof
 	p.ubo_dirty      = true
 }

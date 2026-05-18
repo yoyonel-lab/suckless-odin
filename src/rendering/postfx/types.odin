@@ -150,6 +150,13 @@ DEFAULT_DOF_FOCAL_RANGE      :: 5.0
 DEFAULT_DOF_BOKEH_SCALE      :: 10.0
 DEFAULT_DOF_ANAMORPHIC_RATIO :: 1.0
 
+DEFAULT_DOF_PARAMS :: Dof_Params{
+	focal_distance   = DEFAULT_DOF_FOCAL_DISTANCE,
+	focal_range      = DEFAULT_DOF_FOCAL_RANGE,
+	bokeh_scale      = DEFAULT_DOF_BOKEH_SCALE,
+	anamorphic_ratio = DEFAULT_DOF_ANAMORPHIC_RATIO,
+}
+
 // --- UBO Layout (std140, binding 0) ---
 // Must match the GLSL PostProcessBlock layout exactly.
 

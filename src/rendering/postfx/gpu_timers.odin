@@ -5,7 +5,7 @@ import gl "vendor:OpenGL"
 // GPU timer queries for per-pass profiling.
 // Uses GL_TIME_ELAPSED queries with double-buffering to avoid stalls.
 
-NUM_TIMER_PASSES :: 3 // bloom, composite, total
+NUM_TIMER_PASSES :: i32(len(Timer_Pass))
 
 Timer_Pass :: enum {
 	Bloom,
@@ -21,27 +21,27 @@ TIMER_PASS_NAMES :: [Timer_Pass]string{
 
 // Double-buffered query objects (read frame N-1 while writing frame N).
 Gpu_Timers :: struct {
-	queries:      [2][NUM_TIMER_PASSES]u32, // [front/back][pass]
-	results_ns:   [NUM_TIMER_PASSES]u64,    // last completed results (nanoseconds)
-	results_ms:   [NUM_TIMER_PASSES]f32,    // last completed results (milliseconds)
-	current_buf:  i32,                      // 0 or 1 (ping-pong)
-	frame_count:  u32,                      // skip first frame (no results yet)
+	queries:      [2][Timer_Pass]u32, // [front/back][pass]
+	results_ns:   [Timer_Pass]u64,    // last completed results (nanoseconds)
+	results_ms:   [Timer_Pass]f32,    // last completed results (milliseconds)
+	current_buf:  i32,                // 0 or 1 (ping-pong)
+	frame_count:  u32,                // skip first frame (no results yet)
 	enabled:      bool,
 }
 
 // Create timer query objects.
 gpu_timers_create :: proc(t: ^Gpu_Timers) {
-	for buf in 0 ..< 2 {
-		gl.GenQueries(NUM_TIMER_PASSES, raw_data(&t.queries[buf]))
+	for &buf_queries in t.queries {
+		gl.GenQueries(NUM_TIMER_PASSES, raw_data(&buf_queries))
 	}
 	t.enabled = true
 	t.frame_count = 0
 	t.current_buf = 0
 
 	// Issue dummy queries on both buffers to initialize them
-	for buf in 0 ..< 2 {
-		for pass in 0 ..< NUM_TIMER_PASSES {
-			gl.BeginQuery(gl.TIME_ELAPSED, t.queries[buf][pass])
+	for &buf_queries in t.queries {
+		for pass in Timer_Pass {
+			gl.BeginQuery(gl.TIME_ELAPSED, buf_queries[pass])
 			gl.EndQuery(gl.TIME_ELAPSED)
 		}
 	}
@@ -49,8 +49,8 @@ gpu_timers_create :: proc(t: ^Gpu_Timers) {
 
 // Destroy timer query objects.
 gpu_timers_destroy :: proc(t: ^Gpu_Timers) {
-	for buf in 0 ..< 2 {
-		gl.DeleteQueries(NUM_TIMER_PASSES, raw_data(&t.queries[buf]))
+	for &buf_queries in t.queries {
+		gl.DeleteQueries(NUM_TIMER_PASSES, raw_data(&buf_queries))
 	}
 }
 
@@ -80,7 +80,7 @@ gpu_timers_collect :: proc(t: ^Gpu_Timers) {
 
 	// Read from the OTHER buffer (completed last frame)
 	read_buf := 1 - t.current_buf
-	for pass in 0 ..< NUM_TIMER_PASSES {
+	for pass in Timer_Pass {
 		available: u32
 		gl.GetQueryObjectuiv(t.queries[read_buf][pass], gl.QUERY_RESULT_AVAILABLE, &available)
 		if available != 0 {
