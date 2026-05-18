@@ -103,3 +103,16 @@ camera := Camera{
 3. **Struct-owned allocations**: Any allocation stored in a struct field MUST be freed in that struct's `destroy`/cleanup proc. The `destroy` proc MUST iterate dynamic arrays and free each element's owned allocations before deleting the array itself.
 4. **Review trigger**: When modifying or creating ANY proc that calls an allocating function, STOP and verify: "Where is this freed?" If the answer is not immediately obvious, add the `defer` or fix the `destroy`.
 5. **No silent leaks**: LeakSanitizer (ASAN) is the final arbiter. Run `just build-sanitize` + clean shutdown to validate 0 leaks after any memory-related change.
+
+## GUI Search Synchronization
+
+**Every interactive GUI element MUST be discoverable via the parameter search system.**
+
+When adding or modifying any ImGui control in `src/gui/gui.odin`:
+
+1. **Add a matching entry in `draw_filtered_view`** — include a `fuzzy_match(filter, "Label", "keywords...")` block for each new control.
+2. **Update the relevant `*_KEYWORDS` constant** — add keywords that a user might type to discover the new control.
+3. **If the control lives in a sub-window/tab** — add a `Go To` button (via `ibl_goto_button` pattern or equivalent) that clears the search buffer, activates the target view, and scrolls to the relevant section.
+4. **Keyword coverage** — keywords must include: the label text, the subsystem name, synonyms, and related technical terms (e.g., "roughness" for a mip level slider).
+
+This rule ensures the search bar acts as a universal command palette — no GUI element should be "invisible" to the search system.

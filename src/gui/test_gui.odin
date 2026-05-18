@@ -3,28 +3,6 @@ package gui
 
 import "core:testing"
 
-// --- to_lower_ascii tests ---
-
-@(test)
-test_to_lower_ascii_uppercase :: proc(t: ^testing.T) {
-	testing.expect_value(t, to_lower_ascii('A'), 'a')
-	testing.expect_value(t, to_lower_ascii('Z'), 'z')
-	testing.expect_value(t, to_lower_ascii('M'), 'm')
-}
-
-@(test)
-test_to_lower_ascii_lowercase_unchanged :: proc(t: ^testing.T) {
-	testing.expect_value(t, to_lower_ascii('a'), 'a')
-	testing.expect_value(t, to_lower_ascii('z'), 'z')
-}
-
-@(test)
-test_to_lower_ascii_non_alpha_unchanged :: proc(t: ^testing.T) {
-	testing.expect_value(t, to_lower_ascii('0'), '0')
-	testing.expect_value(t, to_lower_ascii('-'), '-')
-	testing.expect_value(t, to_lower_ascii(' '), ' ')
-}
-
 // --- fuzzy_match tests ---
 
 @(test)

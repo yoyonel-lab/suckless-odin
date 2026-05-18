@@ -129,3 +129,24 @@ gen-refs:
 [confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
 gen-refs-xvfb:
     xvfb-run -a -s "-screen 0 1024x768x24" env GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{extra_linker_flags}}"
+
+# --- Benchmarks ---
+
+# Run all benchmarks
+bench: bench-search
+
+# Fuzzy search benchmark (measures ns/call for fuzzy_match + levenshtein)
+bench-search:
+    odin run benchmarks/search/ -o:speed -out:/tmp/odin-bench-search
+
+# Compare benchmark against baseline (run twice, report delta)
+bench-search-compare:
+    @echo "── Baseline (current commit) ──"
+    @odin run benchmarks/search/ -o:speed -out:/tmp/odin-bench-search 2>/dev/null
+    @echo ""
+    @echo "Tip: run 'just bench-search' before and after changes to compare ns/call"
+
+# A/B commit comparison: checkout two commits, run benchmark, show delta table
+# Usage: just bench-compare search [commitA] [commitB]
+bench-compare name *args:
+    ./scripts/bench_compare.sh {{name}} {{args}}

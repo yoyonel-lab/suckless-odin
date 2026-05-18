@@ -20,7 +20,7 @@ test_gui_init_destroy :: proc(t: ^testing.T) {
 	ok := gui.init(&g, gl_window)
 	testing.expect(t, ok, "gui.init should succeed with valid GL context")
 	testing.expect(t, g.ctx != nil, "ImGui context should be non-nil after init")
-	testing.expect(t, g.visible, "GUI should be visible by default")
+	testing.expect(t, !g.visible, "GUI should be hidden by default")
 
 	gui.destroy(&g)
 	testing.expect(t, g.ctx == nil, "ImGui context should be nil after destroy")
@@ -35,13 +35,13 @@ test_gui_toggle :: proc(t: ^testing.T) {
 	testing.expect(t, ok, "gui.init should succeed")
 	defer gui.destroy(&g)
 
-	testing.expect(t, g.visible, "initially visible")
+	testing.expect(t, !g.visible, "initially hidden")
 
 	gui.toggle(&g)
-	testing.expect(t, !g.visible, "should be hidden after first toggle")
+	testing.expect(t, g.visible, "should be visible after first toggle")
 
 	gui.toggle(&g)
-	testing.expect(t, g.visible, "should be visible after second toggle")
+	testing.expect(t, !g.visible, "should be hidden after second toggle")
 }
 
 @(test)
@@ -128,6 +128,7 @@ test_gui_focus_search_flag :: proc(t: ^testing.T) {
 	defer gui.destroy(&g)
 
 	// Setting focus_search should be consumed after one frame
+	g.visible = true
 	g.focus_search = true
 
 	gui.new_frame(&g)
