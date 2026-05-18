@@ -145,3 +145,8 @@ bench-search-compare:
     @odin run benchmarks/search/ -o:speed -out:/tmp/odin-bench-search 2>/dev/null
     @echo ""
     @echo "Tip: run 'just bench-search' before and after changes to compare ns/call"
+
+# A/B commit comparison: checkout two commits, run benchmark, show delta table
+# Usage: just bench-compare search [commitA] [commitB]
+bench-compare name *args:
+    ./scripts/bench_compare.sh {{name}} {{args}}
