@@ -1,0 +1,54 @@
+#version 450 core
+
+// Pass 1: Downsample scene HDR to 64x64 log-luminance map.
+// Each thread covers a 4x4 region of the scene texture, averaging 16 samples.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D sceneTexture;
+layout(r32f, binding = 1) writeonly uniform image2D outLumImage;
+
+const vec3 LUMINANCE_VECTOR = vec3(0.2126, 0.7152, 0.0722);
+const float MIN_LUMINANCE_THRESHOLD = 0.05;
+const float SENTINEL = -100.0;
+
+void main()
+{
+	ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+	if (pixelCoord.x >= 64 || pixelCoord.y >= 64) { return; }
+
+	// Scene resolution
+	vec2 sceneSize = vec2(textureSize(sceneTexture, 0));
+
+	// Each output texel covers a tile of the scene
+	vec2 tileSize = sceneSize / 64.0;
+	vec2 tileStart = vec2(pixelCoord) * tileSize;
+
+	// Sample 4x4 grid within this tile
+	float logLumSum = 0.0;
+	int validCount = 0;
+
+	for (int y = 0; y < 4; y++) {
+		for (int x = 0; x < 4; x++) {
+			vec2 offset = (vec2(x, y) + 0.5) * (tileSize / 4.0);
+			vec2 uv = (tileStart + offset) / sceneSize;
+
+			vec3 color = texture(sceneTexture, uv).rgb;
+			float lum = dot(color, LUMINANCE_VECTOR);
+
+			if (lum > MIN_LUMINANCE_THRESHOLD) {
+				logLumSum += log2(lum);
+				validCount++;
+			}
+		}
+	}
+
+	float result;
+	if (validCount > 0) {
+		result = logLumSum / float(validCount);
+	} else {
+		result = SENTINEL;
+	}
+
+	imageStore(outLumImage, pixelCoord, vec4(result, 0.0, 0.0, 1.0));
+}

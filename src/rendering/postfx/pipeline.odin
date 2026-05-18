@@ -15,7 +15,8 @@ Pipeline :: struct {
 	quad:            Fullscreen_Quad,
 
 	// Multi-pass effects
-	bloom_fx: Bloom_FX,
+	bloom_fx:         Bloom_FX,
+	auto_exposure_fx: Auto_Exposure_FX,
 
 	// GPU profiling
 	timers: Gpu_Timers,
@@ -47,6 +48,7 @@ Pipeline :: struct {
 
 	// Per-frame data
 	time:      f32,
+	dt:        f32,
 	ubo_dirty: bool,
 
 	// Saved state for begin/end (restored framebuffer)
@@ -96,11 +98,19 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
 	gl.UseProgram(p.composite_program)
 	set_uniform_i32(p.composite_program, "screenTexture", TEX_UNIT_SCENE)
 	set_uniform_i32(p.composite_program, "bloomTexture", TEX_UNIT_BLOOM)
+	set_uniform_i32(p.composite_program, "autoExposureTexture", TEX_UNIT_EXPOSURE)
 	gl.UseProgram(0)
 
 	// Create bloom multi-pass effect
 	if !bloom_create(&p.bloom_fx, width, height) {
 		log.log_error("suckless-odin.postfx", "Failed to create bloom effect")
+		pipeline_destroy(p)
+		return false
+	}
+
+	// Create auto-exposure compute pipeline
+	if !auto_exposure_create(&p.auto_exposure_fx) {
+		log.log_error("suckless-odin.postfx", "Failed to create auto-exposure")
 		pipeline_destroy(p)
 		return false
 	}
@@ -116,6 +126,7 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
 pipeline_destroy :: proc(p: ^Pipeline) {
 	shader_cache_destroy(&p.shader_cache)
 	gpu_timers_destroy(&p.timers)
+	auto_exposure_destroy(&p.auto_exposure_fx)
 	bloom_destroy(&p.bloom_fx)
 	if p.composite_program != 0 {
 		gl.DeleteProgram(p.composite_program)
@@ -165,6 +176,11 @@ pipeline_end :: proc(p: ^Pipeline) {
 	}
 	gpu_timer_end(&p.timers, .Bloom)
 
+	// Run auto-exposure compute passes if enabled
+	if .Auto_Exposure in p.active_effects {
+		auto_exposure_render(&p.auto_exposure_fx, p.scene_color_tex, p.dt)
+	}
+
 	// Restore the framebuffer that was active before begin
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
 	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
@@ -193,6 +209,10 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Bind bloom texture (result of multi-pass, or empty if disabled)
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_BLOOM)
 	gl.BindTexture(gl.TEXTURE_2D, bloom_get_texture(&p.bloom_fx))
+
+	// Bind auto-exposure texture (1x1, read by uber-shader)
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_EXPOSURE)
+	gl.BindTexture(gl.TEXTURE_2D, auto_exposure_get_texture(&p.auto_exposure_fx))
 
 	// Draw fullscreen quad (final composite)
 	quad_draw(&p.quad)
@@ -224,6 +244,7 @@ pipeline_resize :: proc(p: ^Pipeline, width, height: i32) {
 // Update time accumulator (call each frame).
 pipeline_update :: proc(p: ^Pipeline, dt: f32) {
 	p.time += dt
+	p.dt = dt
 	p.ubo_dirty = true // time changes every frame
 }
 

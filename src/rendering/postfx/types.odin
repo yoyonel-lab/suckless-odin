@@ -88,6 +88,14 @@ FXAA_Params :: struct {
 	edge_threshold_min: f32,
 }
 
+Auto_Exposure_Params :: struct {
+	min_luminance: f32,
+	max_luminance: f32,
+	speed_up:      f32,
+	speed_down:    f32,
+	key_value:     f32,
+}
+
 // --- Default Values ---
 
 DEFAULT_VIGNETTE_INTENSITY  :: 0.8
@@ -120,6 +128,14 @@ DEFAULT_BLOOM_RADIUS        :: 1.0
 DEFAULT_FXAA_SUBPIX             :: 0.75
 DEFAULT_FXAA_EDGE_THRESHOLD     :: 0.125
 DEFAULT_FXAA_EDGE_THRESHOLD_MIN :: 0.063
+
+// Auto-exposure defaults (matches legacy suckless-ogl)
+DEFAULT_AUTO_MIN_LUMINANCE    :: 0.05
+DEFAULT_AUTO_MAX_LUMINANCE    :: 5000.0
+DEFAULT_AUTO_SPEED_UP         :: 2.0
+DEFAULT_AUTO_SPEED_DOWN       :: 1.0
+DEFAULT_AUTO_KEY_VALUE        :: 0.20
+DEFAULT_AUTO_EXPOSURE_INITIAL :: 1.2
 
 // --- UBO Layout (std140, binding 0) ---
 // Must match the GLSL PostProcessBlock layout exactly.

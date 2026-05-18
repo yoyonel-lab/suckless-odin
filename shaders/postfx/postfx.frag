@@ -10,6 +10,8 @@ layout(location = 0) out vec4 FragColor;
 layout(binding = 0) uniform sampler2D screenTexture;
 // Bloom texture (from multi-pass bloom)
 layout(binding = 1) uniform sampler2D bloomTexture;
+// Auto-exposure texture (1x1, R=exposure value)
+layout(binding = 3) uniform sampler2D autoExposureTexture;
 
 // --- UBO: Post-Processing Parameters (std140, binding 0) ---
 layout(std140, binding = 0) uniform PostProcessBlock
@@ -128,6 +130,8 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #else
 	#define enableTonemap       ((activeEffects & (1u << 13u)) != 0u)
 #endif
+
+#define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
 
 // ============================================================================
 // EFFECT: CHROMATIC ABERRATION
@@ -295,7 +299,14 @@ vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
 // ============================================================================
 vec3 applyExposure(vec3 color)
 {
-	return color * e_exposure;
+	float exposure;
+	if (enableAutoExposure) {
+		// Read computed exposure from 1x1 texture (replaces manual)
+		exposure = texture(autoExposureTexture, vec2(0.5)).r;
+	} else {
+		exposure = e_exposure;
+	}
+	return color * exposure;
 }
 
 // ============================================================================
