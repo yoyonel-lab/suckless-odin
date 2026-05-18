@@ -5,7 +5,7 @@ import gl "vendor:OpenGL"
 // GPU timer queries for per-pass profiling.
 // Uses GL_TIME_ELAPSED queries with double-buffering to avoid stalls.
 
-NUM_TIMER_PASSES :: i32(len(Timer_Pass))
+NUM_TIMER_PASSES :: 3 // must match len(Timer_Pass)
 
 Timer_Pass :: enum {
 	Bloom,
