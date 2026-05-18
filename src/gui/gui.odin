@@ -2,13 +2,13 @@ package gui
 
 import "vendor:glfw"
 import gl "vendor:OpenGL"
-import "core:strings"
 
 import imgui "../../deps/odin-imgui"
 import "../../deps/odin-imgui/imgui_impl_glfw"
 import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
+import "../core/search"
 
 // Forward-declare scene data needed by GUI panels.
 // Avoids circular import by accepting raw pointers from app.
@@ -632,63 +632,10 @@ draw_tab_rendering :: proc() {
 
 // ─── Fuzzy Search ──────────────────────────────────────────────────────────────
 
-// Matches if ALL space-separated terms appear (case-insensitive) in the
-// concatenation of label + keywords. Mimics VS Code settings search.
+// Delegates to the independent search package, converting cstring → string.
 @(private)
 fuzzy_match :: proc(filter: cstring, label: string, keywords: string) -> bool {
-	filter_str := string(filter)
-	if len(filter_str) == 0 { return true }
-
-	// Build haystack: "label keywords" lowercased
-	haystack_buf: [512]u8
-	haystack_len := 0
-	for ch in label {
-		if haystack_len >= len(haystack_buf) - 1 { break }
-		haystack_buf[haystack_len] = u8(to_lower_ascii(ch))
-		haystack_len += 1
-	}
-	haystack_buf[haystack_len] = ' '
-	haystack_len += 1
-	for ch in keywords {
-		if haystack_len >= len(haystack_buf) - 1 { break }
-		haystack_buf[haystack_len] = u8(to_lower_ascii(ch))
-		haystack_len += 1
-	}
-	haystack := string(haystack_buf[:haystack_len])
-
-	// Split filter by spaces, each term must be found
-	term_start := 0
-	for i in 0..=len(filter_str) {
-		is_end := i == len(filter_str)
-		is_space := !is_end && filter_str[i] == ' '
-		if is_end || is_space {
-			if i > term_start {
-				term := filter_str[term_start:i]
-				// Lowercase the term for comparison
-				term_buf: [128]u8
-				term_len := 0
-				for ch in term {
-					if term_len >= len(term_buf) { break }
-					term_buf[term_len] = u8(to_lower_ascii(ch))
-					term_len += 1
-				}
-				term_lower := string(term_buf[:term_len])
-				if !strings.contains(haystack, term_lower) {
-					return false
-				}
-			}
-			term_start = i + 1
-		}
-	}
-	return true
-}
-
-@(private)
-to_lower_ascii :: proc(ch: rune) -> rune {
-	if ch >= 'A' && ch <= 'Z' {
-		return ch + 32
-	}
-	return ch
+	return search.fuzzy_match(string(filter), label, keywords)
 }
 
 // Filtered view: draws all parameters that match, grouped by category.
@@ -927,6 +874,8 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 	// ── IBL Debug ──
 	if section_has_matches(filter, IBL_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "IBL Debug")
+		imgui.SameLine()
+		ibl_goto_button(g, .None)
 		imgui.Separator()
 
 		if fuzzy_match(filter, "Preview Size", "ibl debug texture preview zoom size") {
@@ -961,6 +910,16 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 				state.ibl_brdf_lut, IBL_BRDF_LUT_SIZE, IBL_BRDF_LUT_SIZE)
 			match_count += 1
 		}
+		if fuzzy_match(filter, "GPU Memory Estimate", "gpu vram memory estimation usage size textures") {
+			imgui.PushIDInt(99)
+			if imgui.SmallButton("Go To") {
+				g.ibl_debug_open = true
+				g.search_buf = {}
+			}
+			imgui.PopID()
+			imgui.Text("GPU Memory: see IBL Debug tab")
+			match_count += 1
+		}
 		imgui.Spacing()
 	}
 
@@ -972,7 +931,7 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 // Check if ANY param in a keyword group matches (used to show/hide section headers).
 @(private)
 section_has_matches :: proc(filter: cstring, section_keywords: string) -> bool {
-	return fuzzy_match(filter, "", section_keywords)
+	return search.section_has_matches(string(filter), section_keywords)
 }
 
 // Navigate from search result to a specific IBL texture section.
@@ -1004,4 +963,4 @@ DEBUG_KEYWORDS :: "debug debug views bloom dof exposure histogram fxaa stencil g
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"
 
 @(private)
-IBL_KEYWORDS :: "ibl debug irradiance prefilter specular diffuse brdf lut split sum texture gpu mip roughness preview environment map hdr convolution ggx"
+IBL_KEYWORDS :: "ibl debug irradiance prefilter specular diffuse brdf lut split sum texture gpu memory estimate estimation vram mip roughness preview environment map hdr convolution ggx"
