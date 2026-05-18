@@ -164,11 +164,28 @@ draw_postfx_section :: proc(state: Scene_State) {
 		imgui.Unindent()
 	}
 
+	// --- Depth of Field ---
+	dof_on := postfx.Post_Effect.Dof in p.active_effects
+	if imgui.Checkbox("Depth of Field", &dof_on) {
+		postfx.pipeline_toggle(p, .Dof)
+	}
+	if dof_on {
+		imgui.Indent()
+		if imgui.SliderFloat("Focal Distance##dof", &p.dof.focal_distance, 1.0, 100.0) { p.ubo_dirty = true }
+		if imgui.SliderFloat("Focal Range##dof", &p.dof.focal_range, 0.5, 50.0) { p.ubo_dirty = true }
+		if imgui.SliderFloat("Bokeh Scale##dof", &p.dof.bokeh_scale, 1.0, 50.0) { p.ubo_dirty = true }
+		if imgui.SliderFloat("Anamorphic##dof", &p.dof.anamorphic_ratio, 0.5, 2.0) { p.ubo_dirty = true }
+
+		dof_debug := postfx.Post_Effect.Dof_Debug in p.active_effects
+		if imgui.Checkbox("Debug Zones##dof", &dof_debug) {
+			postfx.pipeline_toggle(p, .Dof_Debug)
+		}
+		imgui.Unindent()
+	}
+
 	// --- Not yet implemented effects ---
 	imgui.BeginDisabled()
-	dof_placeholder := false
 	mb_placeholder := false
-	imgui.Checkbox("Depth of Field", &dof_placeholder)
 	imgui.Checkbox("Motion Blur", &mb_placeholder)
 	imgui.EndDisabled()
 
