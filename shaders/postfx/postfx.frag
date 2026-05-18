@@ -1,0 +1,410 @@
+#version 450 core
+
+// Post-processing composite uber-shader.
+// Applies enabled effects based on activeEffects bitfield in UBO.
+
+layout(location = 0) in vec2 TexCoords;
+layout(location = 0) out vec4 FragColor;
+
+// Scene color texture (HDR input)
+layout(binding = 0) uniform sampler2D screenTexture;
+// Bloom texture (from multi-pass bloom)
+layout(binding = 1) uniform sampler2D bloomTexture;
+
+// --- UBO: Post-Processing Parameters (std140, binding 0) ---
+layout(std140, binding = 0) uniform PostProcessBlock
+{
+	uint activeEffects;
+	float time;
+	vec2 screenTexelSize;
+
+	// Vignette (16 bytes)
+	float v_intensity;
+	float v_smoothness;
+	float v_roundness;
+	float _pad1;
+
+	// Grain (32 bytes)
+	float g_intensity;
+	float g_intensityShadows;
+	float g_intensityMidtones;
+	float g_intensityHighlights;
+	float g_shadowsMax;
+	float g_highlightsMin;
+	float g_texelSize;
+	float _pad2;
+
+	// Exposure (16 bytes)
+	float e_exposure;
+	float _pad3_0;
+	float _pad3_1;
+	float _pad3_2;
+
+	// ChromAbbr (16 bytes)
+	float ca_strength;
+	float _pad4_0;
+	float _pad4_1;
+	float _pad4_2;
+
+	// WhiteBalance (16 bytes)
+	float wb_temperature;
+	float wb_tint;
+	float _pad5_0;
+	float _pad5_1;
+
+	// ColorGrading (32 bytes)
+	float cg_saturation;
+	float cg_contrast;
+	float cg_gamma;
+	float cg_gain;
+	float cg_offset;
+	float cg_lift;
+	float _pad6_0;
+	float _pad6_1;
+
+	// Tonemap (32 bytes)
+	float tm_slope;
+	float tm_toe;
+	float tm_shoulder;
+	float tm_blackClip;
+	float tm_whiteClip;
+	float _pad7_0;
+	float _pad7_1;
+	float _pad7_2;
+
+	// Bloom (16 bytes)
+	float b_intensity;
+	float b_threshold;
+	float b_softThreshold;
+	float b_radius;
+
+	// FXAA (16 bytes)
+	float fxaaQualitySubpix;
+	float fxaaQualityEdgeThreshold;
+	float fxaaQualityEdgeThresholdMin;
+	float _pad10;
+};
+
+// --- Effect flag helpers ---
+#define enableVignette      ((activeEffects & (1u << 0u)) != 0u)
+#define enableGrain         ((activeEffects & (1u << 1u)) != 0u)
+#define enableExposure      ((activeEffects & (1u << 2u)) != 0u)
+#define enableChromAbbr     ((activeEffects & (1u << 3u)) != 0u)
+#define enableBloom         ((activeEffects & (1u << 4u)) != 0u)
+#define enableColorGrading  ((activeEffects & (1u << 5u)) != 0u)
+#define enableFXAA          ((activeEffects & (1u << 12u)) != 0u)
+#define enableTonemap       ((activeEffects & (1u << 13u)) != 0u)
+
+// ============================================================================
+// EFFECT: CHROMATIC ABERRATION
+// ============================================================================
+vec3 applyChromAbbr(vec2 uv)
+{
+	vec2 direction = uv - vec2(0.5);
+
+	// Sample R and B channels with offset, keep G from center
+	float r = texture(screenTexture, uv + direction * ca_strength).r;
+	float g = texture(screenTexture, uv).g;
+	float b = texture(screenTexture, uv - direction * ca_strength).b;
+
+	return vec3(r, g, b);
+}
+
+// ============================================================================
+// EFFECT: FXAA (3.11 Quality Preset)
+// ============================================================================
+#define FXAA_QUALITY_PS 5
+#define FXAA_QUALITY_P0 1.0
+#define FXAA_QUALITY_P1 1.5
+#define FXAA_QUALITY_P2 2.0
+#define FXAA_QUALITY_P3 4.0
+#define FXAA_QUALITY_P4 8.0
+
+float FxaaLuma(vec3 rgb)
+{
+	return dot(rgb, vec3(0.299, 0.587, 0.114));
+}
+
+vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
+{
+	vec2 inverseScreenSize = screenTexelSize;
+
+	// 1. Luma analysis (center + 4 neighbors)
+	vec3 rgbM = texture(screenTexture, texCoords).rgb;
+	float lumaM = FxaaLuma(rgbM);
+
+	float lumaN = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(0, -1)).rgb);
+	float lumaW = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(-1, 0)).rgb);
+	float lumaE = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(1, 0)).rgb);
+	float lumaS = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(0, 1)).rgb);
+
+	float rangeMin = min(lumaM, min(min(lumaN, lumaW), min(lumaS, lumaE)));
+	float rangeMax = max(lumaM, max(max(lumaN, lumaW), max(lumaS, lumaE)));
+	float range = rangeMax - rangeMin;
+
+	// Early exit: contrast too low
+	if (range < max(fxaaQualityEdgeThresholdMin, rangeMax * fxaaQualityEdgeThreshold)) {
+		return colorInput;
+	}
+
+	// 2. Corner sampling (diagonal neighbors)
+	float lumaNW = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(-1, -1)).rgb);
+	float lumaNE = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(1, -1)).rgb);
+	float lumaSW = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(-1, 1)).rgb);
+	float lumaSE = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(1, 1)).rgb);
+
+	// Filter direction
+	float lumaL = (lumaN + lumaS + lumaE + lumaW) * 0.25;
+
+	float edgeVert = abs((0.25 * lumaNW) + (-0.5 * lumaN) + (0.25 * lumaNE)) +
+	                 abs((0.50 * lumaW) + (-1.0 * lumaM) + (0.50 * lumaE)) +
+	                 abs((0.25 * lumaSW) + (-0.5 * lumaS) + (0.25 * lumaSE));
+
+	float edgeHorz = abs((0.25 * lumaNW) + (-0.5 * lumaW) + (0.25 * lumaSW)) +
+	                 abs((0.50 * lumaN) + (-1.0 * lumaM) + (0.50 * lumaS)) +
+	                 abs((0.25 * lumaNE) + (-0.5 * lumaE) + (0.25 * lumaSE));
+
+	bool isHorz = edgeHorz >= edgeVert;
+
+	// 3. Sub-pixel AA
+	float subPixelOffset1 = clamp(abs(lumaL - lumaM) / range, 0.0, 1.0);
+	float subPixelOffset2 = (-2.0 * subPixelOffset1) + 3.0;
+	float subPixelOffsetFinal = subPixelOffset1 * subPixelOffset1 * subPixelOffset2;
+	subPixelOffsetFinal = subPixelOffsetFinal * subPixelOffsetFinal * fxaaQualitySubpix;
+
+	// 4. Edge search
+	float luma1 = isHorz ? lumaN : lumaW;
+	float luma2 = isHorz ? lumaS : lumaE;
+	float gradient1 = luma1 - lumaM;
+	float gradient2 = luma2 - lumaM;
+
+	bool is1Steepest = abs(gradient1) >= abs(gradient2);
+	float gradientScaled = 0.25 * max(abs(gradient1), abs(gradient2));
+
+	float stepLength = isHorz ? inverseScreenSize.y : inverseScreenSize.x;
+
+	if (is1Steepest) {
+		stepLength = -stepLength;
+	}
+	float lumaLocalAverage = 0.5 * ((is1Steepest ? luma1 : luma2) + lumaM);
+
+	vec2 currentUv = texCoords;
+	if (isHorz) {
+		currentUv.y += stepLength * 0.5;
+	} else {
+		currentUv.x += stepLength * 0.5;
+	}
+
+	// Iterative edge search with variable step sizes
+	vec2 offset = isHorz ? vec2(inverseScreenSize.x, 0.0)
+	                     : vec2(0.0, inverseScreenSize.y);
+	vec2 uv1 = currentUv - offset * FXAA_QUALITY_P0;
+	vec2 uv2 = currentUv + offset * FXAA_QUALITY_P0;
+
+	float lumaEnd1, lumaEnd2;
+	bool reached1 = false;
+	bool reached2 = false;
+
+	const float quality[FXAA_QUALITY_PS] = float[FXAA_QUALITY_PS](
+	    FXAA_QUALITY_P0, FXAA_QUALITY_P1, FXAA_QUALITY_P2,
+	    FXAA_QUALITY_P3, FXAA_QUALITY_P4);
+
+	for (int i = 1; i < FXAA_QUALITY_PS; i++) {
+		if (!reached1) {
+			lumaEnd1 = FxaaLuma(texture(screenTexture, uv1).rgb);
+			lumaEnd1 -= lumaLocalAverage;
+		}
+		if (!reached2) {
+			lumaEnd2 = FxaaLuma(texture(screenTexture, uv2).rgb);
+			lumaEnd2 -= lumaLocalAverage;
+		}
+
+		reached1 = abs(lumaEnd1) >= gradientScaled;
+		reached2 = abs(lumaEnd2) >= gradientScaled;
+
+		if (reached1 && reached2) break;
+
+		if (!reached1) uv1 -= offset * quality[i];
+		if (!reached2) uv2 += offset * quality[i];
+	}
+
+	// 5. Distance ratios & final offset
+	float distance1 = isHorz ? (texCoords.x - uv1.x) : (texCoords.y - uv1.y);
+	float distance2 = isHorz ? (uv2.x - texCoords.x) : (uv2.y - texCoords.y);
+
+	bool isDirection1 = distance1 < distance2;
+	float distanceFinal = min(distance1, distance2);
+	float edgeThickness = (distance1 + distance2);
+	float pixelOffset = -distanceFinal / edgeThickness + 0.5;
+
+	// Overshoot check
+	bool isLumaCenterSmaller = lumaM < lumaLocalAverage;
+	bool correctVariation = ((isDirection1 ? lumaEnd1 : lumaEnd2) < 0.0) != isLumaCenterSmaller;
+	float finalOffset = correctVariation ? pixelOffset : 0.0;
+
+	// Blend with subpixel
+	finalOffset = max(finalOffset, subPixelOffsetFinal);
+
+	// Final read
+	vec2 finalUv = texCoords;
+	if (isHorz) {
+		finalUv.y += finalOffset * stepLength;
+	} else {
+		finalUv.x += finalOffset * stepLength;
+	}
+
+	return texture(screenTexture, finalUv).rgb;
+}
+
+// ============================================================================
+// EFFECT: EXPOSURE
+// ============================================================================
+vec3 applyExposure(vec3 color)
+{
+	return color * e_exposure;
+}
+
+// ============================================================================
+// EFFECT: TONEMAPPING (ACES-like filmic)
+// ============================================================================
+vec3 unrealTonemap(vec3 x)
+{
+	float a = 2.51 * tm_slope;
+	const float b = 0.03;
+	const float c = 2.43;
+	float d = 0.59 * tm_shoulder;
+	float e = 0.14 * (1.1 - tm_toe);
+
+	vec3 res = (x * (a * x + b)) / (x * (c * x + d) + e);
+
+	if (tm_blackClip > 0.001) {
+		res = max(vec3(0.0), res - tm_blackClip) / (1.0 - tm_blackClip);
+	}
+	if (tm_whiteClip > 0.001) {
+		float maxVal = 1.0 - tm_whiteClip;
+		res = min(vec3(maxVal), res) / maxVal;
+	}
+
+	return clamp(res, 0.0, 1.0);
+}
+
+// ============================================================================
+// EFFECT: BLOOM (additive mix from bloom texture)
+// ============================================================================
+vec3 applyBloom(vec3 color)
+{
+	vec3 bloomColor = texture(bloomTexture, TexCoords).rgb;
+	return color + bloomColor * b_intensity;
+}
+
+// ============================================================================
+// EFFECT: VIGNETTE
+// ============================================================================
+float sdRoundedBox(vec2 p, vec2 b, float r)
+{
+	vec2 q = abs(p) - b + r;
+	return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
+vec3 applyVignette(vec3 color, vec2 uv)
+{
+	vec2 centered = uv * 2.0 - 1.0;
+	float r = v_roundness;
+	float dist = sdRoundedBox(centered, vec2(1.0), r);
+	float vignette = smoothstep(0.0, v_smoothness, -dist);
+	return color * mix(1.0, vignette, v_intensity);
+}
+
+// ============================================================================
+// EFFECT: FILM GRAIN
+// ============================================================================
+vec3 filmHash(vec2 p)
+{
+	vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+	p3 += dot(p3, p3.yxz + 33.33);
+	return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+
+vec3 applyGrain(vec3 color, vec2 uv)
+{
+	float luma = dot(color, vec3(0.299, 0.587, 0.114));
+
+	float shadowMask = 1.0 - smoothstep(0.0, g_shadowsMax, luma);
+	float highlightMask = smoothstep(g_highlightsMin, 1.0, luma);
+	float midtoneMask = max(0.0, 1.0 - shadowMask - highlightMask);
+
+	float lumaMult = shadowMask * g_intensityShadows +
+	                 midtoneMask * g_intensityMidtones +
+	                 highlightMask * g_intensityHighlights;
+
+	vec2 grainUV = gl_FragCoord.xy / g_texelSize;
+	vec2 jitter = filmHash(vec2(time, time * 0.618)).xy;
+	vec3 noise3 = filmHash(grainUV + jitter * 10.0);
+	noise3 = noise3 * 2.0 - 1.0;
+
+	float lumaGrain = dot(noise3, vec3(0.333));
+	vec3 grain = mix(vec3(lumaGrain), noise3, 0.3);
+
+	vec3 overlay = mix(
+	    2.0 * color * (0.5 + grain * g_intensity * lumaMult),
+	    1.0 - 2.0 * (1.0 - color) * (0.5 - grain * g_intensity * lumaMult),
+	    step(0.5, color));
+
+	return mix(color, overlay, 0.7);
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+void main()
+{
+	vec3 color;
+
+	// 1. Chromatic Aberration (samples screenTexture with R/B offsets)
+	if (enableChromAbbr) {
+		color = applyChromAbbr(TexCoords);
+	} else {
+		color = texture(screenTexture, TexCoords).rgb;
+	}
+
+	// 2. FXAA (spatial anti-aliasing, operates on screenTexture neighbors)
+	if (enableFXAA) {
+		color = applyFXAA(color, TexCoords);
+	}
+
+	// 3. Bloom mix (additive from separate bloom texture)
+	if (enableBloom) {
+		color = applyBloom(color);
+	}
+
+	// 4. Exposure (HDR brightness)
+	if (enableExposure) {
+		color = applyExposure(color);
+	}
+
+	// 5. Tonemapping (HDR → LDR)
+	if (enableTonemap) {
+		color = unrealTonemap(color);
+	}
+
+	// 6. Color grading (post-tonemap, LDR space)
+	if (enableColorGrading) {
+		color = pow(max(color, vec3(0.0)), vec3(1.0 / cg_gamma));
+		color = (color - 0.5) * cg_contrast + 0.5;
+		float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+		color = mix(vec3(luma), color, cg_saturation);
+		color = color * cg_gain + cg_offset;
+	}
+
+	// 7. Vignette
+	if (enableVignette) {
+		color = applyVignette(color, TexCoords);
+	}
+
+	// 8. Grain (applied last before output)
+	if (enableGrain) {
+		color = applyGrain(color, TexCoords);
+	}
+
+	FragColor = vec4(color, 1.0);
+}

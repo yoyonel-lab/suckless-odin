@@ -1,0 +1,384 @@
+package postfx
+
+import gl "vendor:OpenGL"
+
+import log "../../core/log"
+import shader "../shader"
+
+// Post-processing pipeline state — owns FBO, textures, UBO, and shader.
+Pipeline :: struct {
+	// GPU resources
+	scene_fbo:       u32,
+	scene_color_tex: u32,
+	depth_tex:       u32,
+	settings_ubo:    u32,
+	quad:            Fullscreen_Quad,
+
+	// Multi-pass effects
+	bloom_fx: Bloom_FX,
+
+	// Shader
+	composite_program: u32,
+
+	// Resolution
+	width:  i32,
+	height: i32,
+
+	// Effect state
+	active_effects: Effect_Flags,
+	enabled:        bool,
+
+	// Parameters
+	vignette:      Vignette_Params,
+	grain:         Grain_Params,
+	exposure:      Exposure_Params,
+	chrom_abbr:    Chrom_Aberration_Params,
+	white_balance: White_Balance_Params,
+	color_grading: Color_Grading_Params,
+	tonemapper:    Tonemap_Params,
+	bloom:         Bloom_Params,
+	fxaa:          FXAA_Params,
+
+	// Per-frame data
+	time:      f32,
+	ubo_dirty: bool,
+
+	// Saved state for begin/end (restored framebuffer)
+	prev_fbo:      i32,
+	prev_viewport: [4]i32,
+}
+
+// Initialize the post-processing pipeline.
+pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
+	p.width = width
+	p.height = height
+	p.enabled = true
+	p.ubo_dirty = true
+
+	// Set default parameters
+	init_defaults(p)
+
+	// Default active effects: exposure only (identity at 1.0)
+	p.active_effects = {.Exposure}
+
+	// Create fullscreen quad
+	quad_create(&p.quad)
+
+	// Create HDR framebuffer
+	if !create_framebuffer(p) {
+		log.log_error("suckless-odin.postfx", "Failed to create framebuffer")
+		return false
+	}
+
+	// Create UBO
+	gl.GenBuffers(1, &p.settings_ubo)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, p.settings_ubo)
+	gl.BufferData(gl.UNIFORM_BUFFER, size_of(Post_FX_UBO), nil, gl.DYNAMIC_DRAW)
+	gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, p.settings_ubo)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
+
+	// Load composite shader
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/postfx.frag")
+	if !ok {
+		log.log_error("suckless-odin.postfx", "Failed to load composite shader")
+		pipeline_destroy(p)
+		return false
+	}
+	p.composite_program = program
+
+	// Set sampler uniforms (fixed texture unit bindings)
+	gl.UseProgram(p.composite_program)
+	set_uniform_i32(p.composite_program, "screenTexture", TEX_UNIT_SCENE)
+	set_uniform_i32(p.composite_program, "bloomTexture", TEX_UNIT_BLOOM)
+	gl.UseProgram(0)
+
+	// Create bloom multi-pass effect
+	if !bloom_create(&p.bloom_fx, width, height) {
+		log.log_error("suckless-odin.postfx", "Failed to create bloom effect")
+		pipeline_destroy(p)
+		return false
+	}
+
+	log.log_info("suckless-odin.postfx", "Pipeline created (%dx%d)", width, height)
+	return true
+}
+
+// Destroy all pipeline resources.
+pipeline_destroy :: proc(p: ^Pipeline) {
+	bloom_destroy(&p.bloom_fx)
+	if p.composite_program != 0 {
+		gl.DeleteProgram(p.composite_program)
+		p.composite_program = 0
+	}
+	destroy_framebuffer(p)
+	if p.settings_ubo != 0 {
+		gl.DeleteBuffers(1, &p.settings_ubo)
+		p.settings_ubo = 0
+	}
+	quad_destroy(&p.quad)
+	log.log_info("suckless-odin.postfx", "Pipeline destroyed")
+}
+
+// Begin post-processing: bind scene FBO for rendering.
+// Call this BEFORE rendering the scene.
+pipeline_begin :: proc(p: ^Pipeline) {
+	if !p.enabled {
+		return
+	}
+	// Save current framebuffer and viewport (for correct restore in end)
+	gl.GetIntegerv(gl.DRAW_FRAMEBUFFER_BINDING, &p.prev_fbo)
+	gl.GetIntegerv(gl.VIEWPORT, raw_data(&p.prev_viewport))
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, p.scene_fbo)
+	gl.Viewport(0, 0, p.width, p.height)
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+}
+
+// End post-processing: run all effects and composite to the previously bound framebuffer.
+// Call this AFTER rendering the scene.
+pipeline_end :: proc(p: ^Pipeline) {
+	if !p.enabled {
+		return
+	}
+
+	// Run bloom multi-pass if enabled
+	if .Bloom in p.active_effects {
+		bloom_render(&p.bloom_fx, &p.bloom, p.scene_color_tex, &p.quad)
+	}
+
+	// Restore the framebuffer that was active before begin
+	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
+	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
+	gl.Clear(gl.COLOR_BUFFER_BIT)
+	gl.Disable(gl.DEPTH_TEST)
+
+	// Upload UBO
+	upload_ubo(p)
+
+	// Bind composite shader
+	gl.UseProgram(p.composite_program)
+
+	// Bind scene color texture
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_SCENE)
+	gl.BindTexture(gl.TEXTURE_2D, p.scene_color_tex)
+
+	// Bind bloom texture (result of multi-pass, or empty if disabled)
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_BLOOM)
+	gl.BindTexture(gl.TEXTURE_2D, bloom_get_texture(&p.bloom_fx))
+
+	// Draw fullscreen quad (final composite)
+	quad_draw(&p.quad)
+
+	// Restore state
+	gl.Enable(gl.DEPTH_TEST)
+	gl.UseProgram(0)
+}
+
+// Resize pipeline resources (call on window resize).
+pipeline_resize :: proc(p: ^Pipeline, width, height: i32) {
+	if width == p.width && height == p.height {
+		return
+	}
+	p.width = width
+	p.height = height
+
+	destroy_framebuffer(p)
+	create_framebuffer(p)
+	bloom_resize(&p.bloom_fx, width, height)
+	p.ubo_dirty = true
+
+	log.log_info("suckless-odin.postfx", "Pipeline resized (%dx%d)", width, height)
+}
+
+// Update time accumulator (call each frame).
+pipeline_update :: proc(p: ^Pipeline, dt: f32) {
+	p.time += dt
+	p.ubo_dirty = true // time changes every frame
+}
+
+// Toggle an effect on/off.
+pipeline_toggle :: proc(p: ^Pipeline, effect: Post_Effect) {
+	p.active_effects ~= {effect}
+	p.ubo_dirty = true
+}
+
+// Enable an effect.
+pipeline_enable :: proc(p: ^Pipeline, effect: Post_Effect) {
+	p.active_effects += {effect}
+	p.ubo_dirty = true
+}
+
+// Disable an effect.
+pipeline_disable :: proc(p: ^Pipeline, effect: Post_Effect) {
+	p.active_effects -= {effect}
+	p.ubo_dirty = true
+}
+
+// Check if an effect is active.
+pipeline_is_enabled :: proc(p: ^Pipeline, effect: Post_Effect) -> bool {
+	return effect in p.active_effects
+}
+
+// --- Private helpers ---
+
+@(private)
+init_defaults :: proc(p: ^Pipeline) {
+	p.vignette = {
+		intensity  = DEFAULT_VIGNETTE_INTENSITY,
+		smoothness = DEFAULT_VIGNETTE_SMOOTHNESS,
+		roundness  = DEFAULT_VIGNETTE_ROUNDNESS,
+	}
+	p.grain = {
+		intensity            = DEFAULT_GRAIN_INTENSITY,
+		intensity_shadows    = 1.0,
+		intensity_midtones   = 1.0,
+		intensity_highlights = 1.0,
+		shadows_max          = DEFAULT_GRAIN_SHADOWS_MAX,
+		highlights_min       = DEFAULT_GRAIN_HIGHLIGHTS_MIN,
+		texel_size           = DEFAULT_GRAIN_TEXEL_SIZE,
+	}
+	p.exposure = {exposure = DEFAULT_EXPOSURE}
+	p.chrom_abbr = {strength = DEFAULT_CHROM_ABBR_STRENGTH}
+	p.white_balance = {temperature = DEFAULT_WB_TEMP, tint = DEFAULT_WB_TINT}
+	p.color_grading = {
+		saturation = 1.0,
+		contrast   = 1.0,
+		gamma      = 1.0,
+		gain       = 1.0,
+		offset     = 0.0,
+		lift       = 0.0,
+	}
+	p.tonemapper = {
+		slope      = DEFAULT_TONEMAP_SLOPE,
+		toe        = DEFAULT_TONEMAP_TOE,
+		shoulder   = DEFAULT_TONEMAP_SHOULDER,
+		black_clip = DEFAULT_TONEMAP_BLACK_CLIP,
+		white_clip = DEFAULT_TONEMAP_WHITE_CLIP,
+	}
+	p.bloom = {
+		intensity      = DEFAULT_BLOOM_INTENSITY,
+		threshold      = DEFAULT_BLOOM_THRESHOLD,
+		soft_threshold = DEFAULT_BLOOM_SOFT_THRESHOLD,
+		radius         = DEFAULT_BLOOM_RADIUS,
+	}
+	p.fxaa = {
+		subpix             = DEFAULT_FXAA_SUBPIX,
+		edge_threshold     = DEFAULT_FXAA_EDGE_THRESHOLD,
+		edge_threshold_min = DEFAULT_FXAA_EDGE_THRESHOLD_MIN,
+	}
+}
+
+@(private)
+create_framebuffer :: proc(p: ^Pipeline) -> bool {
+	gl.GenFramebuffers(1, &p.scene_fbo)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, p.scene_fbo)
+
+	// HDR color texture (RGBA16F)
+	gl.GenTextures(1, &p.scene_color_tex)
+	gl.BindTexture(gl.TEXTURE_2D, p.scene_color_tex)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, p.width, p.height, 0, gl.RGBA, gl.FLOAT, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, p.scene_color_tex, 0)
+
+	// Depth texture (D32F for precision)
+	gl.GenTextures(1, &p.depth_tex)
+	gl.BindTexture(gl.TEXTURE_2D, p.depth_tex)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT32F, p.width, p.height, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, p.depth_tex, 0)
+
+	// Check completeness
+	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
+	if status != gl.FRAMEBUFFER_COMPLETE {
+		log.log_error("suckless-odin.postfx", "Framebuffer incomplete: 0x%X", status)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		return false
+	}
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	return true
+}
+
+@(private)
+destroy_framebuffer :: proc(p: ^Pipeline) {
+	if p.scene_color_tex != 0 {
+		gl.DeleteTextures(1, &p.scene_color_tex)
+		p.scene_color_tex = 0
+	}
+	if p.depth_tex != 0 {
+		gl.DeleteTextures(1, &p.depth_tex)
+		p.depth_tex = 0
+	}
+	if p.scene_fbo != 0 {
+		gl.DeleteFramebuffers(1, &p.scene_fbo)
+		p.scene_fbo = 0
+	}
+}
+
+@(private)
+upload_ubo :: proc(p: ^Pipeline) {
+	ubo := Post_FX_UBO{
+		active_effects     = transmute(u32)p.active_effects,
+		time               = p.time,
+		screen_texel_size  = {1.0 / f32(p.width), 1.0 / f32(p.height)},
+
+		vignette_intensity  = p.vignette.intensity,
+		vignette_smoothness = p.vignette.smoothness,
+		vignette_roundness  = p.vignette.roundness,
+
+		grain_intensity            = p.grain.intensity,
+		grain_intensity_shadows    = p.grain.intensity_shadows,
+		grain_intensity_midtones   = p.grain.intensity_midtones,
+		grain_intensity_highlights = p.grain.intensity_highlights,
+		grain_shadows_max          = p.grain.shadows_max,
+		grain_highlights_min       = p.grain.highlights_min,
+		grain_texel_size           = p.grain.texel_size,
+
+		exposure_manual = p.exposure.exposure,
+
+		chrom_abbr_strength = p.chrom_abbr.strength,
+
+		wb_temperature = p.white_balance.temperature,
+		wb_tint        = p.white_balance.tint,
+
+		grading_saturation = p.color_grading.saturation,
+		grading_contrast   = p.color_grading.contrast,
+		grading_gamma      = p.color_grading.gamma,
+		grading_gain       = p.color_grading.gain,
+		grading_offset     = p.color_grading.offset,
+		grading_lift       = p.color_grading.lift,
+
+		tonemap_slope      = p.tonemapper.slope,
+		tonemap_toe        = p.tonemapper.toe,
+		tonemap_shoulder   = p.tonemapper.shoulder,
+		tonemap_black_clip = p.tonemapper.black_clip,
+		tonemap_white_clip = p.tonemapper.white_clip,
+
+		bloom_intensity      = p.bloom.intensity,
+		bloom_threshold      = p.bloom.threshold,
+		bloom_soft_threshold = p.bloom.soft_threshold,
+		bloom_radius         = p.bloom.radius,
+
+		fxaa_subpix             = p.fxaa.subpix,
+		fxaa_edge_threshold     = p.fxaa.edge_threshold,
+		fxaa_edge_threshold_min = p.fxaa.edge_threshold_min,
+	}
+
+	gl.BindBuffer(gl.UNIFORM_BUFFER, p.settings_ubo)
+	gl.BufferSubData(gl.UNIFORM_BUFFER, 0, size_of(Post_FX_UBO), &ubo)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
+
+	p.ubo_dirty = false
+}
+
+@(private)
+set_uniform_i32 :: proc(program: u32, name: cstring, value: i32) {
+	loc := gl.GetUniformLocation(program, name)
+	if loc >= 0 {
+		gl.Uniform1i(loc, value)
+	}
+}
