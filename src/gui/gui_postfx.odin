@@ -26,6 +26,19 @@ draw_postfx_section :: proc(state: Scene_State) {
 
 	imgui.Spacing()
 
+	// --- Preset selector ---
+	@(static) current_preset: i32 = 0
+	if imgui.Combo(
+		"Preset",
+		&current_preset,
+		"Default\x00Subtle\x00Cinematic\x00Vibrant\x00Clean\x00",
+	) {
+		postfx.pipeline_apply_preset(p, postfx.Preset_Id(current_preset))
+	}
+	imgui.Spacing()
+	imgui.Separator()
+	imgui.Spacing()
+
 	// --- Exposure ---
 	exposure_on := postfx.Post_Effect.Exposure in p.active_effects
 	if imgui.Checkbox("Exposure", &exposure_on) {
