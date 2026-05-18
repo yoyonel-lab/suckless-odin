@@ -9,6 +9,7 @@ import settings "../core/settings"
 import cam "../camera"
 import scene "../scene"
 import gui "../gui"
+import postfx "../rendering/postfx"
 
 // Application state — top-level struct owning all subsystems.
 // ISO port of App struct from suckless-ogl/include/app.h.
@@ -162,6 +163,14 @@ destroy :: proc(application: ^App) {
 	free(application)
 
 	log.log_info("suckless-odin.app", "Application destroyed")
+}
+
+// Apply CLI postfx options (preset, enable/disable).
+apply_postfx_options :: proc(application: ^App, enabled: bool, preset: Maybe(postfx.Preset_Id)) {
+	application.scene.postfx_pipeline.enabled = enabled
+	if id, ok := preset.?; ok {
+		postfx.pipeline_apply_preset(&application.scene.postfx_pipeline, id)
+	}
 }
 
 // GLFW key callback — handles press-only actions.

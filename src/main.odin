@@ -8,7 +8,7 @@ import "core/settings"
 
 main :: proc() {
 	// Handle CLI arguments
-	action := cli_handle_args(os.args)
+	opts, action := cli_handle_args(os.args)
 	switch action {
 	case .Exit_Success:
 		os.exit(0)
@@ -29,6 +29,9 @@ main :: proc() {
 		log.log_error("suckless-odin.main", "Failed to initialize application")
 		os.exit(1)
 	}
+
+	// Apply CLI postfx options after init (pipeline is ready)
+	app.apply_postfx_options(application, opts.postfx_enabled, opts.postfx_preset)
 
 	app.run(application)
 }
