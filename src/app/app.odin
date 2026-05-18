@@ -195,6 +195,15 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		scene.scene_toggle_overlay(&app.scene)
 	case glfw.KEY_F2:
 		gui.toggle(&app.imgui)
+		// GUI open → release cursor for UI interaction; GUI closed → capture cursor for camera
+		if app.imgui.visible {
+			app.camera_enabled = false
+			glfw.SetInputMode(app.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+		} else {
+			app.camera_enabled = true
+			glfw.SetInputMode(app.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+			app.scene.camera.first_mouse = true
+		}
 	case glfw.KEY_C:
 		toggle_camera(app)
 	case glfw.KEY_SPACE:
@@ -246,6 +255,8 @@ toggle_camera :: proc(application: ^App) {
 	if application.camera_enabled {
 		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 		application.scene.camera.first_mouse = true
+		// Camera mode → hide GUI to prevent invisible interactions
+		application.imgui.visible = false
 	} else {
 		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
 	}
