@@ -86,14 +86,48 @@ layout(std140, binding = 0) uniform PostProcessBlock
 };
 
 // --- Effect flag helpers ---
-#define enableVignette      ((activeEffects & (1u << 0u)) != 0u)
-#define enableGrain         ((activeEffects & (1u << 1u)) != 0u)
-#define enableExposure      ((activeEffects & (1u << 2u)) != 0u)
-#define enableChromAbbr     ((activeEffects & (1u << 3u)) != 0u)
-#define enableBloom         ((activeEffects & (1u << 4u)) != 0u)
-#define enableColorGrading  ((activeEffects & (1u << 5u)) != 0u)
-#define enableFXAA          ((activeEffects & (1u << 12u)) != 0u)
-#define enableTonemap       ((activeEffects & (1u << 13u)) != 0u)
+// When STATIC_* defines are present (optimized variant), use compile-time constants.
+// Otherwise, fall back to runtime bitfield checks.
+#ifdef STATIC_VIGNETTE
+	#define enableVignette true
+#else
+	#define enableVignette      ((activeEffects & (1u << 0u)) != 0u)
+#endif
+#ifdef STATIC_GRAIN
+	#define enableGrain true
+#else
+	#define enableGrain         ((activeEffects & (1u << 1u)) != 0u)
+#endif
+#ifdef STATIC_EXPOSURE
+	#define enableExposure true
+#else
+	#define enableExposure      ((activeEffects & (1u << 2u)) != 0u)
+#endif
+#ifdef STATIC_CHROM_ABBR
+	#define enableChromAbbr true
+#else
+	#define enableChromAbbr     ((activeEffects & (1u << 3u)) != 0u)
+#endif
+#ifdef STATIC_BLOOM
+	#define enableBloom true
+#else
+	#define enableBloom         ((activeEffects & (1u << 4u)) != 0u)
+#endif
+#ifdef STATIC_COLOR_GRADING
+	#define enableColorGrading true
+#else
+	#define enableColorGrading  ((activeEffects & (1u << 5u)) != 0u)
+#endif
+#ifdef STATIC_FXAA
+	#define enableFXAA true
+#else
+	#define enableFXAA          ((activeEffects & (1u << 12u)) != 0u)
+#endif
+#ifdef STATIC_TONEMAP
+	#define enableTonemap true
+#else
+	#define enableTonemap       ((activeEffects & (1u << 13u)) != 0u)
+#endif
 
 // ============================================================================
 // EFFECT: CHROMATIC ABERRATION

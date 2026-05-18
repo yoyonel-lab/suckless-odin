@@ -156,6 +156,37 @@ draw_postfx_section :: proc(state: Scene_State) {
 	imgui.EndDisabled()
 
 	imgui.Spacing()
+	imgui.Separator()
+
+	// --- GPU Profiling ---
+	if imgui.CollapsingHeader("GPU Timings") {
+		imgui.Checkbox("Enable Profiling", &p.timers.enabled)
+		if p.timers.enabled {
+			bloom_ms := postfx.gpu_timer_get_ms(&p.timers, .Bloom)
+			composite_ms := postfx.gpu_timer_get_ms(&p.timers, .Composite)
+			total_ms := postfx.gpu_timer_get_ms(&p.timers, .Total)
+			imgui.Text("Bloom:     %.3f ms", bloom_ms)
+			imgui.Text("Composite: %.3f ms", composite_ms)
+			imgui.Text("Total:     %.3f ms", total_ms)
+		}
+	}
+
+	// --- Shader Optimization ---
+	if imgui.CollapsingHeader("Shader Cache") {
+		imgui.Checkbox("Enable Variants", &p.shader_cache.enabled)
+		if p.shader_cache.enabled {
+			imgui.Text("Cached: %d / %d", p.shader_cache.count, postfx.MAX_CACHED_VARIANTS)
+			if imgui.Button("Compile Current") {
+				postfx.pipeline_compile_variant(p)
+			}
+			imgui.SameLine()
+			if imgui.Button("Clear Cache") {
+				postfx.shader_cache_destroy(&p.shader_cache)
+			}
+		}
+	}
+
+	imgui.Spacing()
 }
 
 // PostFX filtered search entries — called from draw_filtered_view.

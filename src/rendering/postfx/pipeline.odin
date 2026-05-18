@@ -17,6 +17,12 @@ Pipeline :: struct {
 	// Multi-pass effects
 	bloom_fx: Bloom_FX,
 
+	// GPU profiling
+	timers: Gpu_Timers,
+
+	// Shader variant cache (optional optimization)
+	shader_cache: Shader_Cache,
+
 	// Shader
 	composite_program: u32,
 
@@ -99,12 +105,17 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> bool {
 		return false
 	}
 
+	// GPU timers for profiling
+	gpu_timers_create(&p.timers)
+
 	log.log_info("suckless-odin.postfx", "Pipeline created (%dx%d)", width, height)
 	return true
 }
 
 // Destroy all pipeline resources.
 pipeline_destroy :: proc(p: ^Pipeline) {
+	shader_cache_destroy(&p.shader_cache)
+	gpu_timers_destroy(&p.timers)
 	bloom_destroy(&p.bloom_fx)
 	if p.composite_program != 0 {
 		gl.DeleteProgram(p.composite_program)
@@ -141,10 +152,18 @@ pipeline_end :: proc(p: ^Pipeline) {
 		return
 	}
 
+	// Collect previous frame's timer results (non-blocking)
+	gpu_timers_collect(&p.timers)
+
+	// Total timer wraps everything
+	gpu_timer_begin(&p.timers, .Total)
+
 	// Run bloom multi-pass if enabled
+	gpu_timer_begin(&p.timers, .Bloom)
 	if .Bloom in p.active_effects {
 		bloom_render(&p.bloom_fx, &p.bloom, p.scene_color_tex, &p.quad)
 	}
+	gpu_timer_end(&p.timers, .Bloom)
 
 	// Restore the framebuffer that was active before begin
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
@@ -155,8 +174,17 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Upload UBO
 	upload_ubo(p)
 
+	// Composite pass (uber-shader)
+	gpu_timer_begin(&p.timers, .Composite)
+
+	// Use cached optimized variant if available, otherwise fallback to dynamic
+	active_program := shader_cache_find(&p.shader_cache, p.active_effects)
+	if active_program == 0 {
+		active_program = p.composite_program
+	}
+
 	// Bind composite shader
-	gl.UseProgram(p.composite_program)
+	gl.UseProgram(active_program)
 
 	// Bind scene color texture
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_SCENE)
@@ -168,6 +196,9 @@ pipeline_end :: proc(p: ^Pipeline) {
 
 	// Draw fullscreen quad (final composite)
 	quad_draw(&p.quad)
+
+	gpu_timer_end(&p.timers, .Composite)
+	gpu_timer_end(&p.timers, .Total)
 
 	// Restore state
 	gl.Enable(gl.DEPTH_TEST)
@@ -217,6 +248,15 @@ pipeline_disable :: proc(p: ^Pipeline, effect: Post_Effect) {
 // Check if an effect is active.
 pipeline_is_enabled :: proc(p: ^Pipeline, effect: Post_Effect) -> bool {
 	return effect in p.active_effects
+}
+
+// Compile an optimized shader variant for the current active effects.
+// Returns true if a new variant was compiled, false if cache full or disabled.
+pipeline_compile_variant :: proc(p: ^Pipeline) -> bool {
+	if !p.shader_cache.enabled { return false }
+	existing := shader_cache_find(&p.shader_cache, p.active_effects)
+	if existing != 0 { return false } // already cached
+	return shader_cache_compile(&p.shader_cache, p.active_effects) != 0
 }
 
 // --- Private helpers ---
