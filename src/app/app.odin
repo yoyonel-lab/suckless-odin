@@ -130,11 +130,17 @@ run :: proc(application: ^App) {
 		// GUI (Dear ImGui) — render on top of scene
 		gui.new_frame(&application.imgui)
 		gui.update(&application.imgui, gui.Scene_State{
-			camera            = &application.scene.camera,
-			skybox_visible    = &application.scene.skybox_visible,
-			wireframe_enabled = &application.scene.wireframe_enabled,
-			exposure          = &application.scene.exposure,
-			skybox_blur_lod   = &application.scene.skybox.blur_lod,
+			camera              = &application.scene.camera,
+			skybox_visible      = &application.scene.skybox_visible,
+			wireframe_enabled   = &application.scene.wireframe_enabled,
+			exposure            = &application.scene.exposure,
+			skybox_blur_lod     = &application.scene.skybox.blur_lod,
+			ibl_irradiance_map  = application.scene.ibl.irradiance_map,
+			ibl_prefilter_map   = application.scene.ibl.prefilter_map,
+			ibl_brdf_lut        = application.scene.ibl.brdf_lut,
+			env_texture_id      = application.scene.env_texture.id,
+			env_texture_width   = application.scene.env_texture.width,
+			env_texture_height  = application.scene.env_texture.height,
 		})
 		gui.render(&application.imgui)
 
