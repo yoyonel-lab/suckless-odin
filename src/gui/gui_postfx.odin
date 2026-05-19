@@ -52,6 +52,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 		imgui.EndCombo()
 	}
 	imgui.Spacing()
+
+	// --- Save / Load user presets ---
+	draw_postfx_save_load(p)
+
 	imgui.Separator()
 	imgui.Spacing()
 
@@ -711,4 +715,129 @@ draw_postfx_filtered :: proc(state: Scene_State, filter: cstring) -> int {
 	}
 
 	return match_count
+}
+
+// --- Save / Load user presets UI ---
+@(private)
+draw_postfx_save_load :: proc(p: ^postfx.Pipeline) {
+	@(static) save_name_buf: [128]u8
+	@(static) load_selected: i32 = -1
+	@(static) status_msg: cstring
+	@(static) status_timer: f32
+
+	if imgui.TreeNode("Save / Load") {
+		imgui.Spacing()
+
+		// --- Save section ---
+		imgui.Text("Save current settings:")
+		imgui.SetNextItemWidth(200)
+		imgui.InputText("##preset_name", cast(cstring)&save_name_buf[0], len(save_name_buf))
+
+		imgui.SameLine()
+		name_cstr := cstring(&save_name_buf[0])
+		name_str := string(name_cstr)
+		save_disabled := len(name_str) == 0
+		if save_disabled { imgui.BeginDisabled() }
+		if imgui.Button("Save") {
+			path := postfx.settings_build_path(postfx.POSTFX_PRESETS_DIR, name_str)
+			if postfx.settings_export(p, path, name_str) {
+				status_msg = "Saved!"
+				status_timer = 2.0
+			} else {
+				status_msg = "Save failed"
+				status_timer = 3.0
+			}
+		}
+		if save_disabled { imgui.EndDisabled() }
+
+		imgui.Spacing()
+
+		// --- Load section ---
+		imgui.Text("Load from file:")
+		files := postfx.settings_list_files(postfx.POSTFX_PRESETS_DIR, context.temp_allocator)
+
+		if len(files) == 0 {
+			imgui.TextDisabled("No saved presets found")
+		} else {
+			preview: cstring = "Select..."
+			if load_selected >= 0 && load_selected < i32(len(files)) {
+				preview = fmt.ctprintf("%s", files[load_selected])
+			}
+			imgui.SetNextItemWidth(200)
+			if imgui.BeginCombo("##load_preset", preview) {
+				for file, idx in files {
+					is_sel := i32(idx) == load_selected
+					if imgui.Selectable(fmt.ctprintf("%s", file), is_sel) {
+						load_selected = i32(idx)
+					}
+				}
+				imgui.EndCombo()
+			}
+
+			imgui.SameLine()
+			load_disabled := load_selected < 0 || load_selected >= i32(len(files))
+			if load_disabled { imgui.BeginDisabled() }
+			if imgui.Button("Load") {
+				path := postfx.settings_build_path(
+					postfx.POSTFX_PRESETS_DIR, files[load_selected],
+				)
+				if postfx.settings_import(p, path) {
+					status_msg = "Loaded!"
+					status_timer = 2.0
+				} else {
+					status_msg = "Load failed"
+					status_timer = 3.0
+				}
+			}
+			imgui.SameLine()
+			if imgui.Button("Delete") {
+				imgui.OpenPopup("Confirm Delete")
+			}
+			if load_disabled { imgui.EndDisabled() }
+
+			// Delete confirmation popup
+			if imgui.BeginPopupModal("Confirm Delete", nil, {.AlwaysAutoResize}) {
+				imgui.Text("Delete preset?")
+				if load_selected >= 0 && load_selected < i32(len(files)) {
+					imgui.TextColored(
+						imgui.Vec4{1.0, 0.8, 0.3, 1.0},
+						fmt.ctprintf("%s", files[load_selected]),
+					)
+				}
+				imgui.Spacing()
+				if imgui.Button("Yes, delete") {
+					path := postfx.settings_build_path(
+						postfx.POSTFX_PRESETS_DIR, files[load_selected],
+					)
+					if postfx.settings_delete(path) {
+						status_msg = "Deleted!"
+						status_timer = 2.0
+						load_selected = -1
+					} else {
+						status_msg = "Delete failed"
+						status_timer = 3.0
+					}
+					imgui.CloseCurrentPopup()
+				}
+				imgui.SameLine()
+				if imgui.Button("Cancel") {
+					imgui.CloseCurrentPopup()
+				}
+				imgui.EndPopup()
+			}
+		}
+
+		// --- Status feedback ---
+		if status_msg != nil && status_timer > 0 {
+			imgui.SameLine()
+			imgui.TextColored(imgui.Vec4{0.4, 1.0, 0.4, 1.0}, status_msg)
+			status_timer -= imgui.GetIO().DeltaTime
+			if status_timer <= 0 {
+				status_msg = nil
+			}
+		}
+
+		imgui.Spacing()
+		imgui.TreePop()
+	}
 }
