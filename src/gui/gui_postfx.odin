@@ -285,13 +285,54 @@ draw_postfx_section :: proc(state: Scene_State) {
 	imgui.TextDisabled("(WIP)")
 	imgui.EndDisabled()
 
-	// --- Banding (Phase 2 — not yet implemented) ---
-	imgui.BeginDisabled()
+	// --- Banding ---
 	banding_on := postfx.Post_Effect.Banding in p.active_effects
-	imgui.Checkbox("Banding", &banding_on)
-	imgui.SameLine()
-	imgui.TextDisabled("(WIP)")
-	imgui.EndDisabled()
+	if imgui.Checkbox("Banding", &banding_on) {
+		postfx.pipeline_toggle(p, .Banding)
+	}
+	if banding_on {
+		imgui.SameLine()
+		if imgui.TreeNodeEx("Settings##banding", {}) {
+			if imgui.SmallButton("Reset##banding") { postfx.pipeline_reset_effect(p, .Banding) }
+
+			// Mode combo
+			mode_names := [5]cstring{"Linear", "Dithered", "Perceptual", "Channel", "Luminance"}
+			current_mode := i32(p.banding.mode)
+			if imgui.BeginCombo("Mode##banding", mode_names[current_mode]) {
+				for i in i32(0) ..< 5 {
+					if imgui.Selectable(mode_names[i], i == current_mode) {
+						p.banding.mode = postfx.Banding_Mode(i)
+						p.ubo_dirty = true
+					}
+				}
+				imgui.EndCombo()
+			}
+
+			// Levels slider (common to most modes)
+			if imgui.SliderFloat("Levels##banding", &p.banding.levels, 2.0, 256.0) { p.ubo_dirty = true }
+
+			// Mode-specific controls
+			mode := p.banding.mode
+			if mode == .Dithered {
+				if imgui.SliderFloat("Dither Strength##banding", &p.banding.dither_strength, 0.0, 3.0) { p.ubo_dirty = true }
+			}
+			if mode == .Perceptual {
+				if imgui.SliderFloat("Gamma##banding", &p.banding.perceptual_gamma, 0.5, 4.0) { p.ubo_dirty = true }
+			}
+			if mode == .Channel || mode == .Luminance {
+				if imgui.SliderFloat("R Levels##banding", &p.banding.channel_levels[0], 2.0, 256.0) { p.ubo_dirty = true }
+				if imgui.SliderFloat("G Levels##banding", &p.banding.channel_levels[1], 2.0, 256.0) { p.ubo_dirty = true }
+				if imgui.SliderFloat("B Levels##banding", &p.banding.channel_levels[2], 2.0, 256.0) { p.ubo_dirty = true }
+			}
+
+			// A/B Split
+			banding_split := postfx.Post_Effect.Banding in p.debug_split
+			if imgui.Checkbox("A/B Split##banding", &banding_split) {
+				postfx.pipeline_toggle_split(p, .Banding)
+			}
+			imgui.TreePop()
+		}
+	}
 
 	// --- Fog (Phase 3 — not yet implemented) ---
 	imgui.BeginDisabled()
@@ -308,7 +349,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	imgui.SameLine()
 	imgui.TextDisabled("(WIP)")
 	imgui.EndDisabled()
-	_ = mb_on; _ = banding_on; _ = fog_on; _ = lut_on
+	_ = mb_on; _ = fog_on; _ = lut_on
 
 	imgui.Spacing()
 }
@@ -641,12 +682,11 @@ draw_postfx_filtered :: proc(state: Scene_State, filter: cstring) -> int {
 	}
 
 	if fuzzy_match(filter, "Banding", "postfx banding posterize quantize dither retro") {
-		imgui.BeginDisabled()
 		banding_on := postfx.Post_Effect.Banding in p.active_effects
-		imgui.Checkbox("Banding##filt", &banding_on)
-		imgui.SameLine(); imgui.TextDisabled("(WIP)")
-		imgui.EndDisabled()
-		_ = banding_on
+		if imgui.Checkbox("Banding##filt", &banding_on) {
+			postfx.pipeline_toggle(p, .Banding)
+		}
+		if imgui.SliderFloat("Levels##banding_filt", &p.banding.levels, 2.0, 256.0) { p.ubo_dirty = true }
 		match_count += 1
 	}
 

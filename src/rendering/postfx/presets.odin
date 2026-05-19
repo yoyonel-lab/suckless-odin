@@ -71,11 +71,11 @@ PRESET_WIP :: [Preset_Id]bool{
 	.Vintage     = false,
 	.Matrix      = false,
 	.BW_Contrast = false,
-	.Posterized  = true, // Banding
-	.Retro       = true, // Banding
-	.Analog      = true, // Banding
-	.Channel_GFX = true, // Banding
-	.Blueprint   = true, // Banding
+	.Posterized  = false,
+	.Retro       = false,
+	.Analog      = false,
+	.Channel_GFX = false,
+	.Blueprint   = false,
 	.Nordic_Noir = true, // Fog
 	.Sony_A7SIII = true, // LUT3D
 }

@@ -184,6 +184,7 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #endif
 
 #define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
+#define enableBanding       ((activeEffects & (1u << 14u)) != 0u)
 #define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
 #define enableDoFDebug      ((activeEffects & (1u << 7u)) != 0u)
 #define enableFXAADebug     ((activeEffects & (1u << 17u)) != 0u)
@@ -521,6 +522,61 @@ vec3 applyDoF(vec3 color, vec2 uv)
 }
 
 // ============================================================================
+// EFFECT: BANDING (Color Quantization — 5 artistic modes)
+// ============================================================================
+
+// Bayer 4x4 ordered dither matrix (normalized to [0,1])
+float bayerDither4x4(vec2 pos)
+{
+	int x = int(mod(pos.x, 4.0));
+	int y = int(mod(pos.y, 4.0));
+	const int matrix[16] = int[16](
+		 0,  8,  2, 10,
+		12,  4, 14,  6,
+		 3, 11,  1,  9,
+		15,  7, 13,  5
+	);
+	return float(matrix[y * 4 + x]) / 16.0;
+}
+
+vec3 applyBanding(vec3 color)
+{
+	// Mode 0: Linear — uniform posterization
+	if (bandingMode == 0) {
+		return floor(color * bandingLevels + 0.5) / bandingLevels;
+	}
+
+	// Mode 1: Dithered — Bayer 4x4 ordered dithering
+	if (bandingMode == 1) {
+		vec2 pixelPos = gl_FragCoord.xy;
+		float dither = bayerDither4x4(pixelPos) - 0.5;
+		vec3 shifted = color + dither * bandingDitherStrength / bandingLevels;
+		return floor(shifted * bandingLevels + 0.5) / bandingLevels;
+	}
+
+	// Mode 2: Perceptual — gamma-weighted quantization
+	if (bandingMode == 2) {
+		vec3 linear = pow(max(color, vec3(0.0)), vec3(bandingPerceptualGamma));
+		vec3 quantized = floor(linear * bandingLevels + 0.5) / bandingLevels;
+		return pow(quantized, vec3(1.0 / bandingPerceptualGamma));
+	}
+
+	// Mode 3: Channel — independent RGB levels
+	if (bandingMode == 3) {
+		return vec3(
+			floor(color.r * bandingChannelLevels.r + 0.5) / bandingChannelLevels.r,
+			floor(color.g * bandingChannelLevels.g + 0.5) / bandingChannelLevels.g,
+			floor(color.b * bandingChannelLevels.b + 0.5) / bandingChannelLevels.b
+		);
+	}
+
+	// Mode 4: Luminance — grayscale quantization + tint
+	float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	float quantLuma = floor(luma * bandingLevels + 0.5) / bandingLevels;
+	return quantLuma * bandingChannelLevels;
+}
+
+// ============================================================================
 void main()
 {
 	vec3 color;
@@ -572,12 +628,17 @@ void main()
 		color = color * cg_gain + cg_offset;
 	}
 
-	// 8. Vignette
+	// 8. Banding (artistic color quantization)
+	if (enableBanding && !splitBypassed(14u)) {
+		color = applyBanding(color);
+	}
+
+	// 9. Vignette
 	if (enableVignette && !splitBypassed(0u)) {
 		color = applyVignette(color, TexCoords);
 	}
 
-	// 9. Grain (applied last before output)
+	// 10. Grain (applied last before output)
 	if (enableGrain && !splitBypassed(1u)) {
 		color = applyGrain(color, TexCoords);
 	}
