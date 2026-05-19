@@ -158,3 +158,15 @@ bench-search-compare:
 # Usage: just bench-compare search [commitA] [commitB]
 bench-compare name *args:
     ./scripts/bench_compare.sh {{name}} {{args}}
+
+# --- RenderDoc (Frame Analysis) ---
+
+renderdoc_dir := env_var_or_default("RENDERDOC_DIR", "/usr/bin")
+
+# Launch qrenderdoc GUI with debug build for frame analysis
+renderdoc: build
+    {{renderdoc_dir}}/qrenderdoc --working-dir . ./{{build_base}}/debug/suckless-odin
+
+# Capture a frame via renderdoccmd CLI (headless, outputs .rdc file)
+renderdoc-capture: build
+    {{renderdoc_dir}}/renderdoccmd capture --working-dir . ./{{build_base}}/debug/suckless-odin
