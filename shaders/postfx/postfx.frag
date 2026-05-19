@@ -95,6 +95,12 @@ layout(std140, binding = 0) uniform PostProcessBlock
 	float d_focalRange;
 	float d_bokehScale;
 	float d_anamorphicRatio;
+
+	// Camera planes (16 bytes)
+	float zNear;
+	float zFar;
+	float _pad11_0;
+	float _pad11_1;
 };
 
 // --- Effect flag helpers ---
@@ -422,9 +428,7 @@ vec3 applyDoF(vec3 color, vec2 uv)
 	// Skybox early exit
 	if (depth >= 0.99999) return color;
 
-	// Linearize depth (perspective projection reverse)
-	const float zNear = 0.1;
-	const float zFar = 1000.0;
+	// Linearize depth (perspective projection)
 	float z_ndc = 2.0 * depth - 1.0;
 	float dist = (2.0 * zNear * zFar) / (zFar + zNear - z_ndc * (zFar - zNear));
 

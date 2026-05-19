@@ -229,6 +229,11 @@ Post_FX_UBO :: struct #packed {
 	dof_focal_range:      f32,
 	dof_bokeh_scale:      f32,
 	dof_anamorphic_ratio: f32,
+
+	// Camera planes (16 bytes)
+	z_near:  f32,
+	z_far:   f32,
+	_pad11:  [2]f32,
 }
 
 // Texture unit assignments for post-processing samplers.

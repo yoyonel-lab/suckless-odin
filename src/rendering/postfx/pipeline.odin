@@ -3,6 +3,7 @@ package postfx
 import gl "vendor:OpenGL"
 
 import log "../../core/log"
+import settings "../../core/settings"
 import shader "../shader"
 
 // Post-processing pipeline state — owns FBO, textures, UBO, and shader.
@@ -413,6 +414,9 @@ upload_ubo :: proc(p: ^Pipeline) {
 		dof_focal_range      = p.dof.focal_range,
 		dof_bokeh_scale      = p.dof.bokeh_scale,
 		dof_anamorphic_ratio = p.dof.anamorphic_ratio,
+
+		z_near = settings.NEAR_PLANE,
+		z_far  = settings.FAR_PLANE,
 	}
 
 	gl.BindBuffer(gl.UNIFORM_BUFFER, p.settings_ubo)
