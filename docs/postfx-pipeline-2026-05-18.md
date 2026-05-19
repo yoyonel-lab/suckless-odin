@@ -1,15 +1,15 @@
 # Post-Processing Pipeline Architecture
 
-**Date:** 2026-05-18  
-**Status:** Complete (Phase 1–5)  
-**Scope:** Full-screen post-processing with modular effects, bloom, GPU profiling, and shader variant cache
+**Date:** 2026-05-18 (updated 2026-05-19)  
+**Status:** Complete (Phase 1–6, debug views)  
+**Scope:** Full-screen post-processing with modular effects, bloom, DoF, auto-exposure, GPU profiling, shader variant cache, and A/B split debug
 
 ## Overview
 
 The post-processing pipeline renders the 3D scene into an HDR framebuffer, then applies a chain of full-screen effects via an uber-shader before presenting to screen.
 
 ```
-Scene Render → HDR FBO (RGBA16F) → Bloom Multi-Pass → Composite (uber-shader) → Screen
+Scene Render → HDR FBO (RGBA16F) → Bloom Multi-Pass → DoF Quarter-Res → Auto-Exposure → Composite (uber-shader) → Screen
 ```
 
 ## Package Layout
@@ -19,8 +19,10 @@ src/rendering/postfx/
 ├── types.odin          # Effect enum, bit_set flags, param structs, UBO layout
 ├── pipeline.odin       # Pipeline lifecycle (create/destroy/begin/end/resize)
 ├── bloom.odin          # Multi-pass bloom (5-mip downsample/upsample)
-├── presets.odin        # Named configurations (Default, Subtle, Cinematic, etc.)
-├── gpu_timers.odin     # Double-buffered GL_TIME_ELAPSED queries
+├── dof.odin            # Depth of Field (quarter-res blur + CoC mix)
+├── auto_exposure.odin  # Compute luminance → adaptive exposure
+├── presets.odin        # 15 named configurations + WIP table
+├── gpu_timers.odin     # Double-buffered GL_TIME_ELAPSED queries (4 passes)
 └── shader_cache.odin   # Compile-time optimized shader variants
 
 shaders/postfx/
@@ -37,12 +39,13 @@ Effects are applied in this order inside `postfx.frag`:
 
 1. **Chromatic Aberration** — Radial R/B channel offset
 2. **FXAA** — FXAA 3.11 (5-step quality, runs on LDR-approximated luma)
-3. **Bloom** — Additive blend of bloom texture (multi-pass computed separately)
-4. **Exposure** — Manual exposure multiplier
-5. **Tonemapping** — UE4 filmic curve (slope, toe, shoulder, clips)
-6. **Color Grading** — Saturation, contrast, gamma, gain, offset, lift + white balance
-7. **Vignette** — Circular/elliptical darkening
-8. **Film Grain** — Hash-based temporal grain with per-zone intensity
+3. **Depth of Field** — CoC from depth buffer, quarter-res blur mix
+4. **Bloom** — Additive blend of bloom texture (multi-pass computed separately)
+5. **Exposure** — Manual or Auto-Exposure multiplier
+6. **Tonemapping** — UE4 filmic curve (slope, toe, shoulder, clips)
+7. **Color Grading** — Saturation, contrast, gamma, gain, offset, lift + white balance
+8. **Vignette** — Circular/elliptical darkening
+9. **Film Grain** — Hash-based temporal grain with per-zone intensity
 
 ## Architecture Decisions
 
@@ -91,14 +94,18 @@ Double-buffered `GL_TIME_ELAPSED` queries measure per-pass cost without stalling
 | Timer Pass | What it measures |
 |-----------|-----------------|
 | Bloom | All bloom passes (prefilter + 5 down + 5 up) |
+| DoF | Quarter-res blur pass |
+| Auto-Exp | Luminance compute + exposure adaptation |
 | Composite | UBO upload + uber-shader draw |
-| Total | Bloom + Composite combined |
+| Total | All passes combined |
 
 Previous frame's results are read each frame (1-frame latency, no pipeline stall).
 
 ### UBO Layout (std140)
 
-Single UBO at binding 0, `#packed` struct in Odin maps directly to GLSL `layout(std140)`:
+Single UBO at binding 0, `#packed` struct in Odin maps directly to GLSL `layout(std140)`.
+
+**IMPORTANT**: Never use `float name[N]` arrays for padding in the GLSL block — std140 rounds array stride to 16 bytes per element. Always use individual scalars for padding.
 
 | Section | Size | Contents |
 |---------|------|----------|
@@ -112,8 +119,15 @@ Single UBO at binding 0, `#packed` struct in Odin maps directly to GLSL `layout(
 | Tonemapping | 32B | slope, toe, shoulder, black_clip, white_clip + pad |
 | Bloom | 16B | intensity, threshold, soft_threshold, radius |
 | FXAA | 16B | subpix, edge_threshold, edge_threshold_min + pad |
+| DoF | 16B | focal_distance, focal_range, bokeh_scale, anamorphic_ratio |
+| Camera | 16B | z_near, z_far + pad |
+| Motion Blur | 16B | intensity, max_velocity, samples + pad |
+| Banding | 32B | mode, levels, dither_strength, perceptual_gamma, channel_levels + pad |
+| Fog | 112B | density, start, height_falloff, max_opacity, color, cam_pos, inv_view_proj |
+| LUT3D | 16B | intensity + pad |
+| Debug Split | 16B | debugSplitMask (u32) + pad |
 
-Total: 208 bytes, updated per-frame via `glBufferSubData`.
+Total: 432 bytes, updated per-frame via `glBufferSubData`.
 
 ## API Usage
 
@@ -136,17 +150,19 @@ postfx.pipeline_toggle(&p, .Bloom)
 postfx.pipeline_enable(&p, .Vignette)
 postfx.pipeline_disable(&p, .FXAA)
 
+// A/B split-screen debug (left=with effect, right=bypass)
+postfx.pipeline_toggle_split(&p, .Vignette)
+
+// Reset single effect to default values
+postfx.pipeline_reset_effect(&p, .Bloom)
+
 // Apply named preset
 postfx.pipeline_apply_preset(&p, .Cinematic)
-
-// Compile optimized variant for current config
-p.shader_cache.enabled = true
-postfx.pipeline_compile_variant(&p)
 ```
 
 ## Preset System
 
-5 built-in presets defined as compile-time constants:
+15 built-in presets defined as compile-time constants:
 
 | Preset | Key Characteristics |
 |--------|-------------------|
@@ -155,18 +171,54 @@ postfx.pipeline_compile_variant(&p)
 | Cinematic | Strong vignette, low sat, cool WB, bloom |
 | Vibrant | High saturation, warm, aggressive bloom |
 | Clean | Exposure + tonemap only, no grain/vignette |
+| Vintage | Low sat, strong grain, warm tint |
+| Matrix | Green tint, high contrast |
+| BW_Contrast | Desaturated, high contrast B&W |
+| Posterized | **(WIP)** Requires Banding |
+| Retro | **(WIP)** Requires Banding |
+| Analog | **(WIP)** Requires Banding |
+| Channel_GFX | **(WIP)** Requires Banding |
+| Blueprint | **(WIP)** Requires Banding |
+| Nordic_Noir | **(WIP)** Requires Fog |
+| Sony_A7SIII | **(WIP)** Requires LUT3D |
+
+WIP presets are greyed out in GUI (non-selectable) until their dependencies are ported.
 
 Applied via CLI (`--postfx-preset=cinematic`) or GUI dropdown.
 
+## Debug Views & A/B Split
+
+### Per-Effect Debug
+
+- **Bloom Debug**: Shows intensity-weighted bloom texture directly
+- **DoF Debug**: Color-coded focus zones (green=focused, blue=far, red=near)
+- **FXAA Debug**: Edge detection visualization (red=edge, blue=subpixel, gray=untouched)
+
+Debug toggles live inside each effect's Settings tree in the Post-FX GUI tab.
+
+### A/B Split-Screen
+
+Every implemented effect has an "A/B Split" checkbox:
+- Left half: effect applied
+- Right half: effect bypassed
+- Yellow vertical separator line at center
+
+Split state is cached when an effect is disabled and restored on re-enable.
+Applying a preset clears all split/debug state.
+
 ## Testing
 
-GL tests in `tests/gl/test_gl_postfx.odin`:
+GL tests in `tests/gl/`:
 - Shader compilation (vert + all frag shaders)
 - Program linking (composite + bloom passes)
 - Variant compilation (all defines, minimal, mixed, empty)
 - Uniform validation (sampler locations)
+- Full pipeline lifecycle (create, render, destroy)
+- Bloom, DoF, auto-exposure multi-pass validation
 
-## Future (Phase 7–8)
+## Not Yet Ported (see postfx-porting-gap-2026-05-19.md)
 
-- **Depth of Field**: Bokeh DoF using the existing `depth_tex` attachment
-- **Auto-Exposure**: Compute shader histogram → average luminance → exposure feedback
+- **Motion Blur** (Phase 4): tile-max/neighbor-max compute, velocity buffer
+- **Banding** (Phase 2): 5 artistic quantization modes
+- **Fog** (Phase 3): exponential height-based atmospheric
+- **LUT3D** (Phase 5): .cube file loading, 3D texture
