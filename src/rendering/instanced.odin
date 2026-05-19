@@ -123,15 +123,10 @@ instanced_bind :: proc(inst: ^Instanced_Spheres) {
 instanced_draw :: proc(inst: ^Instanced_Spheres, bb: ^Billboard) {
 	if bb.vao == 0 || inst.count == 0 { return }
 
-	culling_enabled := gl.IsEnabled(gl.CULL_FACE)
-	gl.Disable(gl.CULL_FACE)
-
+	// Billboards are always front-facing — culling is globally disabled in this app,
+	// so no state change needed here.
 	gl.BindVertexArray(bb.vao)
 	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, inst.count)
-
-	if culling_enabled {
-		gl.Enable(gl.CULL_FACE)
-	}
 }
 
 instanced_destroy :: proc(inst: ^Instanced_Spheres) {
