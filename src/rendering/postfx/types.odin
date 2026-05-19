@@ -159,6 +159,7 @@ DEFAULT_DOF_PARAMS :: Dof_Params{
 
 // --- UBO Layout (std140, binding 0) ---
 // Must match the GLSL PostProcessBlock layout exactly.
+// See docs/std140-padding-strategy-2026-05-19.md for rationale.
 
 Post_FX_UBO :: struct #packed {
 	// Header (16 bytes)
@@ -170,7 +171,7 @@ Post_FX_UBO :: struct #packed {
 	vignette_intensity:  f32,
 	vignette_smoothness: f32,
 	vignette_roundness:  f32,
-	_pad1:               f32,
+	_:                   f32,
 
 	// Grain (32 bytes)
 	grain_intensity:            f32,
@@ -180,20 +181,20 @@ Post_FX_UBO :: struct #packed {
 	grain_shadows_max:          f32,
 	grain_highlights_min:       f32,
 	grain_texel_size:           f32,
-	_pad2:                      f32,
+	_:                          f32,
 
 	// Exposure (16 bytes)
 	exposure_manual: f32,
-	_pad3:           [3]f32,
+	_:               [3]f32,
 
 	// Chromatic Aberration (16 bytes)
 	chrom_abbr_strength: f32,
-	_pad4:               [3]f32,
+	_:                   [3]f32,
 
 	// White Balance (16 bytes)
 	wb_temperature: f32,
 	wb_tint:        f32,
-	_pad5:          [2]f32,
+	_:              [2]f32,
 
 	// Color Grading (32 bytes)
 	grading_saturation: f32,
@@ -202,7 +203,7 @@ Post_FX_UBO :: struct #packed {
 	grading_gain:       f32,
 	grading_offset:     f32,
 	grading_lift:       f32,
-	_pad6:              [2]f32,
+	_:                  [2]f32,
 
 	// Tonemap (32 bytes)
 	tonemap_slope:      f32,
@@ -210,7 +211,7 @@ Post_FX_UBO :: struct #packed {
 	tonemap_shoulder:   f32,
 	tonemap_black_clip: f32,
 	tonemap_white_clip: f32,
-	_pad7:              [3]f32,
+	_:                  [3]f32,
 
 	// Bloom (16 bytes)
 	bloom_intensity:      f32,
@@ -222,7 +223,7 @@ Post_FX_UBO :: struct #packed {
 	fxaa_subpix:             f32,
 	fxaa_edge_threshold:     f32,
 	fxaa_edge_threshold_min: f32,
-	_pad10:                  f32,
+	_:                       f32,
 
 	// DoF (16 bytes)
 	dof_focal_distance:   f32,
@@ -231,10 +232,12 @@ Post_FX_UBO :: struct #packed {
 	dof_anamorphic_ratio: f32,
 
 	// Camera planes (16 bytes)
-	z_near:  f32,
-	z_far:   f32,
-	_pad11:  [2]f32,
+	z_near: f32,
+	z_far:  f32,
+	_:      [2]f32,
 }
+
+#assert(size_of(Post_FX_UBO) == 240)
 
 // Texture unit assignments for post-processing samplers.
 TEX_UNIT_SCENE    :: 0

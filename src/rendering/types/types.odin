@@ -11,7 +11,7 @@ Sphere_Instance :: struct #align(64) {
 	metallic:    f32,      // PBR metallic factor (0.0 - 1.0)
 	roughness:   f32,      // PBR roughness factor (0.0 - 1.0)
 	ao:          f32,      // Ambient occlusion factor
-	_padding:    f32,      // Alignment padding
+	_:           f32,      // std430 alignment
 	prev_center: mt.Vec3,  // Previous frame center (motion blur)
 }
 
