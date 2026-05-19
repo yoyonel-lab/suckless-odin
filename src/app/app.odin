@@ -143,6 +143,7 @@ run :: proc(application: ^App) {
 			env_texture_width   = application.scene.env_texture.width,
 			env_texture_height  = application.scene.env_texture.height,
 			postfx              = &application.scene.postfx_pipeline,
+			frame_time_ms       = application.scene.overlay.frame_time_display,
 		})
 		gui.render(&application.imgui)
 

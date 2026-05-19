@@ -23,6 +23,9 @@ Scene_State :: struct {
 	// Post-processing pipeline (live controls)
 	postfx: ^postfx.Pipeline,
 
+	// Smoothed frame time from overlay (single source of truth)
+	frame_time_ms: f32,
+
 	// IBL debug textures (GL handles)
 	ibl_irradiance_map: u32,
 	ibl_prefilter_map:  u32,
@@ -151,6 +154,14 @@ update :: proc(g: ^Gui, state: Scene_State) {
 				}
 				if imgui.BeginTabItem("Post-FX") {
 					draw_postfx_section(state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("GPU") {
+					draw_gpu_timings_section(state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("Shaders") {
+					draw_shader_cache_section(state)
 					imgui.EndTabItem()
 				}
 				if imgui.BeginTabItem("IBL Debug", flags = g.ibl_debug_open ? imgui.TabItemFlags{.SetSelected} : {}) {
