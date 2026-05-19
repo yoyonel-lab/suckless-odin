@@ -20,7 +20,9 @@ window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1) -> g
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, GL_MAJOR)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, GL_MINOR)
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-	glfw.WindowHint(glfw.OPENGL_DEBUG_CONTEXT, 1)
+	when ODIN_DEBUG {
+		glfw.WindowHint(glfw.OPENGL_DEBUG_CONTEXT, 1)
+	}
 	when ODIN_OS == .Darwin {
 		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, 1)
 	}
