@@ -147,7 +147,7 @@ pipeline_end :: proc(p: ^Pipeline) {
 	}
 
 	// Collect previous frame's timer results (non-blocking)
-	gpu_timers_collect(&p.timers)
+	gpu_timers_collect(&p.timers, p.dt)
 
 	// Run bloom multi-pass if enabled
 	gpu_timer_begin(&p.timers, .Bloom)
@@ -157,14 +157,18 @@ pipeline_end :: proc(p: ^Pipeline) {
 	gpu_timer_end(&p.timers, .Bloom)
 
 	// Run DoF pre-blur if enabled (reuses bloom shaders)
+	gpu_timer_begin(&p.timers, .Dof)
 	if .Dof in p.active_effects {
 		dof_render(&p.dof_fx, &p.bloom_fx, &p.dof, p.scene_color_tex, &p.quad)
 	}
+	gpu_timer_end(&p.timers, .Dof)
 
 	// Run auto-exposure compute passes if enabled
+	gpu_timer_begin(&p.timers, .Auto_Exposure)
 	if .Auto_Exposure in p.active_effects {
 		auto_exposure_render(&p.auto_exposure_fx, p.scene_color_tex, p.dt)
 	}
+	gpu_timer_end(&p.timers, .Auto_Exposure)
 
 	// Restore the framebuffer that was active before begin
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
