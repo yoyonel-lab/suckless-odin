@@ -239,6 +239,21 @@ Post_FX_UBO :: struct #packed {
 
 #assert(size_of(Post_FX_UBO) == 240)
 
+// Compile-time offset verification — matches GLSL PostProcessBlock (std140).
+// If any field shifts, these will catch the mismatch at compile time.
+#assert(offset_of(Post_FX_UBO, active_effects)      == 0)    // Header
+#assert(offset_of(Post_FX_UBO, vignette_intensity)   == 16)   // Vignette
+#assert(offset_of(Post_FX_UBO, grain_intensity)      == 32)   // Grain
+#assert(offset_of(Post_FX_UBO, exposure_manual)      == 64)   // Exposure
+#assert(offset_of(Post_FX_UBO, chrom_abbr_strength)  == 80)   // ChromAbbr
+#assert(offset_of(Post_FX_UBO, wb_temperature)       == 96)   // WhiteBalance
+#assert(offset_of(Post_FX_UBO, grading_saturation)   == 112)  // ColorGrading
+#assert(offset_of(Post_FX_UBO, tonemap_slope)        == 144)  // Tonemap
+#assert(offset_of(Post_FX_UBO, bloom_intensity)      == 176)  // Bloom
+#assert(offset_of(Post_FX_UBO, fxaa_subpix)          == 192)  // FXAA
+#assert(offset_of(Post_FX_UBO, dof_focal_distance)   == 208)  // DoF
+#assert(offset_of(Post_FX_UBO, z_near)               == 224)  // Camera planes
+
 // Texture unit assignments for post-processing samplers.
 TEX_UNIT_SCENE    :: 0
 TEX_UNIT_BLOOM    :: 1
