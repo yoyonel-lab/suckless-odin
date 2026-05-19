@@ -37,9 +37,10 @@ Text_Overlay :: struct {
 	chardata: [FONT_CHAR_COUNT]stbtt.bakedchar,
 
 	// FPS tracking
-	frame_count:  i32,
-	fps_accum:    f32,
-	fps_display:  f32,
+	frame_count:        i32,
+	fps_accum:          f32,
+	fps_display:        f32,
+	frame_time_display: f32, // smoothed frame time (ms), same window as fps
 }
 
 overlay_create :: proc(overlay: ^Text_Overlay) -> bool {
@@ -153,6 +154,7 @@ overlay_update :: proc(overlay: ^Text_Overlay, dt: f32) {
 	overlay.frame_count += 1
 	if overlay.fps_accum >= 0.5 {
 		overlay.fps_display = f32(overlay.frame_count) / overlay.fps_accum
+		overlay.frame_time_display = (overlay.fps_accum / f32(overlay.frame_count)) * 1000.0
 		overlay.frame_count = 0
 		overlay.fps_accum = 0.0
 	}
@@ -164,7 +166,7 @@ overlay_render :: proc(overlay: ^Text_Overlay, width, height: i32, cam_pos: mt.V
 	if overlay.program == 0 || overlay.texture == 0 { return }
 
 	// Build text lines
-	line0 := fmt.tprintf("FPS: %.1f", overlay.fps_display)
+	line0 := fmt.tprintf("FPS: %.1f  (%.2f ms)", overlay.fps_display, overlay.frame_time_display)
 	line1 := fmt.tprintf("Pos: (%.2f, %.2f, %.2f)", cam_pos.x, cam_pos.y, cam_pos.z)
 	line2 := fmt.tprintf("Yaw: %.1f  Pitch: %.1f", cam_yaw, cam_pitch)
 
