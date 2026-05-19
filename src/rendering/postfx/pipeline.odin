@@ -107,6 +107,12 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 	set_sampler_uniforms(p.composite_program)
 	gl.UseProgram(0)
 
+	// Validate UBO layout matches GPU expectations (std140 cross-check)
+	if !validate_ubo_layout(p.composite_program) {
+		log.log_error("suckless-odin.postfx", "UBO validation failed — aborting pipeline creation")
+		return false
+	}
+
 	// Create sub-effects
 	bloom_create(&p.bloom_fx, width, height) or_return
 	dof_create(&p.dof_fx, width, height) or_return
