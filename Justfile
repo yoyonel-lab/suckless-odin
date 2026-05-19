@@ -133,7 +133,15 @@ gen-refs-xvfb:
 # --- Benchmarks ---
 
 # Run all benchmarks
-bench: bench-search
+bench: bench-search bench-render
+
+# GPU render benchmark (all postfx effects, glFinish per frame, 200 frames)
+bench-render: build-release
+    vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{build_base}}/release/suckless-odin --benchmark --benchmark-frames=200
+
+# GPU render benchmark (debug build)
+bench-render-debug: build
+    vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{build_base}}/debug/suckless-odin --benchmark --benchmark-frames=200
 
 # Fuzzy search benchmark (measures ns/call for fuzzy_match + levenshtein)
 bench-search:
