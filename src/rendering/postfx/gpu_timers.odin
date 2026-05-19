@@ -5,18 +5,16 @@ import gl "vendor:OpenGL"
 // GPU timer queries for per-pass profiling.
 // Uses GL_TIME_ELAPSED queries with double-buffering to avoid stalls.
 
-NUM_TIMER_PASSES :: 3 // must match len(Timer_Pass)
+NUM_TIMER_PASSES :: 2 // Bloom + Composite (Total is computed)
 
 Timer_Pass :: enum {
 	Bloom,
 	Composite,
-	Total,
 }
 
 TIMER_PASS_NAMES :: [Timer_Pass]string{
 	.Bloom     = "Bloom",
 	.Composite = "Composite",
-	.Total     = "Total",
 }
 
 // Double-buffered query objects (read frame N-1 while writing frame N).
@@ -96,4 +94,13 @@ gpu_timers_collect :: proc(t: ^Gpu_Timers) {
 // Get the last measured time for a pass (in milliseconds).
 gpu_timer_get_ms :: proc(t: ^Gpu_Timers, pass: Timer_Pass) -> f32 {
 	return t.results_ms[pass]
+}
+
+// Get total time (sum of all passes) in milliseconds.
+gpu_timer_get_total_ms :: proc(t: ^Gpu_Timers) -> f32 {
+	total: f32
+	for pass in Timer_Pass {
+		total += t.results_ms[pass]
+	}
+	return total
 }

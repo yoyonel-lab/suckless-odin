@@ -198,7 +198,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 		if p.timers.enabled {
 			bloom_ms := postfx.gpu_timer_get_ms(&p.timers, .Bloom)
 			composite_ms := postfx.gpu_timer_get_ms(&p.timers, .Composite)
-			total_ms := postfx.gpu_timer_get_ms(&p.timers, .Total)
+			total_ms := postfx.gpu_timer_get_total_ms(&p.timers)
 			imgui.Text("Bloom:     %.3f ms", bloom_ms)
 			imgui.Text("Composite: %.3f ms", composite_ms)
 			imgui.Text("Total:     %.3f ms", total_ms)

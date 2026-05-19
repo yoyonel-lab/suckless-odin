@@ -149,9 +149,6 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Collect previous frame's timer results (non-blocking)
 	gpu_timers_collect(&p.timers)
 
-	// Total timer wraps everything
-	gpu_timer_begin(&p.timers, .Total)
-
 	// Run bloom multi-pass if enabled
 	gpu_timer_begin(&p.timers, .Bloom)
 	if .Bloom in p.active_effects {
@@ -214,7 +211,6 @@ pipeline_end :: proc(p: ^Pipeline) {
 	quad_draw(&p.quad)
 
 	gpu_timer_end(&p.timers, .Composite)
-	gpu_timer_end(&p.timers, .Total)
 
 	// Restore state
 	gl.Enable(gl.DEPTH_TEST)
