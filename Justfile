@@ -15,22 +15,22 @@ default: build run
 # Debug build
 build:
     @mkdir -p {{build_base}}/debug
-    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -extra-linker-flags:"{{extra_linker_flags}}"
+    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -use-separate-modules -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Release build (optimized)
 build-release:
     @mkdir -p {{build_base}}/release
-    odin build src/ -out:{{build_base}}/release/suckless-odin -o:speed -extra-linker-flags:"{{extra_linker_flags}}"
+    odin build src/ -out:{{build_base}}/release/suckless-odin -o:speed -use-separate-modules -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Build with all vet checks + strict style (lint errors = build errors)
 build-strict:
     @mkdir -p {{build_base}}/debug
-    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -vet -strict-style -warnings-as-errors -extra-linker-flags:"{{extra_linker_flags}}"
+    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -use-separate-modules -vet -strict-style -warnings-as-errors -extra-linker-flags:"{{extra_linker_flags}}"
 
 # Sanitizer build (address + undefined behavior)
 build-sanitize:
     @mkdir -p {{build_base}}/sanitize
-    odin build src/ -out:{{build_base}}/sanitize/suckless-odin -debug -sanitize:address -extra-linker-flags:"{{extra_linker_flags}}"
+    odin build src/ -out:{{build_base}}/sanitize/suckless-odin -debug -use-separate-modules -sanitize:address -extra-linker-flags:"{{extra_linker_flags}}"
 
 # --- Run ---
 
