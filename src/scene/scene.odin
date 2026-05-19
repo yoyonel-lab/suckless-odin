@@ -47,7 +47,8 @@ Scene :: struct {
 HDR_PATH      :: "../suckless-ogl/assets/textures/hdr/cedar_bridge_2_4k.hdr"
 MATERIALS_PATH :: "assets/materials/pbr_materials.json"
 
-scene_create :: proc(s: ^Scene, width, height: i32) -> bool {
+scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
+	defer if !ok { scene_destroy(s) }
 	// Camera (ISO: same defaults as C — distance=20, yaw=-90, pitch=0)
 	cam.init(
 		&s.camera,
