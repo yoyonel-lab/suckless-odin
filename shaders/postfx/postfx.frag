@@ -101,6 +101,42 @@ layout(std140, binding = 0) uniform PostProcessBlock
 	float zFar;
 	float _pad11_0;
 	float _pad11_1;
+
+	// Motion Blur (16 bytes)
+	float mb_intensity;
+	float mb_maxVelocity;
+	int mb_samples;
+	float _pad12;
+
+	// Banding (32 bytes)
+	int bandingMode;
+	float bandingLevels;
+	float bandingDitherStrength;
+	float bandingPerceptualGamma;
+	vec3 bandingChannelLevels;
+	float _pad13;
+
+	// Fog (112 bytes)
+	float fog_density;
+	float fog_start;
+	float fog_heightFalloff;
+	float fog_maxOpacity;
+	vec3 fog_color;
+	float _pad14;
+	vec4 fog_camPos;
+	mat4 fog_invViewProj;
+
+	// LUT3D (16 bytes)
+	float lut3d_intensity;
+	float _pad15_a;
+	float _pad15_b;
+	float _pad15_c;
+
+	// Debug split-screen mask (16 bytes)
+	uint debugSplitMask;
+	float _pad16_a;
+	float _pad16_b;
+	float _pad16_c;
 };
 
 // --- Effect flag helpers ---
@@ -150,6 +186,16 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
 #define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
 #define enableDoFDebug      ((activeEffects & (1u << 7u)) != 0u)
+#define enableFXAADebug     ((activeEffects & (1u << 17u)) != 0u)
+#define enableStencilDebug  ((activeEffects & (1u << 18u)) != 0u)
+#define enableBloomDebug    ((activeEffects & (1u << 19u)) != 0u)
+
+// Split-screen A/B debug: returns true when the pixel is in the right half
+// AND the given effect bit is set in debugSplitMask → the effect should be bypassed.
+bool splitBypassed(uint effectBit)
+{
+	return (debugSplitMask & (1u << effectBit)) != 0u && TexCoords.x > 0.5;
+}
 
 // ============================================================================
 // EFFECT: CHROMATIC ABERRATION
@@ -200,6 +246,7 @@ vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
 
 	// Early exit: contrast too low
 	if (range < max(fxaaQualityEdgeThresholdMin, rangeMax * fxaaQualityEdgeThreshold)) {
+		if (enableFXAADebug) return vec3(lumaM * 0.5); // Untouched (grayscale)
 		return colorInput;
 	}
 
@@ -300,6 +347,15 @@ vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
 
 	// Blend with subpixel
 	finalOffset = max(finalOffset, subPixelOffsetFinal);
+
+	if (enableFXAADebug) {
+		if (finalOffset > 0.001) {
+			if (subPixelOffsetFinal > finalOffset * 0.9)
+				return vec3(0.1, 0.4, 1.0); // Subpixel (blue)
+			return vec3(1.0, 0.2, 0.2);     // Edge (red)
+		}
+		return vec3(lumaM * 0.5);           // Untouched (grayscale)
+	}
 
 	// Final read
 	vec2 finalUv = texCoords;
@@ -469,40 +525,46 @@ void main()
 {
 	vec3 color;
 
+	// Debug priority: Bloom_Debug shows the bloom contribution (intensity-weighted).
+	if (enableBloomDebug) {
+		FragColor = vec4(texture(bloomTexture, TexCoords).rgb * b_intensity, 1.0);
+		return;
+	}
+
 	// 1. Chromatic Aberration (samples screenTexture with R/B offsets)
-	if (enableChromAbbr) {
+	if (enableChromAbbr && !splitBypassed(3u)) {
 		color = applyChromAbbr(TexCoords);
 	} else {
 		color = texture(screenTexture, TexCoords).rgb;
 	}
 
 	// 2. FXAA (spatial anti-aliasing, operates on screenTexture neighbors)
-	if (enableFXAA) {
+	if (enableFXAA && !splitBypassed(12u)) {
 		color = applyFXAA(color, TexCoords);
 	}
 
 	// 3. Depth of Field (mix sharp/blurred based on CoC from depth)
-	if (enableDoF) {
+	if (enableDoF && !splitBypassed(6u)) {
 		color = applyDoF(color, TexCoords);
 	}
 
 	// 4. Bloom mix (additive from separate bloom texture)
-	if (enableBloom) {
+	if (enableBloom && !splitBypassed(4u)) {
 		color = applyBloom(color);
 	}
 
-	// 5. Exposure (HDR brightness)
-	if (enableExposure) {
+	// 5. Exposure (HDR brightness) — also runs when only Auto_Exposure is active.
+	if ((enableExposure || enableAutoExposure) && !splitBypassed(2u) && !splitBypassed(8u)) {
 		color = applyExposure(color);
 	}
 
 	// 6. Tonemapping (HDR → LDR)
-	if (enableTonemap) {
+	if (enableTonemap && !splitBypassed(13u)) {
 		color = unrealTonemap(color);
 	}
 
 	// 7. Color grading (post-tonemap, LDR space)
-	if (enableColorGrading) {
+	if (enableColorGrading && !splitBypassed(5u)) {
 		color = pow(max(color, vec3(0.0)), vec3(1.0 / cg_gamma));
 		color = (color - 0.5) * cg_contrast + 0.5;
 		float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
@@ -511,13 +573,19 @@ void main()
 	}
 
 	// 8. Vignette
-	if (enableVignette) {
+	if (enableVignette && !splitBypassed(0u)) {
 		color = applyVignette(color, TexCoords);
 	}
 
 	// 9. Grain (applied last before output)
-	if (enableGrain) {
+	if (enableGrain && !splitBypassed(1u)) {
 		color = applyGrain(color, TexCoords);
+	}
+
+	// Draw split-line separator when any debug split is active.
+	if (debugSplitMask != 0u && abs(TexCoords.x - 0.5) < screenTexelSize.x * 1.5) {
+		FragColor = vec4(1.0, 1.0, 0.0, 1.0); // Yellow vertical line
+		return;
 	}
 
 	FragColor = vec4(color, 1.0);

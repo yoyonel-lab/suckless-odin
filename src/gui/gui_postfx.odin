@@ -1,5 +1,6 @@
 package gui
 
+import "core:fmt"
 import imgui "../../deps/odin-imgui"
 import postfx "../rendering/postfx"
 
@@ -28,12 +29,27 @@ draw_postfx_section :: proc(state: Scene_State) {
 
 	// --- Preset selector ---
 	@(static) current_preset: i32 = 0
-	if imgui.Combo(
-		"Preset",
-		&current_preset,
-		"Default\x00Subtle\x00Cinematic\x00Vibrant\x00Clean\x00",
-	) {
-		postfx.pipeline_apply_preset(p, postfx.Preset_Id(current_preset))
+	preset_names := postfx.PRESET_NAMES
+	preset_wip := postfx.PRESET_WIP
+	preview := fmt.ctprintf("%s", preset_names[postfx.Preset_Id(current_preset)])
+	if imgui.BeginCombo("Preset", preview) {
+		for id in postfx.Preset_Id {
+			is_selected := i32(id) == current_preset
+			wip := preset_wip[id]
+			label: cstring
+			if wip {
+				label = fmt.ctprintf("%s (WIP)", preset_names[id])
+			} else {
+				label = fmt.ctprintf("%s", preset_names[id])
+			}
+			if wip { imgui.BeginDisabled() }
+			if imgui.Selectable(label, is_selected) {
+				current_preset = i32(id)
+				postfx.pipeline_apply_preset(p, id)
+			}
+			if wip { imgui.EndDisabled() }
+		}
+		imgui.EndCombo()
 	}
 	imgui.Spacing()
 	imgui.Separator()
@@ -47,8 +63,13 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if exposure_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##exposure", {}) {
+			if imgui.SmallButton("Reset##exposure") { postfx.pipeline_reset_effect(p, .Exposure) }
 			if imgui.SliderFloat("Exposure##value", &p.exposure.exposure, 0.1, 10.0) {
 				p.ubo_dirty = true
+			}
+			exposure_split := postfx.Post_Effect.Exposure in p.debug_split
+			if imgui.Checkbox("A/B Split##exposure", &exposure_split) {
+				postfx.pipeline_toggle_split(p, .Exposure)
 			}
 			imgui.TreePop()
 		}
@@ -62,11 +83,16 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if tonemap_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##tonemap", {}) {
+			if imgui.SmallButton("Reset##tonemap") { postfx.pipeline_reset_effect(p, .Tonemap) }
 			if imgui.SliderFloat("Slope", &p.tonemapper.slope, 0.1, 3.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Toe", &p.tonemapper.toe, 0.0, 1.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Shoulder", &p.tonemapper.shoulder, 0.0, 2.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Black Clip", &p.tonemapper.black_clip, 0.0, 0.5) { p.ubo_dirty = true }
 			if imgui.SliderFloat("White Clip", &p.tonemapper.white_clip, 0.0, 0.5) { p.ubo_dirty = true }
+			tonemap_split := postfx.Post_Effect.Tonemap in p.debug_split
+			if imgui.Checkbox("A/B Split##tonemap", &tonemap_split) {
+				postfx.pipeline_toggle_split(p, .Tonemap)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -79,9 +105,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if vignette_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##vignette", {}) {
+			if imgui.SmallButton("Reset##vignette") { postfx.pipeline_reset_effect(p, .Vignette) }
 			if imgui.SliderFloat("Intensity##vig", &p.vignette.intensity, 0.0, 2.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Smoothness##vig", &p.vignette.smoothness, 0.01, 2.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Roundness##vig", &p.vignette.roundness, 0.0, 1.0) { p.ubo_dirty = true }
+			vignette_split := postfx.Post_Effect.Vignette in p.debug_split
+			if imgui.Checkbox("A/B Split##vignette", &vignette_split) {
+				postfx.pipeline_toggle_split(p, .Vignette)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -94,8 +125,13 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if grain_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##grain", {}) {
+			if imgui.SmallButton("Reset##grain") { postfx.pipeline_reset_effect(p, .Grain) }
 			if imgui.SliderFloat("Intensity##grain", &p.grain.intensity, 0.0, 0.2) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Texel Size##grain", &p.grain.texel_size, 0.5, 4.0) { p.ubo_dirty = true }
+			grain_split := postfx.Post_Effect.Grain in p.debug_split
+			if imgui.Checkbox("A/B Split##grain", &grain_split) {
+				postfx.pipeline_toggle_split(p, .Grain)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -108,7 +144,12 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if ca_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##ca", {}) {
+			if imgui.SmallButton("Reset##ca") { postfx.pipeline_reset_effect(p, .Chrom_Abbr) }
 			if imgui.SliderFloat("Strength##ca", &p.chrom_abbr.strength, 0.0, 0.05) { p.ubo_dirty = true }
+			ca_split := postfx.Post_Effect.Chrom_Abbr in p.debug_split
+			if imgui.Checkbox("A/B Split##ca", &ca_split) {
+				postfx.pipeline_toggle_split(p, .Chrom_Abbr)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -121,11 +162,16 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if cg_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##cg", {}) {
+			if imgui.SmallButton("Reset##cg") { postfx.pipeline_reset_effect(p, .Color_Grading) }
 			if imgui.SliderFloat("Saturation", &p.color_grading.saturation, 0.0, 2.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Contrast", &p.color_grading.contrast, 0.0, 2.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Gamma##cg", &p.color_grading.gamma, 0.1, 3.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Gain", &p.color_grading.gain, 0.0, 2.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Offset", &p.color_grading.offset, -0.5, 0.5) { p.ubo_dirty = true }
+			cg_split := postfx.Post_Effect.Color_Grading in p.debug_split
+			if imgui.Checkbox("A/B Split##cg", &cg_split) {
+				postfx.pipeline_toggle_split(p, .Color_Grading)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -138,10 +184,19 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if bloom_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##bloom", {}) {
+			if imgui.SmallButton("Reset##bloom") { postfx.pipeline_reset_effect(p, .Bloom) }
 			if imgui.SliderFloat("Intensity##bloom", &p.bloom.intensity, 0.0, 2.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Threshold##bloom", &p.bloom.threshold, 0.0, 5.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Soft Knee##bloom", &p.bloom.soft_threshold, 0.0, 1.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Radius##bloom", &p.bloom.radius, 0.1, 4.0) { p.ubo_dirty = true }
+			bloom_debug := postfx.Post_Effect.Bloom_Debug in p.active_effects
+			if imgui.Checkbox("Debug##bloom", &bloom_debug) {
+				postfx.pipeline_toggle(p, .Bloom_Debug)
+			}
+			bloom_split := postfx.Post_Effect.Bloom in p.debug_split
+			if imgui.Checkbox("A/B Split##bloom", &bloom_split) {
+				postfx.pipeline_toggle_split(p, .Bloom)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -154,9 +209,18 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if fxaa_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##fxaa", {}) {
+			if imgui.SmallButton("Reset##fxaa") { postfx.pipeline_reset_effect(p, .FXAA) }
 			if imgui.SliderFloat("Subpixel Quality", &p.fxaa.subpix, 0.0, 1.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Edge Threshold", &p.fxaa.edge_threshold, 0.01, 0.5) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Edge Threshold Min", &p.fxaa.edge_threshold_min, 0.01, 0.2) { p.ubo_dirty = true }
+			fxaa_debug := postfx.Post_Effect.FXAA_Debug in p.active_effects
+			if imgui.Checkbox("Debug##fxaa", &fxaa_debug) {
+				postfx.pipeline_toggle(p, .FXAA_Debug)
+			}
+			fxaa_split := postfx.Post_Effect.FXAA in p.debug_split
+			if imgui.Checkbox("A/B Split##fxaa", &fxaa_split) {
+				postfx.pipeline_toggle_split(p, .FXAA)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -169,6 +233,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if ae_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##ae", {}) {
+			if imgui.SmallButton("Reset##ae") { postfx.pipeline_reset_effect(p, .Auto_Exposure) }
 			imgui.SliderFloat("Min Luminance", &p.auto_exposure_fx.params.min_luminance, 0.001, 1.0)
 			imgui.SliderFloat("Max Luminance", &p.auto_exposure_fx.params.max_luminance, 100.0, 50000.0)
 			imgui.SliderFloat("Speed Up", &p.auto_exposure_fx.params.speed_up, 0.1, 10.0)
@@ -178,6 +243,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.Text("Current: %.3f", p.auto_exposure_fx.current_exposure)
 			imgui.Text("Scene Lum: %.4f", p.auto_exposure_fx.current_scene_lum)
 			imgui.Text("Target: %.3f", p.auto_exposure_fx.current_target)
+			ae_split := postfx.Post_Effect.Auto_Exposure in p.debug_split
+			if imgui.Checkbox("A/B Split##ae", &ae_split) {
+				postfx.pipeline_toggle_split(p, .Auto_Exposure)
+			}
 			imgui.TreePop()
 		}
 	}
@@ -190,24 +259,56 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if dof_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##dof", {}) {
+			if imgui.SmallButton("Reset##dof") { postfx.pipeline_reset_effect(p, .Dof) }
 			if imgui.SliderFloat("Focal Distance##dof", &p.dof.focal_distance, 1.0, 100.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Focal Range##dof", &p.dof.focal_range, 0.5, 50.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Bokeh Scale##dof", &p.dof.bokeh_scale, 1.0, 50.0) { p.ubo_dirty = true }
 			if imgui.SliderFloat("Anamorphic##dof", &p.dof.anamorphic_ratio, 0.5, 2.0) { p.ubo_dirty = true }
 
 			dof_debug := postfx.Post_Effect.Dof_Debug in p.active_effects
-			if imgui.Checkbox("Debug Zones##dof", &dof_debug) {
+			if imgui.Checkbox("Debug##dof", &dof_debug) {
 				postfx.pipeline_toggle(p, .Dof_Debug)
+			}
+			dof_split := postfx.Post_Effect.Dof in p.debug_split
+			if imgui.Checkbox("A/B Split##dof", &dof_split) {
+				postfx.pipeline_toggle_split(p, .Dof)
 			}
 			imgui.TreePop()
 		}
 	}
 
-	// --- Not yet implemented effects ---
+	// --- Motion Blur (Phase 4 — not yet implemented) ---
 	imgui.BeginDisabled()
-	mb_placeholder := false
-	imgui.Checkbox("Motion Blur", &mb_placeholder)
+	mb_on := postfx.Post_Effect.Motion_Blur in p.active_effects
+	imgui.Checkbox("Motion Blur", &mb_on)
+	imgui.SameLine()
+	imgui.TextDisabled("(WIP)")
 	imgui.EndDisabled()
+
+	// --- Banding (Phase 2 — not yet implemented) ---
+	imgui.BeginDisabled()
+	banding_on := postfx.Post_Effect.Banding in p.active_effects
+	imgui.Checkbox("Banding", &banding_on)
+	imgui.SameLine()
+	imgui.TextDisabled("(WIP)")
+	imgui.EndDisabled()
+
+	// --- Fog (Phase 3 — not yet implemented) ---
+	imgui.BeginDisabled()
+	fog_on := postfx.Post_Effect.Fog in p.active_effects
+	imgui.Checkbox("Fog", &fog_on)
+	imgui.SameLine()
+	imgui.TextDisabled("(WIP)")
+	imgui.EndDisabled()
+
+	// --- LUT3D (Phase 5 — not yet implemented) ---
+	imgui.BeginDisabled()
+	lut_on := postfx.Post_Effect.LUT3D in p.active_effects
+	imgui.Checkbox("LUT3D", &lut_on)
+	imgui.SameLine()
+	imgui.TextDisabled("(WIP)")
+	imgui.EndDisabled()
+	_ = mb_on; _ = banding_on; _ = fog_on; _ = lut_on
 
 	imgui.Spacing()
 }
@@ -340,6 +441,10 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 		.Banding       = "Banding",
 		.Fog           = "Fog",
 		.LUT3D         = "LUT3D",
+		.FXAA_Debug    = "FXAA Debug",
+		.Stencil_Debug = "Stencil Debug",
+		.Bloom_Debug   = "Bloom Debug",
+		.Fog_Debug     = "Fog Debug",
 	}
 	effect_names := EFFECT_NAMES
 	active_count := 0
@@ -522,6 +627,46 @@ draw_postfx_filtered :: proc(state: Scene_State, filter: cstring) -> int {
 			postfx.pipeline_toggle(p, .FXAA)
 		}
 		if imgui.SliderFloat("Subpixel##fxaa_filt", &p.fxaa.subpix, 0.0, 1.0) { p.ubo_dirty = true }
+		match_count += 1
+	}
+
+	if fuzzy_match(filter, "Motion Blur", "postfx motion blur velocity camera movement") {
+		imgui.BeginDisabled()
+		mb_on := postfx.Post_Effect.Motion_Blur in p.active_effects
+		imgui.Checkbox("Motion Blur##filt", &mb_on)
+		imgui.SameLine(); imgui.TextDisabled("(WIP)")
+		imgui.EndDisabled()
+		_ = mb_on
+		match_count += 1
+	}
+
+	if fuzzy_match(filter, "Banding", "postfx banding posterize quantize dither retro") {
+		imgui.BeginDisabled()
+		banding_on := postfx.Post_Effect.Banding in p.active_effects
+		imgui.Checkbox("Banding##filt", &banding_on)
+		imgui.SameLine(); imgui.TextDisabled("(WIP)")
+		imgui.EndDisabled()
+		_ = banding_on
+		match_count += 1
+	}
+
+	if fuzzy_match(filter, "Fog", "postfx fog haze atmosphere depth distance") {
+		imgui.BeginDisabled()
+		fog_on := postfx.Post_Effect.Fog in p.active_effects
+		imgui.Checkbox("Fog##filt", &fog_on)
+		imgui.SameLine(); imgui.TextDisabled("(WIP)")
+		imgui.EndDisabled()
+		_ = fog_on
+		match_count += 1
+	}
+
+	if fuzzy_match(filter, "LUT3D", "postfx lut lookup table color grading 3d film emulation") {
+		imgui.BeginDisabled()
+		lut_on := postfx.Post_Effect.LUT3D in p.active_effects
+		imgui.Checkbox("LUT3D##filt", &lut_on)
+		imgui.SameLine(); imgui.TextDisabled("(WIP)")
+		imgui.EndDisabled()
+		_ = lut_on
 		match_count += 1
 	}
 

@@ -22,6 +22,10 @@ Post_Effect :: enum u32 {
 	Banding        = 14,
 	Fog            = 15,
 	LUT3D          = 16,
+	FXAA_Debug     = 17,
+	Stencil_Debug  = 18,
+	Bloom_Debug    = 19,
+	Fog_Debug      = 20,
 }
 
 // Type-safe set of enabled effects — maps directly to GLSL uint bitfield.
@@ -103,6 +107,41 @@ Dof_Params :: struct {
 	anamorphic_ratio: f32,
 }
 
+// Banding algorithm modes (matches GLSL bandingMode).
+Banding_Mode :: enum i32 {
+	Linear     = 0, // Standard uniform posterization
+	Dithered   = 1, // Ordered dithering (Bayer 4x4)
+	Perceptual = 2, // Gamma-weighted quantization
+	Channel    = 3, // Independent RGB levels
+	Luminance  = 4, // Grayscale quantization + tint
+}
+
+Banding_Params :: struct {
+	mode:             Banding_Mode,
+	levels:           f32,
+	dither_strength:  f32,
+	perceptual_gamma: f32,
+	channel_levels:   [3]f32,
+}
+
+Fog_Params :: struct {
+	density:        f32,
+	start:          f32,
+	height_falloff: f32,
+	max_opacity:    f32,
+	color:          [3]f32,
+}
+
+Motion_Blur_Params :: struct {
+	intensity:    f32,
+	max_velocity: f32,
+	samples:      i32,
+}
+
+LUT3D_Params :: struct {
+	intensity: f32,
+}
+
 // --- Default Values ---
 
 DEFAULT_VIGNETTE_INTENSITY  :: 0.8
@@ -155,6 +194,44 @@ DEFAULT_DOF_PARAMS :: Dof_Params{
 	focal_range      = DEFAULT_DOF_FOCAL_RANGE,
 	bokeh_scale      = DEFAULT_DOF_BOKEH_SCALE,
 	anamorphic_ratio = DEFAULT_DOF_ANAMORPHIC_RATIO,
+}
+
+// Banding defaults
+DEFAULT_BANDING_LEVELS :: 256.0 // 8-bit simulation (no visible banding)
+
+DEFAULT_BANDING_PARAMS :: Banding_Params{
+	mode             = .Linear,
+	levels           = DEFAULT_BANDING_LEVELS,
+	dither_strength  = 0.0,
+	perceptual_gamma = 1.0,
+	channel_levels   = {DEFAULT_BANDING_LEVELS, DEFAULT_BANDING_LEVELS, DEFAULT_BANDING_LEVELS},
+}
+
+// Fog defaults (matches legacy suckless-ogl)
+DEFAULT_FOG_DENSITY        :: 0.08
+DEFAULT_FOG_START          :: 18.0
+DEFAULT_FOG_HEIGHT_FALLOFF :: 0.02
+DEFAULT_FOG_MAX_OPACITY    :: 0.75
+DEFAULT_FOG_COLOR          :: [3]f32{0.20, 0.25, 0.30}
+
+DEFAULT_FOG_PARAMS :: Fog_Params{
+	density        = DEFAULT_FOG_DENSITY,
+	start          = DEFAULT_FOG_START,
+	height_falloff = DEFAULT_FOG_HEIGHT_FALLOFF,
+	max_opacity    = DEFAULT_FOG_MAX_OPACITY,
+	color          = DEFAULT_FOG_COLOR,
+}
+
+// Motion blur defaults
+DEFAULT_MOTION_BLUR_PARAMS :: Motion_Blur_Params{
+	intensity    = 0.5,
+	max_velocity = 40.0,
+	samples      = 16,
+}
+
+// LUT3D defaults
+DEFAULT_LUT3D_PARAMS :: LUT3D_Params{
+	intensity = 1.0,
 }
 
 // --- UBO Layout (std140, binding 0) ---
@@ -235,9 +312,42 @@ Post_FX_UBO :: struct #packed {
 	z_near: f32,
 	z_far:  f32,
 	_:      [2]f32,
+
+	// Motion Blur (16 bytes)
+	mb_intensity:    f32,
+	mb_max_velocity: f32,
+	mb_samples:      i32,
+	_:               f32,
+
+	// Banding (32 bytes)
+	banding_mode:             i32,
+	banding_levels:           f32,
+	banding_dither_strength:  f32,
+	banding_perceptual_gamma: f32,
+	banding_channel_levels:   [3]f32,
+	_:                        f32,
+
+	// Fog (112 bytes: 16 + 16 + 16 + 64)
+	fog_density:        f32,
+	fog_start:          f32,
+	fog_height_falloff: f32,
+	fog_max_opacity:    f32,
+	fog_color:          [3]f32,
+	_:                  f32,
+	fog_cam_pos:        [4]f32,
+	fog_inv_view_proj:  [16]f32, // mat4 as flat array (std140)
+
+	// LUT3D (16 bytes)
+	lut3d_intensity: f32,
+	_:               [3]f32,
+
+	// Debug split-screen mask (16 bytes) — per-effect: right half (UV.x > 0.5)
+	// bypasses the effect, left half applies it (A/B comparison view).
+	debug_split_mask: u32,
+	_pad_split:       [3]f32,
 }
 
-#assert(size_of(Post_FX_UBO) == 240)
+#assert(size_of(Post_FX_UBO) == 432)
 
 // Compile-time offset verification — matches GLSL PostProcessBlock (std140).
 // If any field shifts, these will catch the mismatch at compile time.
@@ -253,6 +363,11 @@ Post_FX_UBO :: struct #packed {
 #assert(offset_of(Post_FX_UBO, fxaa_subpix)          == 192)  // FXAA
 #assert(offset_of(Post_FX_UBO, dof_focal_distance)   == 208)  // DoF
 #assert(offset_of(Post_FX_UBO, z_near)               == 224)  // Camera planes
+#assert(offset_of(Post_FX_UBO, mb_intensity)         == 240)  // Motion Blur
+#assert(offset_of(Post_FX_UBO, banding_mode)         == 256)  // Banding
+#assert(offset_of(Post_FX_UBO, fog_density)          == 288)  // Fog
+#assert(offset_of(Post_FX_UBO, lut3d_intensity)      == 400)  // LUT3D
+#assert(offset_of(Post_FX_UBO, debug_split_mask)     == 416)  // Debug split
 
 // Texture unit assignments for post-processing samplers.
 TEX_UNIT_SCENE    :: 0

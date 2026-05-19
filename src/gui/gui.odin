@@ -156,7 +156,7 @@ update :: proc(g: ^Gui, state: Scene_State) {
 					draw_postfx_section(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("GPU") {
+				if imgui.BeginTabItem("Profiling") {
 					draw_gpu_timings_section(state)
 					imgui.EndTabItem()
 				}
@@ -564,18 +564,19 @@ draw_tab_rendering :: proc(state: Scene_State) {
 	imgui.Spacing()
 
 	// --- Debug Views ---
+	// Note: per-FX debug toggles (Bloom/DoF/FXAA) now live in the Post-FX tab,
+	// inside each effect's Settings tree. Only debug views with no host FX
+	// (or requiring extra infra: histogram, velocity tex, stencil bind) remain here.
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Debug Views")
 	imgui.Separator()
-	imgui.BeginDisabled()
 
 	placeholder := false
-	imgui.Checkbox("Bloom Debug", &placeholder)
-	imgui.Checkbox("DoF Debug", &placeholder)
+	imgui.BeginDisabled()
+	imgui.Checkbox("Fog Debug", &placeholder)
 	imgui.Checkbox("Exposure Histogram", &placeholder)
 	imgui.Checkbox("Motion Blur Debug", &placeholder)
-	imgui.Checkbox("FXAA Debug", &placeholder)
+	imgui.Checkbox("Vector Field Debug", &placeholder)
 	imgui.Checkbox("Stencil Debug", &placeholder)
-
 	imgui.EndDisabled()
 	imgui.Spacing()
 

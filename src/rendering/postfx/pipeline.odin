@@ -35,7 +35,12 @@ Pipeline :: struct {
 
 	// Effect state
 	active_effects: Effect_Flags,
+	debug_split:    Effect_Flags, // Per-effect A/B split (right half bypasses effect)
 	enabled:        bool,
+
+	// Cached debug/split state — restored when parent effect is re-enabled
+	cached_debug: Effect_Flags,
+	cached_split: Effect_Flags,
 
 	// Parameters
 	vignette:      Vignette_Params,
@@ -48,6 +53,10 @@ Pipeline :: struct {
 	bloom:         Bloom_Params,
 	fxaa:          FXAA_Params,
 	dof:           Dof_Params,
+	banding:       Banding_Params,
+	fog:           Fog_Params,
+	motion_blur:   Motion_Blur_Params,
+	lut3d:         LUT3D_Params,
 
 	// Per-frame data
 	time:      f32,
@@ -248,6 +257,47 @@ pipeline_update :: proc(p: ^Pipeline, dt: f32) {
 // Toggle an effect on/off.
 pipeline_toggle :: proc(p: ^Pipeline, effect: Post_Effect) {
 	p.active_effects ~= {effect}
+	if effect not_in p.active_effects {
+		// Disabling: cache debug/split state, then clear
+		p.cached_split += p.debug_split & {effect}
+		p.debug_split -= {effect}
+		#partial switch effect {
+		case .Bloom:
+			if .Bloom_Debug in p.active_effects { p.cached_debug += {.Bloom_Debug} }
+			p.active_effects -= {.Bloom_Debug}
+		case .FXAA:
+			if .FXAA_Debug in p.active_effects { p.cached_debug += {.FXAA_Debug} }
+			p.active_effects -= {.FXAA_Debug}
+		case .Dof:
+			if .Dof_Debug in p.active_effects { p.cached_debug += {.Dof_Debug} }
+			p.active_effects -= {.Dof_Debug}
+		case:
+		}
+	} else {
+		// Re-enabling: restore cached debug/split state
+		if effect in p.cached_split {
+			p.debug_split += {effect}
+			p.cached_split -= {effect}
+		}
+		#partial switch effect {
+		case .Bloom:
+			if .Bloom_Debug in p.cached_debug {
+				p.active_effects += {.Bloom_Debug}
+				p.cached_debug -= {.Bloom_Debug}
+			}
+		case .FXAA:
+			if .FXAA_Debug in p.cached_debug {
+				p.active_effects += {.FXAA_Debug}
+				p.cached_debug -= {.FXAA_Debug}
+			}
+		case .Dof:
+			if .Dof_Debug in p.cached_debug {
+				p.active_effects += {.Dof_Debug}
+				p.cached_debug -= {.Dof_Debug}
+			}
+		case:
+		}
+	}
 	p.ubo_dirty = true
 }
 
@@ -260,12 +310,59 @@ pipeline_enable :: proc(p: ^Pipeline, effect: Post_Effect) {
 // Disable an effect.
 pipeline_disable :: proc(p: ^Pipeline, effect: Post_Effect) {
 	p.active_effects -= {effect}
+	p.debug_split -= {effect}
+	p.ubo_dirty = true
+}
+
+// Toggle the A/B split-screen debug view for an effect.
+// Left half shows the effect applied, right half bypasses it.
+pipeline_toggle_split :: proc(p: ^Pipeline, effect: Post_Effect) {
+	p.debug_split ~= {effect}
 	p.ubo_dirty = true
 }
 
 // Check if an effect is active.
 pipeline_is_enabled :: proc(p: ^Pipeline, effect: Post_Effect) -> bool {
 	return effect in p.active_effects
+}
+
+// Toggle the per-effect A/B split debug view (right half bypasses the effect).
+pipeline_toggle_debug_split :: proc(p: ^Pipeline, effect: Post_Effect) {
+	p.debug_split ~= {effect}
+	p.ubo_dirty = true
+}
+
+// Reset a single effect's parameters to its Default preset values.
+// Does NOT toggle the effect's on/off state.
+pipeline_reset_effect :: proc(p: ^Pipeline, effect: Post_Effect) {
+	d := PRESETS[.Default]
+	switch effect {
+	case .Vignette:          p.vignette = d.vignette
+	case .Grain:             p.grain = d.grain
+	case .Exposure:          p.exposure = d.exposure
+	case .Chrom_Abbr:        p.chrom_abbr = d.chrom_abbr
+	case .Bloom:             p.bloom = d.bloom
+	case .Color_Grading:     p.color_grading = d.color_grading
+	case .Dof:               p.dof = d.dof
+	case .Auto_Exposure:
+		p.auto_exposure_fx.params = {
+			min_luminance = DEFAULT_AUTO_MIN_LUMINANCE,
+			max_luminance = DEFAULT_AUTO_MAX_LUMINANCE,
+			speed_up      = DEFAULT_AUTO_SPEED_UP,
+			speed_down    = DEFAULT_AUTO_SPEED_DOWN,
+			key_value     = DEFAULT_AUTO_KEY_VALUE,
+		}
+	case .Motion_Blur:       p.motion_blur = d.motion_blur
+	case .FXAA:              p.fxaa = d.fxaa
+	case .Tonemap:           p.tonemapper = d.tonemapper
+	case .Banding:           p.banding = d.banding
+	case .Fog:               p.fog = d.fog
+	case .LUT3D:             p.lut3d = d.lut3d
+	case .Dof_Debug, .Exposure_Debug, .Motion_Blur_Debug,
+	     .FXAA_Debug, .Stencil_Debug, .Bloom_Debug, .Fog_Debug:
+		// Debug views have no settings to reset.
+	}
+	p.ubo_dirty = true
 }
 
 // Compile an optimized shader variant for the current active effects.
@@ -417,6 +514,26 @@ upload_ubo :: proc(p: ^Pipeline) {
 
 		z_near = settings.NEAR_PLANE,
 		z_far  = settings.FAR_PLANE,
+
+		mb_intensity    = p.motion_blur.intensity,
+		mb_max_velocity = p.motion_blur.max_velocity,
+		mb_samples      = p.motion_blur.samples,
+
+		banding_mode             = i32(p.banding.mode),
+		banding_levels           = p.banding.levels,
+		banding_dither_strength  = p.banding.dither_strength,
+		banding_perceptual_gamma = p.banding.perceptual_gamma,
+		banding_channel_levels   = p.banding.channel_levels,
+
+		fog_density        = p.fog.density,
+		fog_start          = p.fog.start,
+		fog_height_falloff = p.fog.height_falloff,
+		fog_max_opacity    = p.fog.max_opacity,
+		fog_color          = p.fog.color,
+
+		lut3d_intensity = p.lut3d.intensity,
+
+		debug_split_mask = transmute(u32)p.debug_split,
 	}
 
 	gl.BindBuffer(gl.UNIFORM_BUFFER, p.settings_ubo)
