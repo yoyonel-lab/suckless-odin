@@ -16,3 +16,6 @@ Thumbs.db
 # Dependencies (submodule build artifacts ignored via .gitmodules ignore=dirty)
 imgui.ini
 tests/references/failed_*.png
+
+# User PostFX presets (generated at runtime)
+assets/postfx/*.json
