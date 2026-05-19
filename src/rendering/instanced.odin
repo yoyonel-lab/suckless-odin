@@ -3,6 +3,7 @@ package rendering
 import gl "vendor:OpenGL"
 
 import log "../core/log"
+import dbg "../core/gl_debug"
 import mt  "../core/math_types"
 import types "./types"
 import settings "../core/settings"
@@ -87,6 +88,7 @@ instanced_upload :: proc(inst: ^Instanced_Spheres) {
 
 	if inst.ssbo == 0 {
 		gl.GenBuffers(1, &inst.ssbo)
+		dbg.object_label(gl.BUFFER, inst.ssbo, "Sphere_Instances_SSBO")
 	}
 
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)

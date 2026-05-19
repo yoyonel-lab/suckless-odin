@@ -6,6 +6,7 @@ import "core:os"
 import "core:strings"
 
 import log "../../core/log"
+import dbg "../../core/gl_debug"
 
 // Shader warning throttle limit
 SHADER_WARNING_THROTTLE_LIMIT :: 10
@@ -257,6 +258,8 @@ load :: proc(vertex_path, fragment_path: string) -> ^Shader {
 	shader.silent_warnings = false
 	shader.warning_count = 0
 
+	dbg.object_label(gl.PROGRAM, program, fmt.ctprintf("%s + %s", vertex_path, fragment_path))
+
 	cache_uniforms(shader)
 	return shader
 }
@@ -272,6 +275,8 @@ load_compute_shader :: proc(compute_path: string) -> ^Shader {
 	shader.entries = make([dynamic]Uniform_Entry)
 	shader.silent_warnings = false
 	shader.warning_count = 0
+
+	dbg.object_label(gl.PROGRAM, program, fmt.ctprintf("%s", compute_path))
 
 	cache_uniforms(shader)
 	return shader

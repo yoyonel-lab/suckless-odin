@@ -3,6 +3,7 @@ package rendering
 import gl "vendor:OpenGL"
 
 import log "../core/log"
+import dbg "../core/gl_debug"
 
 // Quad vertices for billboard rendering (triangle strip: 4 verts = 2 tris).
 // ISO port of render_utils_create_quad_vbo() from suckless-ogl.
@@ -40,6 +41,10 @@ billboard_create :: proc(bb: ^Billboard) {
 	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3 * size_of(f32), 0)
 
 	gl.BindVertexArray(0)
+
+	dbg.object_label(gl.VERTEX_ARRAY, bb.vao, "Billboard_VAO")
+	dbg.object_label(gl.BUFFER, bb.quad_vbo, "Billboard_QuadVBO")
+
 	log.log_info("suckless-odin.billboard", "Billboard quad created")
 }
 

@@ -9,6 +9,7 @@ import settings "../core/settings"
 import cam "../camera"
 import "../rendering"
 import postfx "../rendering/postfx"
+import dbg "../core/gl_debug"
 
 // Scene holds the camera, rendering resources, and all subsystems.
 Scene :: struct {
@@ -110,6 +111,9 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 }
 
 scene_render :: proc(s: ^Scene, width, height: i32) {
+	dbg.push_group("Scene_Render")
+	defer dbg.pop_group()
+
 	postfx.pipeline_begin(&s.postfx_pipeline)
 
 	aspect := f32(width) / f32(max(height, 1))
@@ -124,10 +128,14 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 
 	// 1. Skybox (drawn first, depth <= 1.0)
 	if s.skybox_visible {
+		dbg.push_group("Skybox_Pass")
 		rendering.skybox_render(&s.skybox, view, proj)
+		dbg.pop_group()
 	}
 
 	// 2. PBR spheres (instanced billboard)
+	dbg.push_group("Instanced_PBR_Spheres")
+
 	if s.wireframe_enabled {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 	}
@@ -151,11 +159,15 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
 	}
 
+	dbg.pop_group()
+
 	// 3. End post-processing (composite to screen)
 	postfx.pipeline_end(&s.postfx_pipeline)
 
 	// 4. Text overlay (rendered AFTER post-fx, directly to screen)
+	dbg.push_group("Text_Overlay")
 	rendering.overlay_render(&s.overlay, width, height, s.camera.position, s.camera.yaw, s.camera.pitch)
+	dbg.pop_group()
 }
 
 scene_update :: proc(s: ^Scene, dt: f32) {

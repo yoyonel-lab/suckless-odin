@@ -10,6 +10,7 @@ import cam "../camera"
 import scene "../scene"
 import gui "../gui"
 import postfx "../rendering/postfx"
+import dbg "../core/gl_debug"
 
 // Application state — top-level struct owning all subsystems.
 // ISO port of App struct from suckless-ogl/include/app.h.
@@ -123,12 +124,15 @@ run :: proc(application: ^App) {
 		scene.scene_update(&application.scene, application.delta_time)
 
 		// Render
+		dbg.push_group("Render_Frame")
+
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		w, h := glfw.GetFramebufferSize(application.window)
 		scene.scene_render(&application.scene, w, h)
 
 		// GUI (Dear ImGui) — render on top of scene
+		dbg.push_group("GUI_ImGui")
 		gui.new_frame(&application.imgui)
 		gui.update(&application.imgui, gui.Scene_State{
 			camera              = &application.scene.camera,
@@ -146,6 +150,9 @@ run :: proc(application: ^App) {
 			frame_time_ms       = application.scene.overlay.frame_time_display,
 		})
 		gui.render(&application.imgui)
+		dbg.pop_group()
+
+		dbg.pop_group()
 
 		// Swap
 		glfw.SwapBuffers(application.window)

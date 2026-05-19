@@ -3,6 +3,7 @@ package postfx
 import gl "vendor:OpenGL"
 
 import log "../../core/log"
+import dbg "../../core/gl_debug"
 import settings "../../core/settings"
 import shader "../shader"
 
@@ -161,27 +162,36 @@ pipeline_end :: proc(p: ^Pipeline) {
 		return
 	}
 
+	dbg.push_group("Post_Processing")
+	defer dbg.pop_group()
+
 	// Collect previous frame's timer results (non-blocking)
 	gpu_timers_collect(&p.timers, p.dt)
 
 	// Run bloom multi-pass if enabled
 	gpu_timer_begin(&p.timers, .Bloom)
 	if .Bloom in p.active_effects {
+		dbg.push_group("PostFX_Bloom")
 		bloom_render(&p.bloom_fx, &p.bloom, p.scene_color_tex, &p.quad)
+		dbg.pop_group()
 	}
 	gpu_timer_end(&p.timers, .Bloom)
 
 	// Run DoF pre-blur if enabled (reuses bloom shaders)
 	gpu_timer_begin(&p.timers, .Dof)
 	if .Dof in p.active_effects {
+		dbg.push_group("PostFX_DepthOfField")
 		dof_render(&p.dof_fx, &p.bloom_fx, &p.dof, p.scene_color_tex, &p.quad)
+		dbg.pop_group()
 	}
 	gpu_timer_end(&p.timers, .Dof)
 
 	// Run auto-exposure compute passes if enabled
 	gpu_timer_begin(&p.timers, .Auto_Exposure)
 	if .Auto_Exposure in p.active_effects {
+		dbg.push_group("PostFX_AutoExposure")
 		auto_exposure_render(&p.auto_exposure_fx, p.scene_color_tex, p.dt)
+		dbg.pop_group()
 	}
 	gpu_timer_end(&p.timers, .Auto_Exposure)
 
@@ -196,6 +206,7 @@ pipeline_end :: proc(p: ^Pipeline) {
 
 	// Composite pass (uber-shader)
 	gpu_timer_begin(&p.timers, .Composite)
+	dbg.push_group("PostFX_Final_Composite")
 
 	// Use cached optimized variant if available, otherwise fallback to dynamic
 	active_program := shader_cache_find(&p.shader_cache, p.active_effects)
@@ -229,6 +240,7 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Draw fullscreen quad (final composite)
 	quad_draw(&p.quad)
 
+	dbg.pop_group()
 	gpu_timer_end(&p.timers, .Composite)
 
 	// Restore state
@@ -454,6 +466,10 @@ create_framebuffer :: proc(p: ^Pipeline) -> (ok: bool) {
 		log.log_error("suckless-odin.postfx", "Framebuffer incomplete: 0x%X", status)
 		return false
 	}
+
+	dbg.object_label(gl.FRAMEBUFFER, p.scene_fbo, "PostFX_SceneFBO")
+	dbg.object_label(gl.TEXTURE, p.scene_color_tex, "PostFX_SceneColor_HDR")
+	dbg.object_label(gl.TEXTURE, p.depth_tex, "PostFX_Depth")
 
 	return true
 }

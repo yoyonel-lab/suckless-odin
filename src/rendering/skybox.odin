@@ -4,6 +4,7 @@ import gl "vendor:OpenGL"
 import "core:os"
 
 import log "../core/log"
+import dbg "../core/gl_debug"
 import mt  "../core/math_types"
 
 // Skybox renders the HDR environment as an equirectangular background.
@@ -41,6 +42,8 @@ skybox_create :: proc(sky: ^Skybox, env_tex: u32, vert_path, frag_path: string) 
 	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3 * size_of(f32), 0)
 
 	gl.BindVertexArray(0)
+
+	dbg.object_label(gl.VERTEX_ARRAY, sky.fullscr_vao, "Skybox_VAO")
 
 	log.log_info("suckless-odin.skybox", "Skybox created (program=%d)", sky.program)
 	return true
