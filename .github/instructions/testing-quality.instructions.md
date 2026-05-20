@@ -4,6 +4,19 @@ applyTo: ["**/*"]
 ---
 # Testing & Quality Gates
 
+## Commit Authorization — MANDATORY
+
+**NEVER commit without explicit written validation from the user.**
+
+Workflow:
+1. Implement the change
+2. Run `just lint && just test` — must be green
+3. Present the diff / result to the user
+4. **Wait for explicit "go" / "ok" / "commit" from the user**
+5. Only then commit
+
+This applies to ALL commits: fixes, features, docs, assets. No exceptions.
+
 ## Quality Gate — Before Every Commit
 
 ```bash
