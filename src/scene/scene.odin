@@ -162,6 +162,16 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	dbg.pop_group()
 
 	// 3. End post-processing (composite to screen)
+	// Inject camera data for fog depth reconstruction (invViewProj + world cam pos)
+	inv_vp := mt.mat4_inverse(proj * view)
+	cam_pos_v4 := [4]f32{s.camera.position.x, s.camera.position.y, s.camera.position.z, 1.0}
+	inv_vp_flat := [16]f32{
+		inv_vp[0][0], inv_vp[0][1], inv_vp[0][2], inv_vp[0][3],
+		inv_vp[1][0], inv_vp[1][1], inv_vp[1][2], inv_vp[1][3],
+		inv_vp[2][0], inv_vp[2][1], inv_vp[2][2], inv_vp[2][3],
+		inv_vp[3][0], inv_vp[3][1], inv_vp[3][2], inv_vp[3][3],
+	}
+	postfx.pipeline_set_camera(&s.postfx_pipeline, cam_pos_v4, inv_vp_flat)
 	postfx.pipeline_end(&s.postfx_pipeline)
 
 	// 4. Text overlay (rendered AFTER post-fx, directly to screen)

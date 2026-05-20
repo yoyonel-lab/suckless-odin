@@ -185,6 +185,8 @@ layout(std140, binding = 0) uniform PostProcessBlock
 
 #define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
 #define enableBanding       ((activeEffects & (1u << 14u)) != 0u)
+#define enableFog           ((activeEffects & (1u << 15u)) != 0u)
+#define enableFogDebug      ((activeEffects & (1u << 20u)) != 0u)
 #define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
 #define enableDoFDebug      ((activeEffects & (1u << 7u)) != 0u)
 #define enableFXAADebug     ((activeEffects & (1u << 17u)) != 0u)
@@ -577,6 +579,43 @@ vec3 applyBanding(vec3 color)
 }
 
 // ============================================================================
+// EFFECT: FOG (Exponential height-based atmospheric scattering)
+// ============================================================================
+vec3 applyFog(vec3 color, vec2 uv)
+{
+	float depth = texture(depthTexture, uv).r;
+
+	// Skybox mask — fog must not apply to the infinite background
+	if (depth >= 0.99999) return color;
+
+	// Reconstruct world-space position from NDC depth + invViewProj
+	vec4 ndcPos   = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+	vec4 worldPos = fog_invViewProj * ndcPos;
+	worldPos.xyz /= worldPos.w;
+
+	// Camera-to-fragment distance
+	float dist = length(worldPos.xyz - fog_camPos.xyz);
+	if (dist < fog_start) return color;
+
+	// Exponential density fog
+	float fogAmount = fog_density * (dist - fog_start);
+	fogAmount = 1.0 - exp(-fogAmount);
+
+	// Height falloff: attenuate by world-Y position (Y-up)
+	float heightAttenuation = exp(-fog_heightFalloff * max(worldPos.y, 0.0));
+	fogAmount *= heightAttenuation;
+
+	fogAmount = clamp(fogAmount * fog_maxOpacity, 0.0, fog_maxOpacity);
+
+	// Debug: visualize fog factor as greyscale
+	if (enableFogDebug) {
+		return vec3(fogAmount);
+	}
+
+	return mix(color, fog_color, fogAmount);
+}
+
+// ============================================================================
 void main()
 {
 	vec3 color;
@@ -631,6 +670,11 @@ void main()
 	// 8. Banding (artistic color quantization)
 	if (enableBanding && !splitBypassed(14u)) {
 		color = applyBanding(color);
+	}
+
+	// 8b. Fog (depth-reconstructed atmospheric scattering)
+	if (enableFog && !splitBypassed(15u)) {
+		color = applyFog(color, TexCoords);
 	}
 
 	// 9. Vignette

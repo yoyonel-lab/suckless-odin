@@ -64,6 +64,10 @@ Pipeline :: struct {
 	dt:        f32,
 	ubo_dirty: bool,
 
+	// Per-frame camera data (for fog depth reconstruction)
+	fog_cam_pos:       [4]f32,
+	fog_inv_view_proj: [16]f32,
+
 	// Saved state for begin/end (restored framebuffer)
 	prev_fbo:      i32,
 	prev_viewport: [4]i32,
@@ -350,6 +354,14 @@ pipeline_toggle_debug_split :: proc(p: ^Pipeline, effect: Post_Effect) {
 	p.ubo_dirty = true
 }
 
+// Set per-frame camera data needed by the fog shader.
+// Call this BEFORE pipeline_end, once per frame.
+pipeline_set_camera :: proc(p: ^Pipeline, cam_pos: [4]f32, inv_view_proj: [16]f32) {
+	p.fog_cam_pos       = cam_pos
+	p.fog_inv_view_proj = inv_view_proj
+	p.ubo_dirty = true
+}
+
 // Reset a single effect's parameters to its Default preset values.
 // Does NOT toggle the effect's on/off state.
 pipeline_reset_effect :: proc(p: ^Pipeline, effect: Post_Effect) {
@@ -552,6 +564,8 @@ upload_ubo :: proc(p: ^Pipeline) {
 		fog_height_falloff = p.fog.height_falloff,
 		fog_max_opacity    = p.fog.max_opacity,
 		fog_color          = p.fog.color,
+		fog_cam_pos        = p.fog_cam_pos,
+		fog_inv_view_proj  = p.fog_inv_view_proj,
 
 		lut3d_intensity = p.lut3d.intensity,
 
