@@ -1,6 +1,7 @@
 #version 450 core
 
 layout(location = 0) out vec4 FragColor;
+layout(location = 1) out vec2 VelocityOut;
 
 layout(location = 0) in vec3 WorldPos;
 layout(location = 1) in vec3 Normal;
@@ -10,9 +11,11 @@ flat layout(location = 4) in vec3 Albedo;
 flat layout(location = 5) in float Metallic;
 flat layout(location = 6) in float Roughness;
 flat layout(location = 7) in float AO;
+flat layout(location = 8) in vec3 PrevSphereCenter;
 
 uniform mat4 u_view;
 uniform mat4 u_projection;
+uniform mat4 u_previousViewProj;
 uniform vec3 u_cam_pos;
 
 // IBL textures (equirectangular 2D, same binding as suckless-ogl)
@@ -151,4 +154,17 @@ void main()
                                   Albedo, Metallic, roughness, AO);
 
     FragColor = vec4(color, 1.0);
+
+    // Motion blur: per-pixel velocity from raytraced hit position
+    // A. Current NDC from actual raytraced hit (not billboard quad vertex)
+    vec4 clipPosActual = u_projection * u_view * vec4(hitPos, 1.0);
+    vec2 currentPosNDC = clipPosActual.xy / clipPosActual.w;
+
+    // B. Previous NDC: reconstruct previous hit using offset from sphere center
+    vec3 prevHitPos = PrevSphereCenter + (hitPos - SphereCenter);
+    vec4 previousClip = u_previousViewProj * vec4(prevHitPos, 1.0);
+    vec2 previousPosNDC = previousClip.xy / previousClip.w;
+
+    // C. Delta (0.5 converts NDC [-1,1] to UV [0,1] space)
+    VelocityOut = (currentPosNDC - previousPosNDC) * 0.5;
 }

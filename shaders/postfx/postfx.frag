@@ -14,8 +14,12 @@ layout(binding = 1) uniform sampler2D bloomTexture;
 layout(binding = 2) uniform sampler2D depthTexture;
 // Auto-exposure texture (1x1, R=exposure value)
 layout(binding = 3) uniform sampler2D autoExposureTexture;
+// Velocity buffer (RG16F, per-pixel motion vectors)
+layout(binding = 4) uniform sampler2D velocityTexture;
 // DoF blur texture (1/4 res pre-blurred scene)
 layout(binding = 5) uniform sampler2D dofBlurTexture;
+// Neighbor-max velocity (RG16F, dilated tile max)
+layout(binding = 6) uniform sampler2D neighborMaxTexture;
 // 3D LUT texture (unit 8, RGB16F cube)
 layout(binding = 8) uniform sampler3D lut3dTexture;
 
@@ -108,7 +112,7 @@ layout(std140, binding = 0) uniform PostProcessBlock
 	float mb_intensity;
 	float mb_maxVelocity;
 	int mb_samples;
-	float _pad12;
+	int mb_debugMode; // 0=velocity, 1=tile-max, 2=neighbor-max, 3=speed
 
 	// Banding (32 bytes)
 	int bandingMode;
@@ -186,11 +190,14 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #endif
 
 #define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
+#define enableMotionBlur    ((activeEffects & (1u << 10u)) != 0u)
+#define enableMotionBlurDebug ((activeEffects & (1u << 11u)) != 0u)
 #define enableBanding       ((activeEffects & (1u << 14u)) != 0u)
 #define enableFog           ((activeEffects & (1u << 15u)) != 0u)
 #define enableLUT3D         ((activeEffects & (1u << 16u)) != 0u)
 #define enableFogDebug      ((activeEffects & (1u << 20u)) != 0u)
 #define enableLUT3DDebug    ((activeEffects & (1u << 21u)) != 0u)
+#define enableVectorFieldDebug ((activeEffects & (1u << 22u)) != 0u)
 #define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
 #define enableDoFDebug      ((activeEffects & (1u << 7u)) != 0u)
 #define enableFXAADebug     ((activeEffects & (1u << 17u)) != 0u)
@@ -205,18 +212,163 @@ bool splitBypassed(uint effectBit)
 }
 
 // ============================================================================
+// EFFECT: MOTION BLUR (per-pixel, velocity-buffer based)
+// ============================================================================
+
+// Interleaved gradient noise for jittered sampling (Jorge Jimenez, 2014)
+float InterleavedGradientNoise(vec2 screenPos)
+{
+	vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+	return fract(magic.z * fract(dot(screenPos.xy, magic.xy)));
+}
+
+// Linearize depth from [0,1] depth buffer to view-space distance
+float linearizeDepth(float depth)
+{
+	float z_ndc = 2.0 * depth - 1.0;
+	return (2.0 * zNear * zFar) / (zFar + zNear - z_ndc * (zFar - zNear));
+}
+
+vec3 applyVectorFieldDebug(vec2 uv)
+{
+	vec2 screenSize = vec2(textureSize(velocityTexture, 0));
+	vec2 pixelPos = uv * screenSize;
+
+	/* Grid cell size (one arrow every N pixels) */
+	float gridSize = 48.0;
+	vec2 cellCenter = (floor(pixelPos / gridSize) * gridSize) + (gridSize * 0.5);
+	vec2 uvCenter = cellCenter / screenSize;
+
+	/* Sample velocity at the CENTER of the cell */
+	vec2 velCenter = texture(velocityTexture, uvCenter).xy;
+
+	/* Draw arrow if velocity is significant */
+	if (length(velCenter) > 1e-4) {
+		/* Direction and visual length */
+		vec2 dir = normalize(velCenter);
+		float len = length(velCenter) * 800.0;
+		len = min(len, gridSize * 0.45);
+
+		/* Local position relative to cell center */
+		vec2 localPos = pixelPos - cellCenter;
+
+		/* SDF Point-to-Segment distance for symmetric line */
+		float h = clamp(dot(localPos, dir) / len, -1.0, 1.0);
+		float d = length(localPos - dir * len * h);
+
+		/* Line thickness (2.0 pixels) */
+		if (d < 2.0) {
+			/* Color based on direction angle (HSV -> RGB) */
+			float angle = atan(dir.y, dir.x);
+			float hue = (angle + 3.14159) / 6.28318;
+
+			vec3 rgb = clamp(
+				abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0,
+				0.0, 1.0);
+			return rgb;
+		}
+	}
+
+	/* Darken the base scene to make arrows visible */
+	vec3 baseColor = texture(screenTexture, uv).rgb;
+	return baseColor * 0.3;
+}
+
+vec3 applyMotionBlur(vec2 uv)
+{
+	/* 1. Get Velocity at center pixel */
+	vec2 velocity = texture(velocityTexture, uv).rg;
+
+	/* Debug Visualization (Early Exit) */
+	if (enableMotionBlurDebug) {
+		/* RG Color Visualization */
+		return vec3(abs(velocity.x) * 20.0, abs(velocity.y) * 20.0, 0.0);
+	}
+
+	/* Vector Field Overlay */
+	if (enableVectorFieldDebug) {
+		return applyVectorFieldDebug(uv);
+	}
+
+	velocity *= mb_intensity;
+
+	/* Clamp main velocity */
+	float speed = length(velocity);
+	if (speed > mb_maxVelocity) {
+		velocity = normalize(velocity) * mb_maxVelocity;
+		speed = mb_maxVelocity;
+	}
+
+	/* 2. Get Neighbor Max Velocity */
+	vec2 maxNeighborVelocity = texture(neighborMaxTexture, uv).rg * mb_intensity;
+	float maxNeighborSpeed = length(maxNeighborVelocity);
+
+	/* Fetch Center Color (Raw) */
+	vec3 centerColor = texture(screenTexture, uv).rgb;
+
+	/* Early exit if negligible motion */
+	if (speed < 0.0001 && maxNeighborSpeed < 0.0001) {
+		return centerColor;
+	}
+
+	/* Jitter */
+	float noise = InterleavedGradientNoise(gl_FragCoord.xy);
+
+	/* Center Depth */
+	float centerDepth = linearizeDepth(texture(depthTexture, uv).r);
+
+	/* Adaptive Sample Count */
+	float speed_ratio = (mb_maxVelocity > 0.0) ? (speed / mb_maxVelocity) : 0.0;
+	int actual_samples = clamp(int(speed_ratio * float(mb_samples)), 2, mb_samples);
+
+	vec3 acc = centerColor;
+	float totalWeight = 1.0;
+
+	for (int i = 0; i < actual_samples; ++i) {
+		if (i == actual_samples / 2)
+			continue; /* Skip center */
+
+		float t = mix(-0.5, 0.5, (float(i) + noise) / float(actual_samples));
+		vec2 sampleUV = uv + velocity * t;
+
+		vec3 sampleColor = texture(screenTexture, sampleUV).rgb;
+
+		/* Soft Depth-Testing */
+		float sampleDepth = linearizeDepth(texture(depthTexture, sampleUV).r);
+		float depthDiff = sampleDepth - centerDepth;
+		float weight = mix(1.0, 0.1, smoothstep(0.5, 2.0, depthDiff));
+
+		acc += sampleColor * weight;
+		totalWeight += weight;
+	}
+
+	return acc / totalWeight;
+}
+
+/* Wrapper to get "Scene Color" (Blurred or Raw) for CA to sample */
+vec3 getSceneSource(vec2 uv)
+{
+	if (enableMotionBlur) {
+		return applyMotionBlur(uv);
+	}
+	return texture(screenTexture, uv).rgb;
+}
+
+// ============================================================================
 // EFFECT: CHROMATIC ABERRATION
 // ============================================================================
 vec3 applyChromAbbr(vec2 uv)
 {
 	vec2 direction = uv - vec2(0.5);
 
-	// Sample R and B channels with offset, keep G from center
+	/* Get center pixel with motion blur (if enabled) */
+	vec3 centerBlurred = getSceneSource(uv);
+
+	/* Direct texture samples for R/B channels (skip motion blur for performance) */
 	float r = texture(screenTexture, uv + direction * ca_strength).r;
-	float g = texture(screenTexture, uv).g;
 	float b = texture(screenTexture, uv - direction * ca_strength).b;
 
-	return vec3(r, g, b);
+	return vec3(r, centerBlurred.g, b);
 }
 
 // ============================================================================
@@ -663,11 +815,24 @@ void main()
 		return;
 	}
 
-	// 1. Chromatic Aberration (samples screenTexture with R/B offsets)
+	// Debug priority: Motion blur debug (velocity visualization)
+	if (enableMotionBlurDebug) {
+		FragColor = vec4(applyMotionBlur(TexCoords), 1.0);
+		return;
+	}
+
+	// Debug priority: Vector field debug (directional arrows overlay)
+	if (enableVectorFieldDebug) {
+		FragColor = vec4(applyMotionBlur(TexCoords), 1.0);
+		return;
+	}
+
+	// Pipeline: Motion Blur -> Chromatic Aberration -> FXAA
+	// CA calls getSceneSource() internally (which applies MB if enabled).
 	if (enableChromAbbr && !splitBypassed(3u)) {
 		color = applyChromAbbr(TexCoords);
 	} else {
-		color = texture(screenTexture, TexCoords).rgb;
+		color = getSceneSource(TexCoords);
 	}
 
 	// 2. FXAA (spatial anti-aliasing, operates on screenTexture neighbors)

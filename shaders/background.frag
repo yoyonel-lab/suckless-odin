@@ -2,6 +2,7 @@
 
 layout(location = 0) in vec3 RayDir;
 layout(location = 0) out vec4 FragColor;
+layout(location = 1) out vec2 VelocityOut;
 
 layout(binding = 0) uniform sampler2D environmentMap;
 layout(location = 4) uniform float blur_lod;
@@ -35,4 +36,5 @@ void main()
 	// Store Luma in Alpha for FXAA (using sqrt approx for Gamma)
 	float luma = dot(sqrt(envColor), vec3(0.299, 0.587, 0.114));
 	FragColor = vec4(envColor, luma);
+	VelocityOut = vec2(0.0); // Skybox has no velocity
 }

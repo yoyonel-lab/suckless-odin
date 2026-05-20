@@ -10,6 +10,7 @@ flat layout(location = 4) out vec3 Albedo;
 flat layout(location = 5) out float Metallic;
 flat layout(location = 6) out float Roughness;
 flat layout(location = 7) out float AO;
+flat layout(location = 8) out vec3 PrevSphereCenter;
 
 // Per-instance data from SSBO (128-byte stride, matches C SphereInstance)
 struct SphereInstance {
@@ -148,6 +149,9 @@ void main()
 
     WorldPos = worldPos;
     gl_Position = clipPos;
+
+    // Previous frame center for per-object motion blur velocity
+    PrevSphereCenter = vec3(inst.prev_center_x, inst.prev_center_y, inst.prev_center_z);
 
     // Forward material data
     Albedo    = inst.albedo;
