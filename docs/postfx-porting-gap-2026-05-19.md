@@ -12,7 +12,7 @@
 | Core effects (vignette→FXAA, bloom, auto-exposure, DoF) | ~90% | All functional |
 | Pipeline architecture (uber-shader, shader cache, GPU timers) | ~85% | Complete |
 | Presets (variety, richness) | 38% | 5/13 ported |
-| Advanced FX (motion blur, fog, banding, LUT) | 0% | Bit flags defined only |
+| Advanced FX (motion blur, fog, banding, LUT) | 25% | Banding implemented, others pending |
 | Camera Profile System | 0% | Not started |
 
 ## Missing Subsystems
@@ -27,8 +27,7 @@
 ### 2. Banding (Color Quantization — 5 artistic modes)
 
 - **Legacy**: 5 modes (Linear/Dithered/Perceptual/Channel/Luminance), full shader impl
-- **Odin**: Bit `Banding = 14` defined, no shader, no params
-- **UBO fields needed**: `bandingMode` (int), `bandingLevels`, `bandingDitherStrength`, `bandingPerceptualGamma`, `bandingChannelLevels` (vec3) — 32B section
+- **Odin**: **[DONE]** Fully implemented with 5 artistic modes and UBO params.
 
 ### 3. Fog (Atmospheric — exponential height-based)
 
@@ -83,7 +82,7 @@ Applied via `F8` at runtime. In practice, they're specialized presets.
 - [ ] Port 3 "easy" presets (Vintage, Matrix, BW_Contrast)
 
 ### Phase 2: Banding Effect
-- [ ] GLSL banding implementation (5 modes)
+- [x] GLSL banding implementation (5 modes)
 - [ ] Port 5 banding presets (Posterized, Retro, Analog, Channel_GFX, Blueprint)
 
 ### Phase 3: Fog Effect
