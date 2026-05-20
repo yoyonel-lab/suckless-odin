@@ -35,14 +35,20 @@ Scene :: struct {
 	overlay:     rendering.Text_Overlay,
 
 	// Cached uniform locations for PBR shader
-	loc_view:       i32,
-	loc_projection: i32,
-	loc_cam_pos:    i32,
+	loc_view:           i32,
+	loc_projection:     i32,
+	loc_cam_pos:        i32,
+	loc_prev_view_proj: i32,
+
+	// Previous frame view-projection matrix (for motion blur velocity)
+	prev_view_proj: mt.Mat4,
+	prev_vp_initialized: bool,
 
 	// Runtime toggles
 	skybox_visible:   bool,
 	wireframe_enabled: bool,
 	exposure:         f32,
+	sort_mode:        rendering.Sort_Mode,
 }
 
 HDR_PATH      :: "../suckless-ogl/assets/textures/hdr/cedar_bridge_2_4k.hdr"
@@ -89,6 +95,10 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 	s.loc_view       = gl.GetUniformLocation(s.pbr_program, "u_view")
 	s.loc_projection = gl.GetUniformLocation(s.pbr_program, "u_projection")
 	s.loc_cam_pos    = gl.GetUniformLocation(s.pbr_program, "u_cam_pos")
+	s.loc_prev_view_proj = gl.GetUniformLocation(s.pbr_program, "u_previousViewProj")
+
+	// Initialize previous view*proj to identity (avoids huge velocities on frame 1)
+	s.prev_view_proj = mt.MAT4_IDENTITY
 
 	// Runtime toggles (defaults)
 	s.skybox_visible = true
@@ -145,6 +155,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	gl.UniformMatrix4fv(s.loc_view, 1, false, &view[0][0])
 	gl.UniformMatrix4fv(s.loc_projection, 1, false, &proj[0][0])
 	gl.Uniform3fv(s.loc_cam_pos, 1, &s.camera.position[0])
+	gl.UniformMatrix4fv(s.loc_prev_view_proj, 1, false, &s.prev_view_proj[0][0])
 
 	// Bind IBL textures (units 15, 16, 17)
 	rendering.ibl_bind(&s.ibl)
@@ -174,6 +185,15 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	postfx.pipeline_set_camera(&s.postfx_pipeline, cam_pos_v4, inv_vp_flat)
 	postfx.pipeline_end(&s.postfx_pipeline)
 
+	// Store current view*proj as previous for next frame's motion blur
+	vp := proj * view
+	if !s.prev_vp_initialized {
+		// First frame: init to current VP to avoid velocity flash
+		s.prev_view_proj = vp
+		s.prev_vp_initialized = true
+	}
+	s.prev_view_proj = vp
+
 	// 4. Text overlay (rendered AFTER post-fx, directly to screen)
 	dbg.push_group("Text_Overlay")
 	rendering.overlay_render(&s.overlay, width, height, s.camera.position, s.camera.yaw, s.camera.pitch)
@@ -183,6 +203,15 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 scene_update :: proc(s: ^Scene, dt: f32) {
 	postfx.pipeline_update(&s.postfx_pipeline, dt)
 	rendering.overlay_update(&s.overlay, dt)
+
+	// Update prev_centers for motion blur (before camera/positions change)
+	rendering.instanced_update_prev_centers(&s.spheres)
+
+	// Sort instances back-to-front for correct blending/MB (ISO legacy)
+	rendering.instanced_sort(&s.spheres, s.camera.position, s.sort_mode)
+
+	rendering.instanced_upload(&s.spheres)
+
 	cam.build_keyboard_input(&s.camera)
 
 	// Fixed-timestep physics for camera

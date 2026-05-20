@@ -281,13 +281,43 @@ draw_postfx_section :: proc(state: Scene_State) {
 		}
 	}
 
-	// --- Motion Blur (Phase 4 — not yet implemented) ---
-	imgui.BeginDisabled()
+	// --- Motion Blur ---
 	mb_on := postfx.Post_Effect.Motion_Blur in p.active_effects
-	imgui.Checkbox("Motion Blur", &mb_on)
-	imgui.SameLine()
-	imgui.TextDisabled("(WIP)")
-	imgui.EndDisabled()
+	if imgui.Checkbox("Motion Blur", &mb_on) {
+		postfx.pipeline_toggle(p, .Motion_Blur)
+	}
+	if mb_on {
+		imgui.SameLine()
+		if imgui.TreeNodeEx("Settings##mblur", {}) {
+			if imgui.SmallButton("Reset##mblur") { postfx.pipeline_reset_effect(p, .Motion_Blur) }
+			if imgui.SliderFloat("Intensity##mblur", &p.motion_blur.intensity, 0.0, 2.0) { p.ubo_dirty = true }
+			if imgui.SliderFloat("Max Velocity##mblur", &p.motion_blur.max_velocity, 0.005, 0.2) { p.ubo_dirty = true }
+			samples_f := f32(p.motion_blur.samples)
+			if imgui.SliderFloat("Samples##mblur", &samples_f, 2.0, 32.0) {
+				p.motion_blur.samples = i32(samples_f)
+				p.ubo_dirty = true
+			}
+			// Debug toggle
+			mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
+			if imgui.Checkbox("Debug View##mblur", &mb_dbg) {
+				postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+			}
+			if mb_dbg {
+				mode_names := [4]cstring{"Velocity", "Tile-Max", "Neighbor-Max", "Speed Heatmap"}
+				current_mode := p.motion_blur.debug_mode
+				if imgui.BeginCombo("Debug Mode##mblur", mode_names[current_mode]) {
+					for i in i32(0) ..< 4 {
+						if imgui.Selectable(mode_names[i], i == current_mode) {
+							p.motion_blur.debug_mode = i
+							p.ubo_dirty = true
+						}
+					}
+					imgui.EndCombo()
+				}
+			}
+			imgui.TreePop()
+		}
+	}
 
 	// --- Banding ---
 	banding_on := postfx.Post_Effect.Banding in p.active_effects
@@ -551,6 +581,7 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 		.Bloom_Debug   = "Bloom Debug",
 		.Fog_Debug     = "Fog Debug",
 		.LUT3D_Debug   = "LUT3D Debug",
+		.Vector_Field_Debug = "Vector Field",
 	}
 	effect_names := EFFECT_NAMES
 	active_count := 0
@@ -737,12 +768,23 @@ draw_postfx_filtered :: proc(state: Scene_State, filter: cstring) -> int {
 	}
 
 	if fuzzy_match(filter, "Motion Blur", "postfx motion blur velocity camera movement") {
-		imgui.BeginDisabled()
 		mb_on := postfx.Post_Effect.Motion_Blur in p.active_effects
-		imgui.Checkbox("Motion Blur##filt", &mb_on)
-		imgui.SameLine(); imgui.TextDisabled("(WIP)")
-		imgui.EndDisabled()
-		_ = mb_on
+		if imgui.Checkbox("Motion Blur##filt", &mb_on) {
+			postfx.pipeline_toggle(p, .Motion_Blur)
+		}
+		if mb_on {
+			if imgui.SliderFloat("Intensity##mblur_filt", &p.motion_blur.intensity, 0.0, 2.0) { p.ubo_dirty = true }
+			if imgui.SliderFloat("Max Velocity##mblur_filt", &p.motion_blur.max_velocity, 0.005, 0.2) { p.ubo_dirty = true }
+			samples_f := f32(p.motion_blur.samples)
+			if imgui.SliderFloat("Samples##mblur_filt", &samples_f, 2.0, 32.0) {
+				p.motion_blur.samples = i32(samples_f)
+				p.ubo_dirty = true
+			}
+			mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
+			if imgui.Checkbox("Debug View##mblur_filt", &mb_dbg) {
+				postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+			}
+		}
 		match_count += 1
 	}
 
@@ -901,4 +943,102 @@ draw_postfx_save_load :: proc(p: ^postfx.Pipeline) {
 		imgui.Spacing()
 		imgui.TreePop()
 	}
+}
+
+// ─── Dedicated Motion Blur Debug Tab ───────────────────────────────────────────
+
+@(private)
+draw_tab_motion_blur :: proc(state: Scene_State) {
+	p := state.postfx
+	if p == nil {
+		imgui.TextDisabled("Pipeline not initialized")
+		return
+	}
+
+	// --- Enable / Disable ---
+	imgui.TextColored(imgui.Vec4{1.0, 0.8, 0.3, 1.0}, "Motion Blur")
+	imgui.Separator()
+
+	mb_on := postfx.Post_Effect.Motion_Blur in p.active_effects
+	if imgui.Checkbox("Enable Motion Blur", &mb_on) {
+		postfx.pipeline_toggle(p, .Motion_Blur)
+	}
+
+	imgui.Spacing()
+
+	// --- Parameters ---
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Parameters")
+	imgui.Separator()
+
+	if imgui.SmallButton("Reset to Defaults") { postfx.pipeline_reset_effect(p, .Motion_Blur) }
+
+	if imgui.SliderFloat("Intensity", &p.motion_blur.intensity, 0.0, 3.0) { p.ubo_dirty = true }
+	if imgui.SliderFloat("Max Velocity (UV)", &p.motion_blur.max_velocity, 0.001, 0.3) { p.ubo_dirty = true }
+	samples_f := f32(p.motion_blur.samples)
+	if imgui.SliderFloat("Samples", &samples_f, 2.0, 32.0) {
+		p.motion_blur.samples = i32(samples_f)
+		p.ubo_dirty = true
+	}
+
+	imgui.Spacing()
+
+	// --- Debug Visualization ---
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Debug Visualization")
+	imgui.Separator()
+
+	// Exclusive debug mode selector (like legacy SHIFT+M cycle)
+	mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
+	vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
+	current_dbg: i32 = 0  // Off
+	if mb_dbg { current_dbg = 1 }      // Velocity RG
+	if vf_dbg { current_dbg = 2 }      // Vector Field
+	debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
+	if imgui.BeginCombo("Debug View", debug_modes[current_dbg]) {
+		for i in i32(0) ..< 3 {
+			if imgui.Selectable(debug_modes[i], i == current_dbg) {
+				// Disable both first, then enable selected
+				if .Motion_Blur_Debug in p.active_effects {
+					postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+				}
+				if .Vector_Field_Debug in p.active_effects {
+					postfx.pipeline_toggle(p, .Vector_Field_Debug)
+				}
+				if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
+				if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
+			}
+		}
+		imgui.EndCombo()
+	}
+
+	imgui.Spacing()
+
+	// --- Resource Info ---
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Resources")
+	imgui.Separator()
+
+	fx := &p.motion_blur_fx
+	imgui.Text("Framebuffer: %dx%d", p.width, p.height)
+	imgui.Text("Velocity Tex: %d (RG16F, %dx%d)", p.velocity_tex, p.width, p.height)
+	imgui.Text("Tile-Max Tex: %d (RG16F, %dx%d)", fx.tile_max_tex, fx.tile_width, fx.tile_height)
+	imgui.Text("Neighbor-Max Tex: %d (RG16F, %dx%d)", fx.neighbor_max_tex, fx.tile_width, fx.tile_height)
+	imgui.Text("Tile-Max Program: %d", fx.tile_max_program)
+	imgui.Text("Neighbor-Max Program: %d", fx.neighbor_max_program)
+
+	imgui.Spacing()
+
+	// --- GPU Timing ---
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "GPU Timing")
+	imgui.Separator()
+
+	avg, min_v, max_v := postfx.gpu_timer_get_metrics(&p.timers, .Motion_Blur)
+	imgui.Text("Avg: %.3f ms | Min: %.3f ms | Max: %.3f ms", avg, min_v, max_v)
+
+	imgui.Spacing()
+
+	// --- Active Effects Bitfield ---
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Effect Bits")
+	imgui.Separator()
+	imgui.Text("Motion_Blur (bit 10): %s", mb_on ? "ON" : "OFF")
+	imgui.Text("Motion_Blur_Debug (bit 11): %s", mb_dbg ? "ON" : "OFF")
+	imgui.Text("Vector_Field_Debug (bit 22): %s", vf_dbg ? "ON" : "OFF")
 }

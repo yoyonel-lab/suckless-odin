@@ -163,6 +163,7 @@ run :: proc(application: ^App) {
 			wireframe_enabled   = &application.scene.wireframe_enabled,
 			exposure            = &application.scene.exposure,
 			skybox_blur_lod     = &application.scene.skybox.blur_lod,
+			sort_mode           = &application.scene.sort_mode,
 			ibl_irradiance_map  = application.scene.ibl.irradiance_map,
 			ibl_prefilter_map   = application.scene.ibl.prefilter_map,
 			ibl_brdf_lut        = application.scene.ibl.brdf_lut,

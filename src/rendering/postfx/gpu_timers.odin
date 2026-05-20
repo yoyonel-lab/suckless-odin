@@ -11,15 +11,17 @@ Timer_Pass :: enum {
 	Bloom,
 	Dof,
 	Auto_Exposure,
+	Motion_Blur,
 	Composite,
 }
 
-NUM_TIMER_PASSES :: 4
+NUM_TIMER_PASSES :: 5
 
 TIMER_PASS_NAMES :: [Timer_Pass]string{
 	.Bloom         = "Bloom",
 	.Dof           = "DoF",
 	.Auto_Exposure = "Auto-Exp",
+	.Motion_Blur   = "MB Compute",
 	.Composite     = "Composite",
 }
 

@@ -86,6 +86,9 @@ set_sampler_uniforms :: proc(program: u32) {
 	set_uniform_i32(program, "bloomTexture",        TEX_UNIT_BLOOM)
 	set_uniform_i32(program, "depthTexture",        TEX_UNIT_DEPTH)
 	set_uniform_i32(program, "autoExposureTexture", TEX_UNIT_EXPOSURE)
+	set_uniform_i32(program, "velocityTexture",     TEX_UNIT_VELOCITY)
 	set_uniform_i32(program, "dofBlurTexture",      TEX_UNIT_DOF)
+	set_uniform_i32(program, "neighborMaxTexture",  TEX_UNIT_NEIGHBOR_MAX)
+	set_uniform_i32(program, "tileMaxTexture",      TEX_UNIT_TILE_MAX)
 	set_uniform_i32(program, "lut3dTexture",        TEX_UNIT_LUT3D)
 }

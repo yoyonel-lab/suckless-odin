@@ -12,6 +12,7 @@ Pipeline :: struct {
 	// GPU resources
 	scene_fbo:       u32,
 	scene_color_tex: u32,
+	velocity_tex:    u32, // RG16F — MRT attachment 1 (per-pixel velocity)
 	depth_tex:       u32,
 	settings_ubo:    u32,
 	quad:            Fullscreen_Quad,
@@ -20,6 +21,7 @@ Pipeline :: struct {
 	bloom_fx:         Bloom_FX,
 	dof_fx:           Dof_FX,
 	auto_exposure_fx: Auto_Exposure_FX,
+	motion_blur_fx:   Motion_Blur_FX,
 	lut3d_fx:         LUT3D_FX,
 
 	// GPU profiling
@@ -68,6 +70,9 @@ Pipeline :: struct {
 	// Per-frame camera data (for fog depth reconstruction)
 	fog_cam_pos:       [4]f32,
 	fog_inv_view_proj: [16]f32,
+
+	// Previous frame view-projection (for velocity buffer generation)
+	prev_view_proj: [16]f32,
 
 	// Saved state for begin/end (restored framebuffer)
 	prev_fbo:      i32,
@@ -123,6 +128,7 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 	bloom_create(&p.bloom_fx, width, height) or_return
 	dof_create(&p.dof_fx, width, height) or_return
 	auto_exposure_create(&p.auto_exposure_fx) or_return
+	motion_blur_create(&p.motion_blur_fx, width, height) or_return
 
 	// GPU timers for profiling
 	gpu_timers_create(&p.timers)
@@ -136,6 +142,7 @@ pipeline_destroy :: proc(p: ^Pipeline) {
 	shader_cache_destroy(&p.shader_cache)
 	gpu_timers_destroy(&p.timers)
 	auto_exposure_destroy(&p.auto_exposure_fx)
+	motion_blur_destroy(&p.motion_blur_fx)
 	dof_destroy(&p.dof_fx)
 	bloom_destroy(&p.bloom_fx)
 	lut3d_destroy(&p.lut3d_fx)
@@ -204,6 +211,16 @@ pipeline_end :: proc(p: ^Pipeline) {
 	}
 	gpu_timer_end(&p.timers, .Auto_Exposure)
 
+	// Run motion blur compute passes (tile-max + neighbor-max) if enabled
+	// Also needed for debug modes (Motion_Blur_Debug, Vector_Field_Debug)
+	gpu_timer_begin(&p.timers, .Motion_Blur)
+	if .Motion_Blur in p.active_effects ||
+	   .Motion_Blur_Debug in p.active_effects ||
+	   .Vector_Field_Debug in p.active_effects {
+		motion_blur_render(&p.motion_blur_fx, p.velocity_tex)
+	}
+	gpu_timer_end(&p.timers, .Motion_Blur)
+
 	// Restore the framebuffer that was active before begin
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
 	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
@@ -242,6 +259,18 @@ pipeline_end :: proc(p: ^Pipeline) {
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_DEPTH)
 	gl.BindTexture(gl.TEXTURE_2D, p.depth_tex)
 
+	// Bind velocity texture (motion blur per-pixel velocity)
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_VELOCITY)
+	gl.BindTexture(gl.TEXTURE_2D, p.velocity_tex)
+
+	// Bind neighbor-max velocity texture (motion blur dilated tiles)
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_NEIGHBOR_MAX)
+	gl.BindTexture(gl.TEXTURE_2D, motion_blur_get_neighbor_tex(&p.motion_blur_fx))
+
+	// Bind tile-max velocity texture (motion blur debug)
+	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_TILE_MAX)
+	gl.BindTexture(gl.TEXTURE_2D, p.motion_blur_fx.tile_max_tex)
+
 	// Bind DoF blur texture (1/4 res pre-blurred scene)
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_DOF)
 	gl.BindTexture(gl.TEXTURE_2D, dof_get_texture(&p.dof_fx))
@@ -272,6 +301,7 @@ pipeline_resize :: proc(p: ^Pipeline, width, height: i32) {
 	create_framebuffer(p)
 	bloom_resize(&p.bloom_fx, width, height)
 	dof_resize(&p.dof_fx, width, height)
+	motion_blur_resize(&p.motion_blur_fx, width, height)
 	p.ubo_dirty = true
 
 	log.log_info("suckless-odin.postfx", "Pipeline resized (%dx%d)", width, height)
@@ -403,7 +433,8 @@ pipeline_reset_effect :: proc(p: ^Pipeline, effect: Post_Effect) {
 	case .Fog:               p.fog = d.fog
 	case .LUT3D:             p.lut3d = d.lut3d
 	case .Dof_Debug, .Exposure_Debug, .Motion_Blur_Debug,
-	     .FXAA_Debug, .Stencil_Debug, .Bloom_Debug, .Fog_Debug, .LUT3D_Debug:
+	     .FXAA_Debug, .Stencil_Debug, .Bloom_Debug, .Fog_Debug, .LUT3D_Debug,
+	     .Vector_Field_Debug:
 		// Debug views have no settings to reset.
 	}
 	p.ubo_dirty = true
@@ -477,6 +508,14 @@ create_framebuffer :: proc(p: ^Pipeline) -> (ok: bool) {
 	p.scene_color_tex = create_texture_2d(p.width, p.height, gl.RGBA16F)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, p.scene_color_tex, 0)
 
+	// Velocity buffer (RG16F) — MRT attachment 1 for motion blur
+	p.velocity_tex = create_texture_2d(p.width, p.height, gl.RG16F, gl.RG, filter = .Nearest)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, p.velocity_tex, 0)
+
+	// Enable MRT: draw to both color and velocity
+	draw_buffers := [2]u32{gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1}
+	gl.DrawBuffers(2, raw_data(&draw_buffers))
+
 	// Depth texture (D32F for precision)
 	p.depth_tex = create_texture_2d(
 		p.width, p.height,
@@ -495,6 +534,7 @@ create_framebuffer :: proc(p: ^Pipeline) -> (ok: bool) {
 
 	dbg.object_label(gl.FRAMEBUFFER, p.scene_fbo, "PostFX_SceneFBO")
 	dbg.object_label(gl.TEXTURE, p.scene_color_tex, "PostFX_SceneColor_HDR")
+	dbg.object_label(gl.TEXTURE, p.velocity_tex, "PostFX_Velocity_RG16F")
 	dbg.object_label(gl.TEXTURE, p.depth_tex, "PostFX_Depth")
 
 	return true
@@ -503,6 +543,7 @@ create_framebuffer :: proc(p: ^Pipeline) -> (ok: bool) {
 @(private)
 destroy_framebuffer :: proc(p: ^Pipeline) {
 	delete_texture(&p.scene_color_tex)
+	delete_texture(&p.velocity_tex)
 	delete_texture(&p.depth_tex)
 	delete_fbo(&p.scene_fbo)
 }
@@ -566,6 +607,7 @@ upload_ubo :: proc(p: ^Pipeline) {
 		mb_intensity    = p.motion_blur.intensity,
 		mb_max_velocity = p.motion_blur.max_velocity,
 		mb_samples      = p.motion_blur.samples,
+		mb_debug_mode   = p.motion_blur.debug_mode,
 
 		banding_mode             = i32(p.banding.mode),
 		banding_levels           = p.banding.levels,

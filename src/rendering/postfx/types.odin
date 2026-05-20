@@ -27,6 +27,7 @@ Post_Effect :: enum u32 {
 	Bloom_Debug    = 19,
 	Fog_Debug      = 20,
 	LUT3D_Debug    = 21,
+	Vector_Field_Debug = 22,
 }
 
 // Type-safe set of enabled effects — maps directly to GLSL uint bitfield.
@@ -137,6 +138,7 @@ Motion_Blur_Params :: struct {
 	intensity:    f32,
 	max_velocity: f32,
 	samples:      i32,
+	debug_mode:   i32, // 0=velocity, 1=tile-max, 2=neighbor-max, 3=speed
 }
 
 LUT3D_Params :: struct {
@@ -225,9 +227,10 @@ DEFAULT_FOG_PARAMS :: Fog_Params{
 
 // Motion blur defaults
 DEFAULT_MOTION_BLUR_PARAMS :: Motion_Blur_Params{
-	intensity    = 0.5,
-	max_velocity = 40.0,
-	samples      = 16,
+	intensity    = 1.0,
+	max_velocity = 0.05,
+	samples      = 8,
+	debug_mode   = 0,
 }
 
 // LUT3D defaults
@@ -318,7 +321,7 @@ Post_FX_UBO :: struct #packed {
 	mb_intensity:    f32,
 	mb_max_velocity: f32,
 	mb_samples:      i32,
-	_:               f32,
+	mb_debug_mode:   i32,
 
 	// Banding (32 bytes)
 	banding_mode:             i32,
@@ -371,10 +374,12 @@ Post_FX_UBO :: struct #packed {
 #assert(offset_of(Post_FX_UBO, debug_split_mask)     == 416)  // Debug split
 
 // Texture unit assignments for post-processing samplers.
-TEX_UNIT_SCENE    :: 0
-TEX_UNIT_BLOOM    :: 1
-TEX_UNIT_DEPTH    :: 2
-TEX_UNIT_EXPOSURE :: 3
-TEX_UNIT_VELOCITY :: 4
-TEX_UNIT_DOF      :: 5
-TEX_UNIT_LUT3D    :: 8
+TEX_UNIT_SCENE        :: 0
+TEX_UNIT_BLOOM        :: 1
+TEX_UNIT_DEPTH        :: 2
+TEX_UNIT_EXPOSURE     :: 3
+TEX_UNIT_VELOCITY     :: 4
+TEX_UNIT_DOF          :: 5
+TEX_UNIT_NEIGHBOR_MAX :: 6
+TEX_UNIT_TILE_MAX     :: 7
+TEX_UNIT_LUT3D        :: 8

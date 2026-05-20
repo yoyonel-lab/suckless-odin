@@ -10,6 +10,7 @@ import "../../deps/odin-imgui/imgui_impl_opengl3"
 import cam "../camera"
 import "../core/search"
 import postfx "../rendering/postfx"
+import rendering "../rendering"
 
 // Forward-declare scene data needed by GUI panels.
 // Avoids circular import by accepting raw pointers from app.
@@ -19,6 +20,7 @@ Scene_State :: struct {
 	wireframe_enabled: ^bool,
 	exposure:          ^f32,
 	skybox_blur_lod:   ^f32,
+	sort_mode:         ^rendering.Sort_Mode,
 
 	// Post-processing pipeline (live controls)
 	postfx: ^postfx.Pipeline,
@@ -154,6 +156,10 @@ update :: proc(g: ^Gui, state: Scene_State) {
 				}
 				if imgui.BeginTabItem("Post-FX") {
 					draw_postfx_section(state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("MBlur") {
+					draw_tab_motion_blur(state)
 					imgui.EndTabItem()
 				}
 				if imgui.BeginTabItem("Profiling") {
@@ -571,11 +577,36 @@ draw_tab_rendering :: proc(state: Scene_State) {
 	imgui.Separator()
 
 	placeholder := false
+
+	// Motion Blur Debug — exclusive selector (Off / Velocity RG / Vector Field)
+	if state.postfx != nil {
+		p := state.postfx
+		mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
+		vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
+		current_dbg: i32 = 0
+		if mb_dbg { current_dbg = 1 }
+		if vf_dbg { current_dbg = 2 }
+		debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
+		if imgui.BeginCombo("MB Debug##render", debug_modes[current_dbg]) {
+			for i in i32(0) ..< 3 {
+				if imgui.Selectable(debug_modes[i], i == current_dbg) {
+					if .Motion_Blur_Debug in p.active_effects {
+						postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+					}
+					if .Vector_Field_Debug in p.active_effects {
+						postfx.pipeline_toggle(p, .Vector_Field_Debug)
+					}
+					if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
+					if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
+				}
+			}
+			imgui.EndCombo()
+		}
+	}
+
 	imgui.BeginDisabled()
 	imgui.Checkbox("Fog Debug", &placeholder)
 	imgui.Checkbox("Exposure Histogram", &placeholder)
-	imgui.Checkbox("Motion Blur Debug", &placeholder)
-	imgui.Checkbox("Vector Field Debug", &placeholder)
 	imgui.Checkbox("Stencil Debug", &placeholder)
 	imgui.EndDisabled()
 	imgui.Spacing()
@@ -608,10 +639,16 @@ draw_tab_rendering :: proc(state: Scene_State) {
 	gi_mode: i32 = 0
 	imgui.Combo("GI Mode", &gi_mode, "OFF\x00Volume 3D Tex\x00SSBO\x00")
 
-	sort_mode: i32 = 0
-	imgui.Combo("Sort Mode", &sort_mode, "None\x00CPU\x00GPU\x00")
-
 	imgui.EndDisabled()
+
+	// Sort Mode — functional (CPU variants)
+	if state.sort_mode != nil {
+		sort_val := i32(state.sort_mode^)
+		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
+			state.sort_mode^ = rendering.Sort_Mode(sort_val)
+		}
+	}
+
 	imgui.Spacing()
 
 	// --- Environment ---
@@ -716,6 +753,15 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.Checkbox("Wireframe", state.wireframe_enabled)
 			match_count += 1
 		}
+		if fuzzy_match(filter, "Sort Mode", "sorting back-to-front radix qsort depth order") {
+			if state.sort_mode != nil {
+				sort_val := i32(state.sort_mode^)
+				if imgui.Combo("Sort Mode##filt", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
+					state.sort_mode^ = rendering.Sort_Mode(sort_val)
+				}
+			}
+			match_count += 1
+		}
 		imgui.Spacing()
 	}
 
@@ -766,8 +812,31 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.Checkbox("Exposure Histogram", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Motion Blur Debug", "velocity visualization") {
-			imgui.Checkbox("Motion Blur Debug", &placeholder)
+		if fuzzy_match(filter, "Motion Blur Debug", "velocity visualization vector field") {
+			if state.postfx != nil {
+				p := state.postfx
+				mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
+				vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
+				current_dbg: i32 = 0
+				if mb_dbg { current_dbg = 1 }
+				if vf_dbg { current_dbg = 2 }
+				debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
+				if imgui.BeginCombo("MB Debug##filt", debug_modes[current_dbg]) {
+					for i in i32(0) ..< 3 {
+						if imgui.Selectable(debug_modes[i], i == current_dbg) {
+							if .Motion_Blur_Debug in p.active_effects {
+								postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+							}
+							if .Vector_Field_Debug in p.active_effects {
+								postfx.pipeline_toggle(p, .Vector_Field_Debug)
+							}
+							if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
+							if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
+						}
+					}
+					imgui.EndCombo()
+				}
+			}
 			match_count += 1
 		}
 		if fuzzy_match(filter, "FXAA Debug", "edge detection visualization") {
@@ -914,7 +983,7 @@ ibl_goto_button :: proc(g: ^Gui, target: IBL_Scroll_Target) {
 CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov bobbing zoom projection mouse movement"
 
 @(private)
-SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon"
+SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon sort mode radix"
 
 @(private)
 RENDERING_KEYWORDS :: "rendering postfx post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus exposure tonemap tonemapping saturation contrast gamma"
