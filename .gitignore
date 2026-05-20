@@ -19,3 +19,5 @@ tests/references/failed_*.png
 
 # User PostFX presets (generated at runtime)
 assets/postfx/*.json
+session.json
+.token-savior-cache.json
