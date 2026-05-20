@@ -52,6 +52,8 @@ Gui :: struct {
 	ctx:              ^imgui.Context,
 	visible:          bool,
 	docking_enabled:  bool,
+	active_tab:       i32,
+	restore_tab:      i32, // Frame counter for SetSelected (needs 2 frames)
 	search_buf:       [SEARCH_BUF_SIZE]u8,
 	focus_search:     bool,
 	ibl_debug_open:   bool,
@@ -142,40 +144,62 @@ update :: proc(g: ^Gui, state: Scene_State) {
 		} else {
 			// Normal tab bar
 			if imgui.BeginTabBar("##tabs") {
-				if imgui.BeginTabItem("Camera") {
+				tab_flags :: proc(g: ^Gui, idx: i32) -> imgui.TabItemFlags {
+					if g.restore_tab > 0 && g.active_tab == idx {
+						return {.SetSelected}
+					}
+					return {}
+				}
+				restoring := g.restore_tab > 0
+				if imgui.BeginTabItem("Camera", flags = tab_flags(g, 0)) {
+					if !restoring { g.active_tab = 0 }
 					draw_tab_camera(state.camera)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("Scene") {
+				if imgui.BeginTabItem("Scene", flags = tab_flags(g, 1)) {
+					if !restoring { g.active_tab = 1 }
 					draw_tab_scene(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("Rendering") {
+				if imgui.BeginTabItem("Rendering", flags = tab_flags(g, 2)) {
+					if !restoring { g.active_tab = 2 }
 					draw_tab_rendering(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("Post-FX") {
+				if imgui.BeginTabItem("Post-FX", flags = tab_flags(g, 3)) {
+					if !restoring { g.active_tab = 3 }
 					draw_postfx_section(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("MBlur") {
+				if imgui.BeginTabItem("MBlur", flags = tab_flags(g, 4)) {
+					if !restoring { g.active_tab = 4 }
 					draw_tab_motion_blur(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("Profiling") {
+				if imgui.BeginTabItem("Profiling", flags = tab_flags(g, 5)) {
+					if !restoring { g.active_tab = 5 }
 					draw_gpu_timings_section(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("Shaders") {
+				if imgui.BeginTabItem("Shaders", flags = tab_flags(g, 6)) {
+					if !restoring { g.active_tab = 6 }
 					draw_shader_cache_section(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("IBL Debug", flags = g.ibl_debug_open ? imgui.TabItemFlags{.SetSelected} : {}) {
+				ibl_flags := tab_flags(g, 7)
+				if g.ibl_debug_open {
+					ibl_flags += {.SetSelected}
+				}
+				if imgui.BeginTabItem("IBL Debug", flags = ibl_flags) {
+					if !restoring { g.active_tab = 7 }
 					g.ibl_debug_open = false
 					draw_tab_ibl_debug(g, state)
 					imgui.EndTabItem()
 				} else {
 					g.ibl_debug_open = false
+				}
+				if g.restore_tab > 0 {
+					g.restore_tab -= 1
 				}
 				imgui.EndTabBar()
 			}
@@ -274,6 +298,15 @@ draw_tab_scene :: proc(state: Scene_State) {
 	imgui.Separator()
 
 	imgui.Checkbox("Wireframe", state.wireframe_enabled)
+	imgui.Separator()
+
+	// Sort Mode
+	if state.sort_mode != nil {
+		sort_val := i32(state.sort_mode^)
+		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
+			state.sort_mode^ = rendering.Sort_Mode(sort_val)
+		}
+	}
 }
 
 // ─── Tab: IBL Debug ────────────────────────────────────────────────────────────

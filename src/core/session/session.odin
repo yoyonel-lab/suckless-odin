@@ -19,11 +19,14 @@ Session_State :: struct {
 	exposure: f32 `json:"exposure"`,
 	wireframe_enabled: bool `json:"wireframe_enabled"`,
 	skybox_visible: bool `json:"skybox_visible"`,
+	skybox_blur_lod: f32 `json:"skybox_blur_lod"`,
+	sort_mode: i32 `json:"sort_mode"`,
 	
 	postfx_active: bool `json:"postfx_active"`,
 	postfx_settings: postfx.Settings_File `json:"postfx_settings"`,
 	
 	gui_visible: bool `json:"gui_visible"`,
+	gui_active_tab: i32 `json:"gui_active_tab"`,
 	ibl_debug_open: bool `json:"ibl_debug_open"`,
 	
 	is_fullscreen: bool `json:"is_fullscreen"`,

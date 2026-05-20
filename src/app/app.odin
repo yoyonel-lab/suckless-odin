@@ -412,9 +412,12 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		exposure          = s.exposure,
 		wireframe_enabled = s.wireframe_enabled,
 		skybox_visible    = s.skybox_visible,
+		skybox_blur_lod   = s.skybox.blur_lod,
+		sort_mode         = i32(s.sort_mode),
 		postfx_active     = p.enabled,
 		postfx_settings   = pfx_settings,
 		gui_visible       = application.imgui.visible,
+		gui_active_tab    = application.imgui.active_tab,
 		ibl_debug_open    = application.imgui.ibl_debug_open,
 		is_fullscreen     = application.is_fullscreen,
 		overlay_mode      = i32(s.overlay.mode),
@@ -435,6 +438,8 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 	s.exposure          = state.exposure
 	s.wireframe_enabled = state.wireframe_enabled
 	s.skybox_visible    = state.skybox_visible
+	s.skybox.blur_lod   = state.skybox_blur_lod
+	s.sort_mode         = rendering.Sort_Mode(state.sort_mode)
 	
 	p := &s.postfx_pipeline
 	p.enabled = state.postfx_active
@@ -458,6 +463,8 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 	p.ubo_dirty      = true
 	
 	application.imgui.visible = state.gui_visible
+	application.imgui.active_tab = state.gui_active_tab
+	application.imgui.restore_tab = 3
 	application.imgui.ibl_debug_open = state.ibl_debug_open
 	
 	s.overlay.mode = rendering.Overlay_Mode(state.overlay_mode)
