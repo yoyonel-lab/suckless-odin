@@ -83,7 +83,7 @@ PRESET_WIP :: [Preset_Id]bool{
 PRESETS :: [Preset_Id]Preset{
 	.Default = {
 		name    = "Default",
-		effects = {.Exposure},
+		effects = {.Exposure, .Motion_Blur},
 		vignette = {
 			intensity  = DEFAULT_VIGNETTE_INTENSITY,
 			smoothness = DEFAULT_VIGNETTE_SMOOTHNESS,
