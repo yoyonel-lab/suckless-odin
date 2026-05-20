@@ -338,13 +338,31 @@ draw_postfx_section :: proc(state: Scene_State) {
 		}
 	}
 
-	// --- Fog (Phase 3 — not yet implemented) ---
-	imgui.BeginDisabled()
+	// --- Fog ---
 	fog_on := postfx.Post_Effect.Fog in p.active_effects
-	imgui.Checkbox("Fog", &fog_on)
-	imgui.SameLine()
-	imgui.TextDisabled("(WIP)")
-	imgui.EndDisabled()
+	if imgui.Checkbox("Fog", &fog_on) {
+		postfx.pipeline_toggle(p, .Fog)
+	}
+	if fog_on {
+		imgui.SameLine()
+		if imgui.TreeNodeEx("Settings##fog", {}) {
+			if imgui.SmallButton("Reset##fog") { postfx.pipeline_reset_effect(p, .Fog) }
+			if imgui.SliderFloat("Density##fog", &p.fog.density, 0.001, 1.0) { p.ubo_dirty = true }
+			if imgui.SliderFloat("Start##fog", &p.fog.start, 0.0, 100.0) { p.ubo_dirty = true }
+			if imgui.SliderFloat("Height Falloff##fog", &p.fog.height_falloff, 0.0, 0.5) { p.ubo_dirty = true }
+			if imgui.SliderFloat("Max Opacity##fog", &p.fog.max_opacity, 0.0, 1.0) { p.ubo_dirty = true }
+			if imgui.ColorEdit3("Color##fog", &p.fog.color) { p.ubo_dirty = true }
+			fog_debug := postfx.Post_Effect.Fog_Debug in p.active_effects
+			if imgui.Checkbox("Debug (greyscale mask)##fog", &fog_debug) {
+				postfx.pipeline_toggle(p, .Fog_Debug)
+			}
+			fog_split := postfx.Post_Effect.Fog in p.debug_split
+			if imgui.Checkbox("A/B Split##fog", &fog_split) {
+				postfx.pipeline_toggle_split(p, .Fog)
+			}
+			imgui.TreePop()
+		}
+	}
 
 	// --- LUT3D (Phase 5 — not yet implemented) ---
 	imgui.BeginDisabled()
@@ -353,7 +371,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	imgui.SameLine()
 	imgui.TextDisabled("(WIP)")
 	imgui.EndDisabled()
-	_ = mb_on; _ = fog_on; _ = lut_on
+	_ = mb_on; _ = lut_on
 
 	imgui.Spacing()
 }
@@ -694,13 +712,14 @@ draw_postfx_filtered :: proc(state: Scene_State, filter: cstring) -> int {
 		match_count += 1
 	}
 
-	if fuzzy_match(filter, "Fog", "postfx fog haze atmosphere depth distance") {
-		imgui.BeginDisabled()
+	if fuzzy_match(filter, "Fog", "postfx fog haze atmosphere scattering density height") {
 		fog_on := postfx.Post_Effect.Fog in p.active_effects
-		imgui.Checkbox("Fog##filt", &fog_on)
-		imgui.SameLine(); imgui.TextDisabled("(WIP)")
-		imgui.EndDisabled()
-		_ = fog_on
+		if imgui.Checkbox("Fog##filt", &fog_on) {
+			postfx.pipeline_toggle(p, .Fog)
+		}
+		if imgui.SliderFloat("Density##fog_filt", &p.fog.density, 0.001, 1.0) { p.ubo_dirty = true }
+		if imgui.SliderFloat("Start##fog_filt", &p.fog.start, 0.0, 100.0) { p.ubo_dirty = true }
+		if imgui.ColorEdit3("Color##fog_filt", &p.fog.color) { p.ubo_dirty = true }
 		match_count += 1
 	}
 

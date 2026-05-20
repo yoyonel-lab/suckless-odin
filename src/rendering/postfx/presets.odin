@@ -76,8 +76,8 @@ PRESET_WIP :: [Preset_Id]bool{
 	.Analog      = false,
 	.Channel_GFX = false,
 	.Blueprint   = false,
-	.Nordic_Noir = true, // Fog
-	.Sony_A7SIII = true, // LUT3D
+	.Nordic_Noir = false, // Fog implemented (Phase 3 complete)
+	.Sony_A7SIII = true,  // LUT3D (Phase 5 — pending)
 }
 
 PRESETS :: [Preset_Id]Preset{
