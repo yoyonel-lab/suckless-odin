@@ -1,0 +1,11 @@
+# Sony Alpha 7S III POC LUT: Identity-ish with warm highlights and lifted shadows
+TITLE "Sony A7SIII POC"
+LUT_3D_SIZE 2
+0.01 0.00 0.01
+1.00 0.00 0.00
+0.00 1.00 0.00
+1.00 1.00 0.00
+0.00 0.00 1.00
+1.00 0.00 1.00
+0.00 1.00 1.00
+1.02 1.00 0.95
