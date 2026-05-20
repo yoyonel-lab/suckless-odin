@@ -12,7 +12,7 @@
 | Core effects (vignette→FXAA, bloom, auto-exposure, DoF) | ~90% | All functional |
 | Pipeline architecture (uber-shader, shader cache, GPU timers) | ~85% | Complete |
 | Presets (variety, richness) | 38% | 5/13 ported |
-| Advanced FX (motion blur, fog, banding, LUT) | 25% | Banding implemented, others pending |
+| Advanced FX (motion blur, fog, banding, LUT) | 75% | Banding ✅, Fog ✅, LUT3D ✅, Motion Blur pending |
 | Camera Profile System | 0% | Not started |
 
 ## Missing Subsystems
@@ -31,17 +31,15 @@
 
 ### 3. Fog (Atmospheric — exponential height-based)
 
-- **Legacy**: Depth-based exponential, height falloff, spectral shift (Rayleigh), skybox masking, debug mode
-- **Odin**: Bit `Fog = 15` defined, no shader, no params
-- **UBO fields needed**: `fog_density`, `fog_start`, `fog_heightFalloff`, `fog_maxOpacity`, `fog_color` (vec3), `fog_camPos` (vec4), `fog_invViewProj` (mat4) — 112B section
-- **Note**: Fog requires camera world-space position and inverse VP matrix per-frame
+- **Legacy**: Depth-based exponential, IQ analytical height integration, skybox masking, debug mode
+- **Odin**: **[DONE]** Full IQ analytical height fog (`fog_common.glsl`), GUI controls, debug greyscale mask, A/B split
+- **Note**: Fog applied in HDR space (before exposure/tonemapping) to match legacy ordering
+- **Bloom interaction fix**: `bloom_prefilter.frag` attenuates bright pixels by fog factor before threshold extraction — fogged objects no longer generate bloom halos. Requires `upload_ubo` before `bloom_render` (implemented).
 
 ### 4. 3D LUT (Gamut Mapping)
 
 - **Legacy**: `.cube` file loader, GL_TEXTURE_3D upload, gallery cycling, intensity blend
-- **Odin**: Bit `LUT3D = 16` defined, no implementation
-- **UBO fields needed**: `lut3d_intensity` — 16B section
-- **Textures needed**: 3D LUT texture (unit 8)
+- **Odin**: **[DONE]** `.cube` parser, GL_TEXTURE_3D, GUI file picker, path serialization, debug delta mode, 7 LUT assets ported from legacy
 
 ## Missing Presets (8/13)
 
@@ -86,9 +84,10 @@ Applied via `F8` at runtime. In practice, they're specialized presets.
 - [ ] Port 5 banding presets (Posterized, Retro, Analog, Channel_GFX, Blueprint)
 
 ### Phase 3: Fog Effect
-- [ ] GLSL fog implementation (exponential + height + spectral)
-- [ ] Pass camera data to UBO per-frame
-- [ ] Port Nordic_Noir preset
+- [x] GLSL fog implementation (IQ analytical height fog)
+- [x] Pass camera data to UBO per-frame
+- [x] Fog-aware bloom prefilter (no halos through fog)
+- [x] Port Nordic_Noir preset (fog-dependent)
 
 ### Phase 4: Motion Blur
 - [ ] Velocity buffer generation
@@ -97,11 +96,11 @@ Applied via `F8` at runtime. In practice, they're specialized presets.
 - [ ] Motion blur composite in uber-shader
 
 ### Phase 5: 3D LUT
-- [ ] `.cube` file parser
-- [ ] GL_TEXTURE_3D upload
-- [ ] GLSL LUT sampling
-- [ ] Port Sony_A7SIII preset
-- [ ] LUT gallery system
+- [x] `.cube` file parser
+- [x] GL_TEXTURE_3D upload
+- [x] GLSL LUT sampling
+- [x] Port Sony_A7SIII preset
+- [ ] LUT gallery system (cycle with hotkey)
 
 ### Phase 6: Camera Profiles
 - [ ] Profile system (specialized presets with runtime switching)
