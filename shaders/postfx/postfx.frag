@@ -652,18 +652,6 @@ float getFogAmount(vec2 uv)
 	return clamp(1.0 - exp(-max(fogRaw, 0.0)), 0.0, fog_maxOpacity);
 }
 
-vec3 applyFog(vec3 color, vec2 uv)
-{
-	float amount = getFogAmount(uv);
-
-	// Debug: visualize fog factor as greyscale (black=0%, white=fog_maxOpacity)
-	if (enableFogDebug) {
-		return vec3(amount / max(fog_maxOpacity, 0.001));
-	}
-
-	return mix(color, fog_color, amount);
-}
-
 // ============================================================================
 void main()
 {
@@ -692,16 +680,25 @@ void main()
 		color = applyDoF(color, TexCoords);
 	}
 
-	// 4. Bloom mix (additive from separate bloom texture)
-	if (enableBloom && !splitBypassed(4u)) {
-		color = applyBloom(color);
+	// 4. Fog + Bloom (HDR space, interleaved — fog before bloom mix)
+	// Fog is applied first so that the bloom contribution is attenuated by the
+	// same fog factor: a sphere deep in fog should not emit bright halos.
+	// fogFactor is computed once and reused to avoid a second depth-reconstruct.
+	float fogFactor = 0.0;
+	if (enableFog && !splitBypassed(15u)) {
+		fogFactor = getFogAmount(TexCoords);
+		if (enableFogDebug) {
+			// Debug takes over the whole output — skip bloom/rest of pipeline.
+			FragColor = vec4(vec3(fogFactor / max(fog_maxOpacity, 0.001)), 1.0);
+			return;
+		}
+		color = mix(color, fog_color, fogFactor);
 	}
 
-	// 4b. Fog (HDR space — before exposure/tonemapping, matching legacy suckless-ogl)
-	// Applying fog in HDR space gives physically correct results: the fog color
-	// is specified in linear/HDR units, tonemapping then compresses it naturally.
-	if (enableFog && !splitBypassed(15u)) {
-		color = applyFog(color, TexCoords);
+	if (enableBloom && !splitBypassed(4u)) {
+		// Bloom contribution scaled by (1 - fogFactor): heavy fog suppresses halos.
+		vec3 bloomContrib = texture(bloomTexture, TexCoords).rgb * b_intensity;
+		color += bloomContrib * (1.0 - fogFactor);
 	}
 
 	// 5. Exposure (HDR brightness) — also runs when only Auto_Exposure is active.
