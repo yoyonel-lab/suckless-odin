@@ -600,40 +600,68 @@ vec3 applyLUT3D(vec3 color)
 }
 
 // ============================================================================
-// EFFECT: FOG (Exponential height-based atmospheric scattering)
+// EFFECT: FOG (Analytically-integrated exponential height fog)
+// Based on Inigo Quilez "Better Fog" (2010) and UE5 Exponential Height Fog.
+// Density follows d(y) = density * exp(-heightFalloff * y); the integral
+// along the view ray is solved analytically to avoid banding artifacts.
 // ============================================================================
-vec3 applyFog(vec3 color, vec2 uv)
+
+// Compute opacity in [0, fog_maxOpacity] for a given UV.
+float getFogAmount(vec2 uv)
 {
 	float depth = texture(depthTexture, uv).r;
 
-	// Skybox mask — fog must not apply to the infinite background
-	if (depth >= 0.99999) return color;
+	// Skip skybox (no geometry — depth at far plane)
+	if (depth >= 0.9999) return 0.0;
 
-	// Reconstruct world-space position from NDC depth + invViewProj
-	vec4 ndcPos   = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-	vec4 worldPos = fog_invViewProj * ndcPos;
+	// Reconstruct world-space position from depth + invViewProj
+	vec4 clipPos  = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+	vec4 worldPos = fog_invViewProj * clipPos;
 	worldPos.xyz /= worldPos.w;
 
-	// Camera-to-fragment distance
-	float dist = length(worldPos.xyz - fog_camPos.xyz);
-	if (dist < fog_start) return color;
+	vec3 camPos    = fog_camPos.xyz;
+	vec3 rayVec    = worldPos.xyz - camPos;
+	float rayLength = length(rayVec);
 
-	// Exponential density fog
-	float fogAmount = fog_density * (dist - fog_start);
-	fogAmount = 1.0 - exp(-fogAmount);
+	// Apply start distance — no fog before fog_start
+	float effectiveDist = max(0.0, rayLength - fog_start);
+	if (effectiveDist <= 0.0) return 0.0;
 
-	// Height falloff: attenuate by world-Y position (Y-up)
-	float heightAttenuation = exp(-fog_heightFalloff * max(worldPos.y, 0.0));
-	fogAmount *= heightAttenuation;
+	vec3  rayDir = rayVec / rayLength;
+	float fogRaw;
 
-	fogAmount = clamp(fogAmount * fog_maxOpacity, 0.0, fog_maxOpacity);
+	if (fog_heightFalloff > 0.001) {
+		// IQ analytical integration: density(y) = fog_density * exp(-b * y)
+		// Integral from camPos to worldPos along the ray:
+		//   fogRaw = (density/b) * exp(-camY * b) * (1 - exp(-dist * rayDir.y * b)) / rayDir.y
+		float b   = fog_heightFalloff;
+		float rdY = rayDir.y;
 
-	// Debug: visualize fog factor as greyscale
-	if (enableFogDebug) {
-		return vec3(fogAmount);
+		if (abs(rdY) < 0.0001) {
+			// Horizontal ray — constant density at camera height
+			fogRaw = fog_density * exp(-camPos.y * b) * effectiveDist;
+		} else {
+			fogRaw = (fog_density / b) * exp(-camPos.y * b) *
+			         (1.0 - exp(-effectiveDist * rdY * b)) / rdY;
+		}
+	} else {
+		// No height variation — simple distance exponential
+		fogRaw = fog_density * effectiveDist;
 	}
 
-	return mix(color, fog_color, fogAmount);
+	return clamp(1.0 - exp(-max(fogRaw, 0.0)), 0.0, fog_maxOpacity);
+}
+
+vec3 applyFog(vec3 color, vec2 uv)
+{
+	float amount = getFogAmount(uv);
+
+	// Debug: visualize fog factor as greyscale (black=0%, white=fog_maxOpacity)
+	if (enableFogDebug) {
+		return vec3(amount / max(fog_maxOpacity, 0.001));
+	}
+
+	return mix(color, fog_color, amount);
 }
 
 // ============================================================================
@@ -669,6 +697,13 @@ void main()
 		color = applyBloom(color);
 	}
 
+	// 4b. Fog (HDR space — before exposure/tonemapping, matching legacy suckless-ogl)
+	// Applying fog in HDR space gives physically correct results: the fog color
+	// is specified in linear/HDR units, tonemapping then compresses it naturally.
+	if (enableFog && !splitBypassed(15u)) {
+		color = applyFog(color, TexCoords);
+	}
+
 	// 5. Exposure (HDR brightness) — also runs when only Auto_Exposure is active.
 	if ((enableExposure || enableAutoExposure) && !splitBypassed(2u) && !splitBypassed(8u)) {
 		color = applyExposure(color);
@@ -702,11 +737,6 @@ void main()
 	// 8. Banding (artistic color quantization)
 	if (enableBanding && !splitBypassed(14u)) {
 		color = applyBanding(color);
-	}
-
-	// 8b. Fog (depth-reconstructed atmospheric scattering)
-	if (enableFog && !splitBypassed(15u)) {
-		color = applyFog(color, TexCoords);
 	}
 
 	// 9. Vignette
