@@ -364,14 +364,47 @@ draw_postfx_section :: proc(state: Scene_State) {
 		}
 	}
 
-	// --- LUT3D (Phase 5 — not yet implemented) ---
-	imgui.BeginDisabled()
+	// --- LUT3D ---
+	@(static) lut_path_buf: [256]u8
 	lut_on := postfx.Post_Effect.LUT3D in p.active_effects
-	imgui.Checkbox("LUT3D", &lut_on)
-	imgui.SameLine()
-	imgui.TextDisabled("(WIP)")
-	imgui.EndDisabled()
-	_ = mb_on; _ = lut_on
+	if imgui.Checkbox("LUT3D", &lut_on) {
+		postfx.pipeline_toggle(p, .LUT3D)
+	}
+	if lut_on {
+		imgui.SameLine()
+		if imgui.TreeNodeEx("Settings##lut3d", {}) {
+			if imgui.SmallButton("Reset##lut3d") { postfx.pipeline_reset_effect(p, .LUT3D) }
+			if imgui.SliderFloat("Intensity##lut3d", &p.lut3d.intensity, 0.0, 1.0) { p.ubo_dirty = true }
+			if p.lut3d_fx.loaded {
+				imgui.TextDisabled("Loaded: %s (%d^3)", p.lut3d_fx.path, p.lut3d_fx.size)
+				if imgui.SmallButton("Unload##lut3d") {
+					postfx.lut3d_destroy(&p.lut3d_fx)
+					postfx.pipeline_disable(p, .LUT3D)
+				}
+			} else {
+				imgui.TextColored(imgui.Vec4{1.0, 0.6, 0.3, 1.0}, "No LUT loaded")
+				imgui.SetNextItemWidth(200)
+				imgui.InputText("##lut3d_path", cast(cstring)&lut_path_buf[0], len(lut_path_buf))
+				imgui.SameLine()
+				if imgui.SmallButton("Load##lut3d") {
+					path := string(cstring(&lut_path_buf[0]))
+					if path != "" && postfx.pipeline_load_lut(p, path) {
+						postfx.pipeline_enable(p, .LUT3D)
+					}
+				}
+			}
+			lut_debug := postfx.Post_Effect.LUT3D_Debug in p.active_effects
+			if imgui.Checkbox("Debug delta##lut3d", &lut_debug) {
+				postfx.pipeline_toggle(p, .LUT3D_Debug)
+			}
+			lut_split := postfx.Post_Effect.LUT3D in p.debug_split
+			if imgui.Checkbox("A/B Split##lut3d", &lut_split) {
+				postfx.pipeline_toggle_split(p, .LUT3D)
+			}
+			imgui.TreePop()
+		}
+	}
+	_ = mb_on
 
 	imgui.Spacing()
 }
@@ -508,6 +541,7 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 		.Stencil_Debug = "Stencil Debug",
 		.Bloom_Debug   = "Bloom Debug",
 		.Fog_Debug     = "Fog Debug",
+		.LUT3D_Debug   = "LUT3D Debug",
 	}
 	effect_names := EFFECT_NAMES
 	active_count := 0
@@ -723,13 +757,12 @@ draw_postfx_filtered :: proc(state: Scene_State, filter: cstring) -> int {
 		match_count += 1
 	}
 
-	if fuzzy_match(filter, "LUT3D", "postfx lut lookup table color grading 3d film emulation") {
-		imgui.BeginDisabled()
+	if fuzzy_match(filter, "LUT3D", "postfx lut lookup table color grading 3d film emulation gamut") {
 		lut_on := postfx.Post_Effect.LUT3D in p.active_effects
-		imgui.Checkbox("LUT3D##filt", &lut_on)
-		imgui.SameLine(); imgui.TextDisabled("(WIP)")
-		imgui.EndDisabled()
-		_ = lut_on
+		if imgui.Checkbox("LUT3D##filt", &lut_on) {
+			postfx.pipeline_toggle(p, .LUT3D)
+		}
+		if imgui.SliderFloat("Intensity##lut3d_filt", &p.lut3d.intensity, 0.0, 1.0) { p.ubo_dirty = true }
 		match_count += 1
 	}
 

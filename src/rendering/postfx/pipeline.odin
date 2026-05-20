@@ -20,6 +20,7 @@ Pipeline :: struct {
 	bloom_fx:         Bloom_FX,
 	dof_fx:           Dof_FX,
 	auto_exposure_fx: Auto_Exposure_FX,
+	lut3d_fx:         LUT3D_FX,
 
 	// GPU profiling
 	timers: Gpu_Timers,
@@ -137,6 +138,7 @@ pipeline_destroy :: proc(p: ^Pipeline) {
 	auto_exposure_destroy(&p.auto_exposure_fx)
 	dof_destroy(&p.dof_fx)
 	bloom_destroy(&p.bloom_fx)
+	lut3d_destroy(&p.lut3d_fx)
 	delete_program(&p.composite_program)
 	destroy_framebuffer(p)
 	delete_buffer(&p.settings_ubo)
@@ -240,6 +242,9 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Bind DoF blur texture (1/4 res pre-blurred scene)
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_DOF)
 	gl.BindTexture(gl.TEXTURE_2D, dof_get_texture(&p.dof_fx))
+
+	// Bind 3D LUT texture (unit 8, or 0 if not loaded)
+	lut3d_bind(&p.lut3d_fx)
 
 	// Draw fullscreen quad (final composite)
 	quad_draw(&p.quad)
@@ -362,6 +367,12 @@ pipeline_set_camera :: proc(p: ^Pipeline, cam_pos: [4]f32, inv_view_proj: [16]f3
 	p.ubo_dirty = true
 }
 
+// Load a 3D LUT from a .cube file. Replaces any previously loaded LUT.
+// Returns true on success. Idempotent: safe to call while the pipeline is active.
+pipeline_load_lut :: proc(p: ^Pipeline, path: string) -> bool {
+	return lut3d_load(&p.lut3d_fx, path)
+}
+
 // Reset a single effect's parameters to its Default preset values.
 // Does NOT toggle the effect's on/off state.
 pipeline_reset_effect :: proc(p: ^Pipeline, effect: Post_Effect) {
@@ -389,7 +400,7 @@ pipeline_reset_effect :: proc(p: ^Pipeline, effect: Post_Effect) {
 	case .Fog:               p.fog = d.fog
 	case .LUT3D:             p.lut3d = d.lut3d
 	case .Dof_Debug, .Exposure_Debug, .Motion_Blur_Debug,
-	     .FXAA_Debug, .Stencil_Debug, .Bloom_Debug, .Fog_Debug:
+	     .FXAA_Debug, .Stencil_Debug, .Bloom_Debug, .Fog_Debug, .LUT3D_Debug:
 		// Debug views have no settings to reset.
 	}
 	p.ubo_dirty = true

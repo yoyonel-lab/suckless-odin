@@ -25,6 +25,7 @@ Settings_File :: struct {
 	fog:           Fog_Params              `json:"fog"`,
 	motion_blur:   Motion_Blur_Params      `json:"motion_blur"`,
 	lut3d:         LUT3D_Params            `json:"lut3d"`,
+	lut3d_path:    string                  `json:"lut3d_path"`,
 }
 
 // Default directory for user PostFX presets.
@@ -49,6 +50,7 @@ settings_export :: proc(p: ^Pipeline, path: string, name: string) -> bool {
 		fog           = p.fog,
 		motion_blur   = p.motion_blur,
 		lut3d         = p.lut3d,
+		lut3d_path    = p.lut3d_fx.path,
 	}
 
 	// Ensure output directory exists
@@ -109,6 +111,10 @@ settings_import :: proc(p: ^Pipeline, path: string) -> bool {
 	p.fog            = settings.fog
 	p.motion_blur    = settings.motion_blur
 	p.lut3d          = settings.lut3d
+	if settings.lut3d_path != "" {
+		pipeline_load_lut(p, settings.lut3d_path)
+	}
+	defer delete(settings.lut3d_path)
 	p.ubo_dirty      = true
 
 	log.log_info("suckless-odin.postfx.io", "Imported settings '%s' from %s", settings.name, path)

@@ -26,6 +26,7 @@ Post_Effect :: enum u32 {
 	Stencil_Debug  = 18,
 	Bloom_Debug    = 19,
 	Fog_Debug      = 20,
+	LUT3D_Debug    = 21,
 }
 
 // Type-safe set of enabled effects — maps directly to GLSL uint bitfield.
@@ -376,3 +377,4 @@ TEX_UNIT_DEPTH    :: 2
 TEX_UNIT_EXPOSURE :: 3
 TEX_UNIT_VELOCITY :: 4
 TEX_UNIT_DOF      :: 5
+TEX_UNIT_LUT3D    :: 8

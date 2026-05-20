@@ -16,6 +16,8 @@ layout(binding = 2) uniform sampler2D depthTexture;
 layout(binding = 3) uniform sampler2D autoExposureTexture;
 // DoF blur texture (1/4 res pre-blurred scene)
 layout(binding = 5) uniform sampler2D dofBlurTexture;
+// 3D LUT texture (unit 8, RGB16F cube)
+layout(binding = 8) uniform sampler3D lut3dTexture;
 
 // --- UBO: Post-Processing Parameters (std140, binding 0) ---
 layout(std140, binding = 0) uniform PostProcessBlock
@@ -186,7 +188,9 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
 #define enableBanding       ((activeEffects & (1u << 14u)) != 0u)
 #define enableFog           ((activeEffects & (1u << 15u)) != 0u)
+#define enableLUT3D         ((activeEffects & (1u << 16u)) != 0u)
 #define enableFogDebug      ((activeEffects & (1u << 20u)) != 0u)
+#define enableLUT3DDebug    ((activeEffects & (1u << 21u)) != 0u)
 #define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
 #define enableDoFDebug      ((activeEffects & (1u << 7u)) != 0u)
 #define enableFXAADebug     ((activeEffects & (1u << 17u)) != 0u)
@@ -579,6 +583,23 @@ vec3 applyBanding(vec3 color)
 }
 
 // ============================================================================
+// EFFECT: 3D LUT (Gamut mapping / Film emulation)
+// ============================================================================
+vec3 applyLUT3D(vec3 color)
+{
+	// Clamp to valid LUT domain
+	color = clamp(color, 0.0, 1.0);
+
+	// Texel-center correction: avoids boundary clamping artifacts
+	float lutSize = float(textureSize(lut3dTexture, 0).x);
+	vec3 scale  = vec3((lutSize - 1.0) / lutSize);
+	vec3 offset = vec3(0.5 / lutSize);
+	vec3 uvw = color * scale + offset;
+
+	return texture(lut3dTexture, uvw).rgb;
+}
+
+// ============================================================================
 // EFFECT: FOG (Exponential height-based atmospheric scattering)
 // ============================================================================
 vec3 applyFog(vec3 color, vec2 uv)
@@ -665,6 +686,17 @@ void main()
 		float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
 		color = mix(vec3(luma), color, cg_saturation);
 		color = color * cg_gain + cg_offset;
+	}
+
+	// 7b. 3D LUT (gamut mapping — blended at lut3d_intensity, applied after grading)
+	if (enableLUT3D && !splitBypassed(16u)) {
+		vec3 lutColor = applyLUT3D(color);
+		if (enableLUT3DDebug) {
+			// Amplified delta: reveals even subtle LUT corrections (gray = neutral)
+			color = clamp((lutColor - color) * 4.0 + 0.5, 0.0, 1.0);
+		} else {
+			color = mix(color, lutColor, lut3d_intensity);
+		}
 	}
 
 	// 8. Banding (artistic color quantization)
