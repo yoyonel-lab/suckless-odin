@@ -174,11 +174,14 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Collect previous frame's timer results (non-blocking)
 	gpu_timers_collect(&p.timers, p.dt)
 
+	// Upload UBO early so sub-passes (bloom prefilter) can read fog/effect state.
+	upload_ubo(p)
+
 	// Run bloom multi-pass if enabled
 	gpu_timer_begin(&p.timers, .Bloom)
 	if .Bloom in p.active_effects {
 		dbg.push_group("PostFX_Bloom")
-		bloom_render(&p.bloom_fx, &p.bloom, p.scene_color_tex, &p.quad)
+		bloom_render(&p.bloom_fx, &p.bloom, p.scene_color_tex, p.depth_tex, &p.quad)
 		dbg.pop_group()
 	}
 	gpu_timer_end(&p.timers, .Bloom)
@@ -207,7 +210,7 @@ pipeline_end :: proc(p: ^Pipeline) {
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	gl.Disable(gl.DEPTH_TEST)
 
-	// Upload UBO
+	// Upload UBO (already done above for bloom; this is a no-op if not dirty)
 	upload_ubo(p)
 
 	// Composite pass (uber-shader)

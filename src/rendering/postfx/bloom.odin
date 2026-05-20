@@ -81,8 +81,10 @@ bloom_destroy :: proc(b: ^Bloom_FX) {
 
 // Render bloom passes: prefilter → downsample → upsample.
 // src_texture: scene HDR color texture to bloom from.
+// depth_tex: scene depth texture (used by fog-aware prefilter to suppress
+//   bloom halos on fogged objects — requires UBO already uploaded).
 // Result is in mips[0].texture, ready to be bound as bloom texture unit.
-bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, quad: ^Fullscreen_Quad) {
+bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, depth_tex: u32, quad: ^Fullscreen_Quad) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, b.fbo)
 	defer gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	gl.Disable(gl.DEPTH_TEST)
@@ -95,10 +97,17 @@ bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, quad
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, src_texture)
 
+	// Bind depth texture so the fog-aware prefilter can attenuate bright pixels.
+	gl.ActiveTexture(gl.TEXTURE2)
+	gl.BindTexture(gl.TEXTURE_2D, depth_tex)
+
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.mips[0].texture, 0)
 	gl.Viewport(0, 0, b.mips[0].width, b.mips[0].height)
 
 	quad_draw(quad)
+
+	// Restore TEXTURE0 as active unit for the downsample/upsample chain.
+	gl.ActiveTexture(gl.TEXTURE0)
 
 	// --- 2. Downsample chain: mip[i] → mip[i+1] ---
 	gl.UseProgram(b.downsample_program)
