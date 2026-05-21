@@ -222,3 +222,23 @@ GL tests in `tests/gl/`:
 - **Banding** (Phase 2): 5 artistic quantization modes
 - **Fog** (Phase 3): exponential height-based atmospheric
 - **LUT3D** (Phase 5): .cube file loading, 3D texture
+
+## Skybox Blur Source: IBL Prefilter (2026-05-21)
+
+The skybox blur originally used cubemap mipmap LOD sampling. This produced face-boundary seams at high LODs because:
+1. `glGenerateMipmap` does per-face box filtering (edge texels get clamped, not cross-face)
+2. A manual "seamless" downsample (via `GL_TEXTURE_CUBE_MAP_SEAMLESS`) produced identical results because modern drivers already use seamless filtering for `glGenerateMipmap`
+3. The bilinear cross-face kernel at sample time is too narrow at high LODs to hide accumulated artifacts
+
+**Solution:** Reuse the IBL prefiltered specular map (2D equirect, 2048×1024, 5 mip levels) as an alternative blur source. This map is generated via importance-sampled GGX convolution (compute shader `spmap.glsl`), producing physically-correct blur with no face seams.
+
+### GUI Controls (Scene tab)
+- **Blur Source**: `Mipmap LOD` (standard) / `IBL Prefilter` (new)
+- **Show Blur Diff**: Debug comparison — amplified difference between standard mip blur and IBL prefilter at the same blur_lod
+- **Diff Gain**: Amplification factor (1–100×)
+
+### Implementation
+- `Blur_Source` enum added to `Skybox` struct
+- When `IBL_Prefilter` selected: equirect shader renders with `ibl.prefilter_map` instead of `env_tex`
+- `blur_lod [0..8]` mapped to `prefilter_lod [0..4]` (linear scale to PREFILTER_MIP_LEVELS-1)
+- Diff shader: `shaders/background_blur_diff.frag` (compares both 2D equirect sources side-by-side)

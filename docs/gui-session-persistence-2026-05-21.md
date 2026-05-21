@@ -46,3 +46,67 @@ The 3-frame window guarantees `SetSelected` propagates through ImGui's deferred 
 ### Key Insight
 
 ImGui's tab selection is a **2-frame pipeline**: frame N sets `NextSelectedTabId`, frame N+1 applies it. Combined with the initialization frame, you need at least 3 frames of `SetSelected` without overwriting the target to reliably restore a tab.
+
+---
+
+## Skybox Rendering Modes — Trade-off Analysis
+
+**Date:** 2026-05-21
+
+The skybox now supports two rendering modes (GUI toggle + session-persisted):
+
+### Mode 1: Equirectangular + Bicubic Filtering (default)
+
+- **Shader:** `background.frag` — Catmull-Rom 4-tap bicubic filtering (`textureBicubicLod`) when `blur_lod > 0`
+- **Artifacts:** Pole singularities (pinching at top/bottom of sphere parameterization)
+- **Mitigation:** Bicubic filtering smooths the pole discontinuity significantly at higher blur LODs
+- **Verdict:** ✅ Good enough for production — poles are rarely in view, bicubic makes them organic
+
+### Mode 2: Cubemap (experimental alternative)
+
+- **Shader:** `background_cubemap.frag` — `textureLod(samplerCube, dir, blur_lod)`
+- **Conversion:** `equirect_to_cubemap.{vert,frag}` renders 6 faces at 1024×1024 via FBO
+- **Artifacts:** Visible seams at cubemap face boundaries, especially at higher mip levels
+- **Root cause:** `glGenerateMipmap(GL_TEXTURE_CUBE_MAP)` generates mipmaps **per-face independently** without cross-face filtering. `GL_TEXTURE_CUBE_MAP_SEAMLESS` only fixes hardware filtering at render time, NOT mipmap generation.
+- **Seam Fix:** Castaño stretch edge fixup (toggle via GUI checkbox "Cubemap Seam Fix")
+
+### Cubemap Seam Fix Techniques (Industry Reference)
+
+Three documented techniques exist to mitigate cubemap face seams. **None are runtime-only standalone fixes** — all require either offline texture pre-processing or coupled generation+sampling steps.
+
+#### 1. Stretch Edge Fixup (Ignacio Castaño, NVTT) — ❌ NOT VIABLE STANDALONE
+
+- **Principle:** TWO coupled steps: (1) Generate texture faces with stretched/extended edge texels, then (2) at runtime, contract the direction vector's non-dominant components toward the face center
+- **Critical constraint:** Step 2 (runtime contraction) WITHOUT step 1 (pre-stretched textures) produces WORSE artifacts — visible rectangular gaps at face boundaries
+- **Tested:** Implemented and tested in this project; confirmed worse than no fix
+- **Reference:** NVTT source (`CubeSurface.cpp`), Lagarde AMD CubemapGen article
+
+#### 2. Warp Edge Fixup (NVTT)
+
+- **Principle:** Cubic distortion of texel coordinates at generation time: `u' = a * u³ + u` where `a = size² / (size-1)³`
+- **Applied:** During cubemap face generation (offline only)
+- **Requirement:** Custom mipmap generation pipeline with cross-face awareness
+- **Reference:** NVTT source, Lagarde recommends as default starting method
+
+#### 3. Bent Edge Fixup (Tri-Ace, CEDEC 2011)
+
+- **Principle:** Slerp the texel direction vector away from the face normal, proportional to distance from center
+- **Applied:** During cubemap face generation (offline only)
+- **Reference:** Tri-Ace CEDEC 2011 presentation
+
+#### 4. Hardware: `GL_TEXTURE_CUBE_MAP_SEAMLESS`
+
+- **Principle:** Cross-face bilinear/trilinear filtering at GPU hardware level
+- **Limitation:** Does NOT affect `glGenerateMipmap` — only fixes filtering at sample boundaries
+- **Status:** Enabled in our pipeline (`skybox_create`) — helps at low blur but insufficient at high mips
+
+### Conclusion
+
+| | Equirect+Bicubic | Cubemap |
+|---|---|---|
+| Artifact type | Pole pinching | Face edge seams |
+| Severity | Low (softened by bicubic) | Medium (sharp discontinuities) |
+| Runtime fix available | N/A (already mitigated) | **None** — all fixes require offline pre-processing |
+| Recommendation | **Primary mode** | Optional/experimental |
+
+**Key insight:** There is no purely runtime shader fix for cubemap mipmap seams. All documented techniques (Stretch, Warp, Bent) require offline texture generation with cross-face awareness. The standard OpenGL `glGenerateMipmap` operates per-face independently, and `GL_TEXTURE_CUBE_MAP_SEAMLESS` only helps at the bilinear filtering stage, not at mip generation. For a realtime-only pipeline using `glGenerateMipmap`, the equirectangular+bicubic approach remains superior.
