@@ -20,6 +20,8 @@ layout(binding = 4) uniform sampler2D velocityTexture;
 layout(binding = 5) uniform sampler2D dofBlurTexture;
 // Neighbor-max velocity (RG16F, dilated tile max)
 layout(binding = 6) uniform sampler2D neighborMaxTexture;
+// Tile-max velocity (RG16F, per-tile 16x16 reduction)
+layout(binding = 7) uniform sampler2D tileMaxTexture;
 // 3D LUT texture (unit 8, RGB16F cube)
 layout(binding = 8) uniform sampler3D lut3dTexture;
 
@@ -274,15 +276,50 @@ vec3 applyVectorFieldDebug(vec2 uv)
 	return baseColor * 0.3;
 }
 
+// Velocity heatmap: cold (blue) → warm (red) color ramp for speed visualization.
+// Input: normalized speed (0 = no motion, 1 = full intensity).
+vec3 velocityHeatmap(float speed)
+{
+	speed = clamp(speed, 0.0, 1.0);
+	// 5-stop gradient: black → blue → cyan → yellow → red
+	vec3 c;
+	if (speed < 0.25) {
+		c = mix(vec3(0.0, 0.0, 0.1), vec3(0.0, 0.2, 1.0), speed * 4.0);
+	} else if (speed < 0.5) {
+		c = mix(vec3(0.0, 0.2, 1.0), vec3(0.0, 1.0, 1.0), (speed - 0.25) * 4.0);
+	} else if (speed < 0.75) {
+		c = mix(vec3(0.0, 1.0, 1.0), vec3(1.0, 1.0, 0.0), (speed - 0.5) * 4.0);
+	} else {
+		c = mix(vec3(1.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), (speed - 0.75) * 4.0);
+	}
+	return c;
+}
+
 vec3 applyMotionBlur(vec2 uv)
 {
 	/* 1. Get Velocity at center pixel */
 	vec2 velocity = texture(velocityTexture, uv).rg;
 
-	/* Debug Visualization (Early Exit) */
+	/* Debug Visualization (Early Exit) — mb_debugMode selects view */
 	if (enableMotionBlurDebug) {
-		/* RG Color Visualization */
-		return vec3(abs(velocity.x) * 20.0, abs(velocity.y) * 20.0, 0.0);
+		if (mb_debugMode == 0) {
+			/* Mode 0: Raw Velocity RG */
+			return vec3(abs(velocity.x) * 20.0, abs(velocity.y) * 20.0, 0.0);
+		} else if (mb_debugMode == 1) {
+			/* Mode 1: Tile-Max velocity (per-tile 16x16 reduction) */
+			vec2 tileVel = texture(tileMaxTexture, uv).rg;
+			float tileSpeed = length(tileVel) * 20.0;
+			return velocityHeatmap(tileSpeed);
+		} else if (mb_debugMode == 2) {
+			/* Mode 2: Neighbor-Max velocity (3x3 dilated tiles) */
+			vec2 neighborVel = texture(neighborMaxTexture, uv).rg;
+			float neighborSpeed = length(neighborVel) * 20.0;
+			return velocityHeatmap(neighborSpeed);
+		} else {
+			/* Mode 3: Speed heatmap (per-pixel velocity magnitude) */
+			float speed = length(velocity) * 20.0;
+			return velocityHeatmap(speed);
+		}
 	}
 
 	/* Vector Field Overlay */

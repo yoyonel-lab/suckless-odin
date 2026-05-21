@@ -135,10 +135,14 @@ Fog_Params :: struct {
 }
 
 Motion_Blur_Params :: struct {
-	intensity:    f32,
-	max_velocity: f32,
-	samples:      i32,
-	debug_mode:   i32, // 0=velocity, 1=tile-max, 2=neighbor-max, 3=speed
+	intensity:        f32,
+	max_velocity:     f32,
+	samples:          i32,
+	debug_mode:       i32, // 0=velocity, 1=tile-max, 2=neighbor-max, 3=speed
+	// Synthetic velocity injection (debug tool — persisted in session)
+	inject_enabled:   bool,
+	inject_direction: f32, // Angle in degrees (0=right, 90=up, 180=left, 270=down)
+	inject_magnitude: f32, // Velocity magnitude in UV space (same units as max_velocity)
 }
 
 LUT3D_Params :: struct {

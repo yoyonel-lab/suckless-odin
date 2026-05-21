@@ -1,6 +1,7 @@
 package gui
 
 import "core:fmt"
+import "core:math"
 import imgui "../../deps/odin-imgui"
 import postfx "../rendering/postfx"
 
@@ -982,20 +983,63 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 
 	imgui.Spacing()
 
+	// --- Synthetic Velocity Injection ---
+	imgui.TextColored(imgui.Vec4{1.0, 0.6, 0.2, 1.0}, "Synthetic Velocity (Debug)")
+	imgui.Separator()
+	imgui.TextWrapped("Inject constant velocity without moving the camera. Tests the full MB pipeline end-to-end.")
+
+	imgui.Checkbox("Enable Injection", &p.motion_blur.inject_enabled)
+
+	if p.motion_blur.inject_enabled {
+		imgui.SliderFloat("Direction (deg)", &p.motion_blur.inject_direction, 0.0, 360.0)
+		imgui.SliderFloat("Magnitude (UV)", &p.motion_blur.inject_magnitude, 0.0, 0.15)
+
+		// Quick presets
+		if imgui.SmallButton("Right") { p.motion_blur.inject_direction = 0.0; p.motion_blur.inject_magnitude = 0.03 }
+		imgui.SameLine()
+		if imgui.SmallButton("Up") { p.motion_blur.inject_direction = 90.0; p.motion_blur.inject_magnitude = 0.03 }
+		imgui.SameLine()
+		if imgui.SmallButton("Left") { p.motion_blur.inject_direction = 180.0; p.motion_blur.inject_magnitude = 0.03 }
+		imgui.SameLine()
+		if imgui.SmallButton("Down") { p.motion_blur.inject_direction = 270.0; p.motion_blur.inject_magnitude = 0.03 }
+
+		if imgui.SmallButton("Slow") { p.motion_blur.inject_magnitude = 0.01 }
+		imgui.SameLine()
+		if imgui.SmallButton("Medium") { p.motion_blur.inject_magnitude = 0.04 }
+		imgui.SameLine()
+		if imgui.SmallButton("Fast") { p.motion_blur.inject_magnitude = 0.10 }
+		imgui.SameLine()
+		if imgui.SmallButton("Max") { p.motion_blur.inject_magnitude = 0.15 }
+
+		// Visual indicator of current velocity vector
+		angle_rad := p.motion_blur.inject_direction * math.RAD_PER_DEG
+		imgui.Text("Velocity: (%.4f, %.4f) UV", p.motion_blur.inject_magnitude * math.cos(angle_rad), p.motion_blur.inject_magnitude * math.sin(angle_rad))
+	}
+
+	imgui.Spacing()
+
 	// --- Debug Visualization ---
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Debug Visualization")
 	imgui.Separator()
 
-	// Exclusive debug mode selector (like legacy SHIFT+M cycle)
+	// Exclusive debug mode selector
 	mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
 	vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
 	current_dbg: i32 = 0  // Off
-	if mb_dbg { current_dbg = 1 }      // Velocity RG
-	if vf_dbg { current_dbg = 2 }      // Vector Field
-	debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
-	if imgui.BeginCombo("Debug View", debug_modes[current_dbg]) {
-		for i in i32(0) ..< 3 {
-			if imgui.Selectable(debug_modes[i], i == current_dbg) {
+	if mb_dbg { current_dbg = 1 + p.motion_blur.debug_mode }
+	if vf_dbg { current_dbg = 5 }
+	debug_modes := [6]cstring{
+		"Off",
+		"Velocity (RG)",
+		"Tile-Max (Heatmap)",
+		"Neighbor-Max (Heatmap)",
+		"Speed (Heatmap)",
+		"Vector Field",
+	}
+	clamped_dbg := clamp(current_dbg, 0, 5)
+	if imgui.BeginCombo("Debug View", debug_modes[clamped_dbg]) {
+		for i in i32(0) ..< 6 {
+			if imgui.Selectable(debug_modes[i], i == clamped_dbg) {
 				// Disable both first, then enable selected
 				if .Motion_Blur_Debug in p.active_effects {
 					postfx.pipeline_toggle(p, .Motion_Blur_Debug)
@@ -1003,8 +1047,12 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 				if .Vector_Field_Debug in p.active_effects {
 					postfx.pipeline_toggle(p, .Vector_Field_Debug)
 				}
-				if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
-				if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
+				if i >= 1 && i <= 4 {
+					postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+					p.motion_blur.debug_mode = i - 1
+					p.ubo_dirty = true
+				}
+				if i == 5 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
 			}
 		}
 		imgui.EndCombo()
@@ -1041,4 +1089,5 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 	imgui.Text("Motion_Blur (bit 10): %s", mb_on ? "ON" : "OFF")
 	imgui.Text("Motion_Blur_Debug (bit 11): %s", mb_dbg ? "ON" : "OFF")
 	imgui.Text("Vector_Field_Debug (bit 22): %s", vf_dbg ? "ON" : "OFF")
+	imgui.Text("Synthetic Inject: %s", p.motion_blur.inject_enabled ? "ACTIVE" : "off")
 }

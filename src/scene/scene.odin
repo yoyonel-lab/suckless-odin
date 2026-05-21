@@ -1,6 +1,7 @@
 package scene
 
 import gl "vendor:OpenGL"
+import "core:math"
 import "core:os"
 
 import log "../core/log"
@@ -192,7 +193,24 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 		s.prev_view_proj = vp
 		s.prev_vp_initialized = true
 	}
-	s.prev_view_proj = vp
+
+	// Synthetic velocity injection: offset prev_view_proj to simulate camera movement.
+	// Produces uniform velocity across the screen without touching the camera.
+	mb := &s.postfx_pipeline.motion_blur
+	if mb.inject_enabled && mb.inject_magnitude > 0.0 {
+		angle_rad := mt.radians(mb.inject_direction)
+		// NDC offset: velocity = (currNDC - prevNDC) * 0.5
+		// To get velocity = magnitude at direction, prevNDC must be offset by -2*magnitude
+		dx := -2.0 * mb.inject_magnitude * math.cos(angle_rad)
+		dy := -2.0 * mb.inject_magnitude * math.sin(angle_rad)
+		// Pre-multiply VP with NDC translation matrix
+		ndc_offset := mt.MAT4_IDENTITY
+		ndc_offset[3][0] = dx
+		ndc_offset[3][1] = dy
+		s.prev_view_proj = ndc_offset * vp
+	} else {
+		s.prev_view_proj = vp
+	}
 
 	// 4. Text overlay (rendered AFTER post-fx, directly to screen)
 	dbg.push_group("Text_Overlay")
