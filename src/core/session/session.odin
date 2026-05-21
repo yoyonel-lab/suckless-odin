@@ -20,6 +20,11 @@ Session_State :: struct {
 	wireframe_enabled: bool `json:"wireframe_enabled"`,
 	skybox_visible: bool `json:"skybox_visible"`,
 	skybox_blur_lod: f32 `json:"skybox_blur_lod"`,
+	skybox_mode: i32 `json:"skybox_mode"`,
+	mipmap_mode: i32 `json:"mipmap_mode"`,
+	blur_source: i32 `json:"blur_source"`,
+	show_blur_diff: bool `json:"show_blur_diff"`,
+	diff_gain: f32 `json:"diff_gain"`,
 	sort_mode: i32 `json:"sort_mode"`,
 	
 	postfx_active: bool `json:"postfx_active"`,

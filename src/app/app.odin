@@ -163,6 +163,12 @@ run :: proc(application: ^App) {
 			wireframe_enabled   = &application.scene.wireframe_enabled,
 			exposure            = &application.scene.exposure,
 			skybox_blur_lod     = &application.scene.skybox.blur_lod,
+			skybox_mode         = &application.scene.skybox.mode,
+			mipmap_mode         = &application.scene.skybox.mipmap_mode,
+			blur_source         = &application.scene.skybox.blur_source,
+			cubemap_dirty       = &application.scene.skybox.cubemap_dirty,
+			show_mipmap_diff    = &application.scene.skybox.show_diff,
+			diff_gain           = &application.scene.skybox.diff_gain,
 			sort_mode           = &application.scene.sort_mode,
 			ibl_irradiance_map  = application.scene.ibl.irradiance_map,
 			ibl_prefilter_map   = application.scene.ibl.prefilter_map,
@@ -175,6 +181,12 @@ run :: proc(application: ^App) {
 		})
 		gui.render(&application.imgui)
 		dbg.pop_group()
+
+		// Regenerate cubemap if mipmap mode was changed via GUI
+		if application.scene.skybox.cubemap_dirty {
+			rendering.skybox_regenerate_cubemap(&application.scene.skybox)
+			application.scene.skybox.cubemap_dirty = false
+		}
 
 		dbg.pop_group()
 
@@ -413,6 +425,11 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		wireframe_enabled = s.wireframe_enabled,
 		skybox_visible    = s.skybox_visible,
 		skybox_blur_lod   = s.skybox.blur_lod,
+		skybox_mode       = i32(s.skybox.mode),
+		mipmap_mode       = i32(s.skybox.mipmap_mode),
+		blur_source       = i32(s.skybox.blur_source),
+		show_blur_diff    = s.skybox.show_diff,
+		diff_gain         = s.skybox.diff_gain,
 		sort_mode         = i32(s.sort_mode),
 		postfx_active     = p.enabled,
 		postfx_settings   = pfx_settings,
@@ -432,6 +449,8 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 	s.camera.position = state.camera_pos
 	s.camera.yaw      = state.camera_yaw
 	s.camera.pitch    = state.camera_pitch
+	s.camera.yaw_target   = state.camera_yaw
+	s.camera.pitch_target = state.camera_pitch
 	s.camera.zoom     = state.camera_zoom
 	cam.update_vectors(&s.camera)
 	
@@ -439,6 +458,13 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 	s.wireframe_enabled = state.wireframe_enabled
 	s.skybox_visible    = state.skybox_visible
 	s.skybox.blur_lod   = state.skybox_blur_lod
+	s.skybox.mode       = rendering.Skybox_Mode(state.skybox_mode)
+	s.skybox.mipmap_mode = rendering.Mipmap_Mode(state.mipmap_mode)
+	s.skybox.blur_source = rendering.Blur_Source(state.blur_source)
+	s.skybox.show_diff   = state.show_blur_diff
+	if state.diff_gain > 0 {
+		s.skybox.diff_gain = state.diff_gain
+	}
 	s.sort_mode         = rendering.Sort_Mode(state.sort_mode)
 	
 	p := &s.postfx_pipeline
