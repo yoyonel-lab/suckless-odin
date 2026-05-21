@@ -83,7 +83,7 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 	}
 
 	// Skybox
-	if !rendering.skybox_create(&s.skybox, s.env_texture.id, "shaders/background.vert", "shaders/background.frag") {
+	if !rendering.skybox_create(&s.skybox, s.env_texture.id, s.ibl.prefilter_map, "shaders/background.vert", "shaders/background.frag") {
 		log.log_error("suckless-odin.scene", "Failed to create skybox")
 		return false
 	}
