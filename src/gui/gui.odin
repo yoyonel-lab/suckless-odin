@@ -20,6 +20,12 @@ Scene_State :: struct {
 	wireframe_enabled: ^bool,
 	exposure:          ^f32,
 	skybox_blur_lod:   ^f32,
+	skybox_mode:       ^rendering.Skybox_Mode,
+	mipmap_mode:       ^rendering.Mipmap_Mode,
+	blur_source:       ^rendering.Blur_Source,
+	cubemap_dirty:     ^bool,
+	show_mipmap_diff:  ^bool,
+	diff_gain:         ^f32,
 	sort_mode:         ^rendering.Sort_Mode,
 
 	// Post-processing pipeline (live controls)
@@ -290,6 +296,33 @@ draw_tab_camera :: proc(c: ^cam.Camera) {
 draw_tab_scene :: proc(state: Scene_State) {
 	imgui.Checkbox("Skybox", state.skybox_visible)
 	imgui.SliderFloat("Skybox Blur", state.skybox_blur_lod, 0.0, 8.0)
+	if state.blur_source != nil {
+		src_val := i32(state.blur_source^)
+		if imgui.Combo("Blur Source", &src_val, "Mipmap LOD\x00IBL Prefilter\x00") {
+			state.blur_source^ = rendering.Blur_Source(src_val)
+		}
+	}
+	if state.skybox_mode != nil {
+		mode_val := i32(state.skybox_mode^)
+		if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
+			state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
+		}
+	}
+	if state.mipmap_mode != nil {
+		mip_val := i32(state.mipmap_mode^)
+		if imgui.Combo("Cubemap Mipmaps", &mip_val, "glGenerateMipmap\x00Seamless (cross-face)\x00") {
+			state.mipmap_mode^ = rendering.Mipmap_Mode(mip_val)
+			if state.cubemap_dirty != nil {
+				state.cubemap_dirty^ = true
+			}
+		}
+	}
+	if state.show_mipmap_diff != nil {
+		imgui.Checkbox("Show Blur Diff", state.show_mipmap_diff)
+		if state.show_mipmap_diff^ && state.diff_gain != nil {
+			imgui.SliderFloat("Diff Gain", state.diff_gain, 1.0, 100.0)
+		}
+	}
 	imgui.Separator()
 
 	imgui.BeginDisabled()
@@ -776,6 +809,36 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.SliderFloat("Skybox Blur", state.skybox_blur_lod, 0.0, 8.0)
 			match_count += 1
 		}
+		if fuzzy_match(filter, "Blur Source", "ibl prefilter mipmap lod") {
+			if state.blur_source != nil {
+				src_val := i32(state.blur_source^)
+				if imgui.Combo("Blur Source", &src_val, "Mipmap LOD\x00IBL Prefilter\x00") {
+					state.blur_source^ = rendering.Blur_Source(src_val)
+				}
+			}
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Skybox Mode", "equirectangular cubemap projection") {
+			if state.skybox_mode != nil {
+				mode_val := i32(state.skybox_mode^)
+				if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
+					state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
+				}
+			}
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Cubemap Mipmaps", "seamless cross-face mipmap generation") {
+			if state.mipmap_mode != nil {
+				mip_val := i32(state.mipmap_mode^)
+				if imgui.Combo("Cubemap Mipmaps", &mip_val, "glGenerateMipmap\x00Seamless (cross-face)\x00") {
+					state.mipmap_mode^ = rendering.Mipmap_Mode(mip_val)
+					if state.cubemap_dirty != nil {
+						state.cubemap_dirty^ = true
+					}
+				}
+			}
+			match_count += 1
+		}
 		if fuzzy_match(filter, "Exposure", "tone mapping hdr brightness") {
 			imgui.BeginDisabled()
 			imgui.SliderFloat("Exposure", state.exposure, 0.1, 10.0)
@@ -1016,7 +1079,7 @@ ibl_goto_button :: proc(g: ^Gui, target: IBL_Scroll_Target) {
 CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov bobbing zoom projection mouse movement"
 
 @(private)
-SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon sort mode radix"
+SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon sort mode radix cubemap equirectangular projection"
 
 @(private)
 RENDERING_KEYWORDS :: "rendering postfx post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus exposure tonemap tonemapping saturation contrast gamma"
