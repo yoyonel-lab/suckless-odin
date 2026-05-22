@@ -1,9 +1,11 @@
 package app
 
+import "core:fmt"
 import "vendor:glfw"
 import gl "vendor:OpenGL"
 import "base:runtime"
 import session "../core/session"
+import tracy "../core/tracy"
 
 import log "../core/log"
 import settings "../core/settings"
@@ -13,6 +15,51 @@ import gui "../gui"
 import postfx "../rendering/postfx"
 import rendering "../rendering"
 import dbg "../core/gl_debug"
+
+@(private)
+frame_zone_loc := tracy.Source_Location_Data{
+	name     = "Frame",
+	function = "run",
+	file     = #file,
+	line     = #line,
+	color    = 0,
+}
+
+@(private)
+update_zone_loc := tracy.Source_Location_Data{
+	name     = "Scene Update",
+	function = "scene_update",
+	file     = #file,
+	line     = #line,
+	color    = 0xAA6666,
+}
+
+@(private)
+render_zone_loc := tracy.Source_Location_Data{
+	name     = "Scene Render",
+	function = "scene_render",
+	file     = #file,
+	line     = #line,
+	color    = 0x66AA66,
+}
+
+@(private)
+poll_zone_loc := tracy.Source_Location_Data{
+	name     = "GLFW PollEvents",
+	function = "glfw.PollEvents",
+	file     = #file,
+	line     = #line,
+	color    = 0x4C566A,
+}
+
+@(private)
+swap_zone_loc := tracy.Source_Location_Data{
+	name     = "GLFW SwapBuffers",
+	function = "glfw.SwapBuffers",
+	file     = #file,
+	line     = #line,
+	color    = 0xD08770,
+}
 
 // Application state — top-level struct owning all subsystems.
 // ISO port of App struct from suckless-ogl/include/app.h.
@@ -56,6 +103,8 @@ create :: proc(width, height: i32, title: cstring) -> ^App {
 init :: proc(application: ^App) -> bool {
 	if application == nil { return false }
 
+	log.set_callback(tracy_log_callback)
+
 	// Try to load previous session
 	session_state := session.Session_State{}
 	has_session := session.load_session(&session_state)
@@ -91,6 +140,7 @@ init :: proc(application: ^App) -> bool {
 	// Basic OpenGL setup
 	gl.Enable(gl.DEPTH_TEST)
 	gl.ClearColor(0.1, 0.1, 0.1, 1.0)
+	tracy.gpu_init()
 
 	// Framebuffer resize callback
 	glfw.SetFramebufferSizeCallback(application.window, framebuffer_size_callback)
@@ -132,19 +182,26 @@ run :: proc(application: ^App) {
 	log.log_info("suckless-odin.app", "Entering main loop (Escape to quit)")
 
 	for application.running && !glfw.WindowShouldClose(application.window) {
+		tracy.frame_mark()
+		frame_zone := tracy.zone_begin(&frame_zone_loc)
+
 		// Timing
 		current_time := glfw.GetTime()
 		application.delta_time = f32(current_time - application.last_frame_time)
 		application.last_frame_time = current_time
 
 		// Input
+		poll_zone := tracy.zone_begin(&poll_zone_loc)
 		glfw.PollEvents()
+		tracy.zone_end(poll_zone)
 		if !gui.wants_keyboard(&application.imgui) {
 			process_keyboard(application)
 		}
 
 		// Update scene (camera physics, etc.)
+		update_zone := tracy.zone_begin(&update_zone_loc)
 		scene.scene_update(&application.scene, application.delta_time)
+		tracy.zone_end(update_zone)
 
 		// Render
 		dbg.push_group("Render_Frame")
@@ -152,37 +209,41 @@ run :: proc(application: ^App) {
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		w, h := glfw.GetFramebufferSize(application.window)
+		render_zone := tracy.zone_begin(&render_zone_loc)
 		scene.scene_render(&application.scene, w, h)
+		tracy.zone_end(render_zone)
 
 		// GUI (Dear ImGui) — render on top of scene
-		dbg.push_group("GUI_ImGui")
-		gui.new_frame(&application.imgui)
-		gui.update(&application.imgui, gui.Scene_State{
-			camera              = &application.scene.camera,
-			skybox_visible      = &application.scene.skybox_visible,
-			wireframe_enabled   = &application.scene.wireframe_enabled,
-			exposure            = &application.scene.exposure,
-			skybox_blur_lod     = &application.scene.skybox.blur_lod,
-			skybox_mode         = &application.scene.skybox.mode,
-			mipmap_mode         = &application.scene.skybox.mipmap_mode,
-			blur_source         = &application.scene.skybox.blur_source,
-			cubemap_dirty       = &application.scene.skybox.cubemap_dirty,
-			show_mipmap_diff    = &application.scene.skybox.show_diff,
-			diff_gain           = &application.scene.skybox.diff_gain,
-			sort_mode           = &application.scene.sort_mode,
-			edge_aa_enabled     = &application.scene.edge_aa_enabled,
-			edge_aa_debug       = &application.scene.edge_aa_debug,
-			ibl_irradiance_map  = application.scene.ibl.irradiance_map,
-			ibl_prefilter_map   = application.scene.ibl.prefilter_map,
-			ibl_brdf_lut        = application.scene.ibl.brdf_lut,
-			env_texture_id      = application.scene.env_texture.id,
-			env_texture_width   = application.scene.env_texture.width,
-			env_texture_height  = application.scene.env_texture.height,
-			postfx              = &application.scene.postfx_pipeline,
-			frame_time_ms       = application.scene.overlay.frame_time_display,
-		})
-		gui.render(&application.imgui)
-		dbg.pop_group()
+		if application.imgui.visible {
+			dbg.push_group("GUI_ImGui")
+			gui.new_frame(&application.imgui)
+			gui.update(&application.imgui, gui.Scene_State{
+				camera              = &application.scene.camera,
+				skybox_visible      = &application.scene.skybox_visible,
+				wireframe_enabled   = &application.scene.wireframe_enabled,
+				exposure            = &application.scene.exposure,
+				skybox_blur_lod     = &application.scene.skybox.blur_lod,
+				skybox_mode         = &application.scene.skybox.mode,
+				mipmap_mode         = &application.scene.skybox.mipmap_mode,
+				blur_source         = &application.scene.skybox.blur_source,
+				cubemap_dirty       = &application.scene.skybox.cubemap_dirty,
+				show_mipmap_diff    = &application.scene.skybox.show_diff,
+				diff_gain           = &application.scene.skybox.diff_gain,
+				sort_mode           = &application.scene.sort_mode,
+				edge_aa_enabled     = &application.scene.edge_aa_enabled,
+				edge_aa_debug       = &application.scene.edge_aa_debug,
+				ibl_irradiance_map  = application.scene.ibl.irradiance_map,
+				ibl_prefilter_map   = application.scene.ibl.prefilter_map,
+				ibl_brdf_lut        = application.scene.ibl.brdf_lut,
+				env_texture_id      = application.scene.env_texture.id,
+				env_texture_width   = application.scene.env_texture.width,
+				env_texture_height  = application.scene.env_texture.height,
+				postfx              = &application.scene.postfx_pipeline,
+				frame_time_ms       = application.scene.overlay.frame_time_display,
+			})
+			gui.render(&application.imgui)
+			dbg.pop_group()
+		}
 
 		// Regenerate cubemap if mipmap mode was changed via GUI
 		if application.scene.skybox.cubemap_dirty {
@@ -192,8 +253,13 @@ run :: proc(application: ^App) {
 
 		dbg.pop_group()
 
+		tracy.gpu_collect()
+		tracy.zone_end(frame_zone)
+
 		// Swap
+		dbg.push_gpu_zone_only("Swap_Buffers")
 		glfw.SwapBuffers(application.window)
+		dbg.pop_gpu_zone_only()
 	}
 
 	log.log_info("suckless-odin.app", "Main loop exited")
@@ -209,6 +275,7 @@ destroy :: proc(application: ^App) {
 
 	gui.destroy(&application.imgui)
 	scene.scene_destroy(&application.scene)
+	tracy.gpu_shutdown()
 	window_destroy(application.window)
 	free(application)
 
@@ -520,4 +587,23 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 			application.is_fullscreen = true
 		}
 	}
+}
+
+@(private)
+tracy_log_callback :: proc(level: log.Log_Level, tag: string, message: string) {
+	color: u32 = 0xFFFFFF
+	switch level {
+	case .Critical:
+		color = 0xFF0000
+	case .Error:
+		color = 0xFF5555
+	case .Warning:
+		color = 0xFFFF55
+	case .Debug:
+		color = 0xAAAAAA
+	case .Info, .Not_Set:
+		color = 0xFFFFFF
+	}
+	formatted := fmt.tprintf("[%s] %s", tag, message)
+	tracy.message_c(formatted, color)
 }
