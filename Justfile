@@ -8,7 +8,14 @@ build_base := "build"
 in_container := env_var_or_default("CONTAINER_ID", "")
 extra_linker_flags := if in_container != "" { "-Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11" } else { "-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11" }
 
+# Tracy profiler extra linker flags (C++ runtime + libtracy.a deps)
+tracy_linker_flags := extra_linker_flags + " -lstdc++"
 
+# Parallelism for C++ builds (leave 2 cores free)
+nprocs := `echo $(( $(nproc) - 2 ))`
+
+# X11 vs Wayland auto-detection for Tracy server backend
+tracy_legacy := if env_var_or_default("XDG_SESSION_TYPE", "x11") == "wayland" { "OFF" } else { "ON" }
 
 # Optimization flag for release builds (maximum optimization level)
 opt_flag := "speed"
@@ -31,7 +38,7 @@ build-release:
 # Profile build (with Tracy Profiler active)
 build-profile:
     @mkdir -p {{ build_base }}/profile
-    odin build src/ -out:{{ build_base }}/profile/suckless-odin -o:{{ opt_flag }} -define:TRACY_ENABLE=true -extra-linker-flags:"{{ extra_linker_flags }} -lstdc++ /var/home/latty/Prog/suckless-ogl/build/_deps/glad-build/libglad.a"
+    odin build src/ -out:{{ build_base }}/profile/suckless-odin -o:{{ opt_flag }} -define:TRACY_ENABLE=true -extra-linker-flags:"{{ tracy_linker_flags }}"
 
 # Build with all vet checks + strict style (lint errors = build errors)
 build-strict:
@@ -119,6 +126,22 @@ update-imgui:
     git submodule update --remote deps/odin-imgui
     just build-imgui
     @echo "Updated odin-imgui to:" && git -C deps/odin-imgui log --oneline -1
+
+# Build Tracy client library from source (deps/libtracy.a)
+build-tracy-lib:
+    scripts/build_tracy_lib.sh
+
+# Build Tracy profiler server GUI (CMake, downloads deps via CPM)
+build-tracy-server:
+    cmake -B deps/tracy/profiler/build -S deps/tracy/profiler -DCMAKE_BUILD_TYPE=Release -DLEGACY={{ tracy_legacy }} -Wno-dev
+    cmake --build deps/tracy/profiler/build --parallel {{ nprocs }}
+
+# Launch Tracy profiler server (auto-connects to instrumented app)
+tracy-server:
+    deps/tracy/profiler/build/tracy-profiler
+
+# Full Tracy setup: build client lib + server
+build-tracy: build-tracy-lib build-tracy-server
 
 # --- CI (local) ---
 
