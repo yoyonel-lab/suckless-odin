@@ -24,6 +24,7 @@ Auto_Exposure_FX :: struct {
 	current_target:       f32,
 	readback_pbo:         [2]u32, // double-buffered PBO
 	readback_frame:       u32,
+	readback_sync:        [2]gl.sync_t, // double-buffered sync fences
 
 	// Parameters
 	params: Auto_Exposure_Params,
@@ -85,6 +86,12 @@ auto_exposure_destroy :: proc(fx: ^Auto_Exposure_FX) {
 		gl.DeleteBuffers(2, raw_data(&fx.readback_pbo))
 		fx.readback_pbo = {}
 	}
+	for i in 0 ..< 2 {
+		if fx.readback_sync[i] != nil {
+			gl.DeleteSync(fx.readback_sync[i])
+			fx.readback_sync[i] = nil
+		}
+	}
 }
 
 // Run auto-exposure compute passes. Call before the composite uber-shader pass.
@@ -137,15 +144,28 @@ auto_exposure_readback :: proc(fx: ^Auto_Exposure_FX) {
 	gl.GetTexImage(gl.TEXTURE_2D, 0, gl.RGBA, gl.FLOAT, nil) // PBO async
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 
+	if fx.readback_sync[write_idx] != nil {
+		gl.DeleteSync(fx.readback_sync[write_idx])
+	}
+	fx.readback_sync[write_idx] = gl.FenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
+
 	// Read previous frame's result (should be ready by now)
 	if fx.readback_frame >= 2 {
-		gl.BindBuffer(gl.PIXEL_PACK_BUFFER, fx.readback_pbo[read_idx])
-		data := cast(^[4]f32)gl.MapBuffer(gl.PIXEL_PACK_BUFFER, gl.READ_ONLY)
-		if data != nil {
-			fx.current_exposure = data[0]
-			fx.current_scene_lum = data[1]
-			fx.current_target = data[2]
-			gl.UnmapBuffer(gl.PIXEL_PACK_BUFFER)
+		sync := fx.readback_sync[read_idx]
+		if sync != nil {
+			res := gl.ClientWaitSync(sync, 0, 0) // non-blocking check
+			if res == gl.ALREADY_SIGNALED || res == gl.CONDITION_SATISFIED {
+				gl.BindBuffer(gl.PIXEL_PACK_BUFFER, fx.readback_pbo[read_idx])
+				data := cast(^[4]f32)gl.MapBuffer(gl.PIXEL_PACK_BUFFER, gl.READ_ONLY)
+				if data != nil {
+					fx.current_exposure = data[0]
+					fx.current_scene_lum = data[1]
+					fx.current_target = data[2]
+					gl.UnmapBuffer(gl.PIXEL_PACK_BUFFER)
+				}
+				gl.DeleteSync(sync)
+				fx.readback_sync[read_idx] = nil
+			}
 		}
 	}
 
