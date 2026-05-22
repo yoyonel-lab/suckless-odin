@@ -98,7 +98,7 @@ Double-buffered `GL_TIME_ELAPSED` queries measure per-pass cost without stalling
 |-----------|-----------------|
 | Bloom | All bloom passes (prefilter + 5 down + 5 up) |
 | DoF | Quarter-res blur pass |
-| Auto-Exp | Luminance compute + exposure adaptation |
+| Auto-Exp | Single-pass: scene sampling + reduction + EMA adaptation |
 | Composite | UBO upload + uber-shader draw |
 | Total | All passes combined |
 
@@ -217,7 +217,23 @@ GL tests in `tests/gl/`:
 - Variant compilation (all defines, minimal, mixed, empty)
 - Uniform validation (sampler locations)
 - Full pipeline lifecycle (create, render, destroy)
-- Bloom, DoF, auto-exposure multi-pass validation
+- Bloom, DoF, auto-exposure single-pass validation
+
+### Auto-Exposure: Single-Pass Compute (2026-05-22)
+
+Previous architecture used 2 dispatches + 2 `glMemoryBarrier`:
+- Pass 1: 4×4 workgroups downsample scene → 64×64 R32F texture
+- Barrier (caused 0.8–13ms stalls from pipeline serialization)
+- Pass 2: 1 workgroup parallel-reduce 64×64 → 1×1 EMA exposure
+- Barrier
+
+New architecture (`lum_single_pass.comp`): 1 dispatch of 256 threads does everything:
+- Each thread samples 16 scene tiles (2×2 bilinear per tile)
+- Shared-memory parallel reduction (256 → 1)
+- Thread 0 applies asymmetric EMA and writes exposure
+- Single `glMemoryBarrier` at the end
+
+Eliminates: 1 dispatch, 1 barrier, 1 intermediate texture (64×64 R32F), 1 shader program.
 
 ## Not Yet Ported (see postfx-porting-gap-2026-05-19.md)
 
