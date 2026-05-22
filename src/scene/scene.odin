@@ -40,16 +40,20 @@ Scene :: struct {
 	loc_projection:     i32,
 	loc_cam_pos:        i32,
 	loc_prev_view_proj: i32,
+	loc_screen_size:    i32,
+	loc_edge_aa_mode:   i32,
 
 	// Previous frame view-projection matrix (for motion blur velocity)
 	prev_view_proj: mt.Mat4,
 	prev_vp_initialized: bool,
 
 	// Runtime toggles
-	skybox_visible:   bool,
+	skybox_visible:    bool,
 	wireframe_enabled: bool,
-	exposure:         f32,
-	sort_mode:        rendering.Sort_Mode,
+	exposure:          f32,
+	sort_mode:         rendering.Sort_Mode,
+	edge_aa_enabled:   bool,
+	edge_aa_debug:     bool,
 }
 
 HDR_PATH      :: "../suckless-ogl/assets/textures/hdr/cedar_bridge_2_4k.hdr"
@@ -97,6 +101,8 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 	s.loc_projection = gl.GetUniformLocation(s.pbr_program, "u_projection")
 	s.loc_cam_pos    = gl.GetUniformLocation(s.pbr_program, "u_cam_pos")
 	s.loc_prev_view_proj = gl.GetUniformLocation(s.pbr_program, "u_previousViewProj")
+	s.loc_screen_size = gl.GetUniformLocation(s.pbr_program, "u_screen_size")
+	s.loc_edge_aa_mode = gl.GetUniformLocation(s.pbr_program, "u_edge_aa_mode")
 
 	// Initialize previous view*proj to identity (avoids huge velocities on frame 1)
 	s.prev_view_proj = mt.MAT4_IDENTITY
@@ -105,6 +111,7 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 	s.skybox_visible = true
 	s.wireframe_enabled = false
 	s.exposure = settings.DEFAULT_EXPOSURE
+	s.edge_aa_enabled = true
 
 	// Post-processing pipeline
 	if !postfx.pipeline_create(&s.postfx_pipeline, width, height) {
@@ -157,6 +164,22 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	gl.UniformMatrix4fv(s.loc_projection, 1, false, &proj[0][0])
 	gl.Uniform3fv(s.loc_cam_pos, 1, &s.camera.position[0])
 	gl.UniformMatrix4fv(s.loc_prev_view_proj, 1, false, &s.prev_view_proj[0][0])
+	gl.Uniform2f(s.loc_screen_size, f32(width), f32(height))
+
+	// Edge AA mode: 0=off, 1=on, 2=debug visualization
+	edge_mode: i32 = 0
+	if s.edge_aa_enabled { edge_mode = 1 }
+	if s.edge_aa_debug   { edge_mode = 2 }
+	gl.Uniform1i(s.loc_edge_aa_mode, edge_mode)
+
+	// Enable per-buffer alpha blending on attachment 0 (color) for edge AA.
+	// Attachment 1 (velocity) explicitly disabled — ISO legacy scene_render.c:393-407.
+	// Requires back-to-front sort order (already active).
+	if edge_mode > 0 {
+		gl.Enablei(gl.BLEND, 0)
+		gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+		gl.Disablei(gl.BLEND, 1)
+	}
 
 	// Bind IBL textures (units 15, 16, 17)
 	rendering.ibl_bind(&s.ibl)
@@ -164,6 +187,10 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// Bind SSBO and draw all instances
 	rendering.instanced_bind(&s.spheres)
 	rendering.instanced_draw(&s.spheres, &s.billboard)
+
+	if edge_mode > 0 {
+		gl.Disablei(gl.BLEND, 0)
+	}
 
 	gl.UseProgram(0)
 
