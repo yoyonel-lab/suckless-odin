@@ -27,6 +27,8 @@ Scene_State :: struct {
 	show_mipmap_diff:  ^bool,
 	diff_gain:         ^f32,
 	sort_mode:         ^rendering.Sort_Mode,
+	edge_aa_enabled:   ^bool,
+	edge_aa_debug:     ^bool,
 
 	// Post-processing pipeline (live controls)
 	postfx: ^postfx.Pipeline,
@@ -270,18 +272,68 @@ draw_tab_camera :: proc(c: ^cam.Camera) {
 	imgui.Separator()
 
 	imgui.SliderFloat("Speed", &c.velocity, 1.0, 100.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Maximum movement speed (units/sec)\nHigher = faster camera travel")
+	}
 	imgui.SliderFloat("Acceleration", &c.acceleration, 1.0, 50.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("How quickly camera reaches max speed\nHigher = snappier response, Lower = more inertia")
+	}
 	imgui.SliderFloat("Friction", &c.friction, 0.5, 0.99)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Velocity damping per frame\n0.5 = stops fast (heavy), 0.99 = slides long (ice)")
+	}
 	imgui.SliderFloat("Sensitivity", &c.sensitivity, 0.01, 1.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Mouse look sensitivity\nMultiplier on raw mouse delta for yaw/pitch rotation")
+	}
 	imgui.SliderFloat("Rotation Smoothing", &c.rotation_smoothing, 0.0, 0.5)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Lerp factor for yaw/pitch interpolation\n0 = instant (no smoothing), 0.5 = heavy lag")
+	}
 	imgui.SliderFloat("Mouse Smoothing", &c.mouse_smoothing_factor, 0.0, 0.5)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("EMA filter on raw mouse input\n0 = raw (no filter), 0.5 = heavy averaging\nReduces jitter at cost of latency")
+	}
 	imgui.SliderFloat("FOV", &c.zoom, 10.0, 120.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Vertical field of view (degrees)\n60 = standard, 90 = wide, 10 = telephoto zoom")
+	}
 	imgui.Separator()
 
 	imgui.Checkbox("Head Bobbing", &c.bobbing_enabled)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Simulates head bob during movement\nAdds subtle vertical oscillation to camera position")
+	}
 	if c.bobbing_enabled {
 		imgui.SliderFloat("Bobbing Freq", &c.bobbing_frequency, 0.5, 10.0)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Oscillation frequency (Hz)\nHigher = faster bobbing cycle")
+		}
 		imgui.SliderFloat("Bobbing Amp", &c.bobbing_amplitude, 0.0, 0.01)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Vertical displacement amplitude (world units)\nHigher = more pronounced head movement")
+		}
 	}
 
 	imgui.Separator()
@@ -296,16 +348,31 @@ draw_tab_camera :: proc(c: ^cam.Camera) {
 draw_tab_scene :: proc(state: Scene_State) {
 	imgui.Checkbox("Skybox", state.skybox_visible)
 	imgui.SliderFloat("Skybox Blur", state.skybox_blur_lod, 0.0, 8.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("LOD level for background blur\n0 = sharp, 8 = maximum blur\nUses mipmap or prefilter depending on Blur Source")
+	}
 	if state.blur_source != nil {
 		src_val := i32(state.blur_source^)
 		if imgui.Combo("Blur Source", &src_val, "Mipmap LOD\x00IBL Prefilter\x00") {
 			state.blur_source^ = rendering.Blur_Source(src_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Mipmap LOD: standard GL mipmaps (box filter)\nIBL Prefilter: physically-based specular convolution\n(smoother, more accurate at high blur)")
 		}
 	}
 	if state.skybox_mode != nil {
 		mode_val := i32(state.skybox_mode^)
 		if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
 			state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Equirectangular: sample HDR directly (2D texture)\nCubemap: pre-converted 6-face cube\n(required for seamless mipmap filtering)")
 		}
 	}
 	if state.mipmap_mode != nil {
@@ -316,9 +383,19 @@ draw_tab_scene :: proc(state: Scene_State) {
 				state.cubemap_dirty^ = true
 			}
 		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("glGenerateMipmap: fast, may have seams at cube edges\nSeamless (cross-face): custom downsampler\nthat blends across cube face boundaries")
+		}
 	}
 	if state.show_mipmap_diff != nil {
 		imgui.Checkbox("Show Blur Diff", state.show_mipmap_diff)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Visualize difference between Mipmap and Prefilter blur\nShows where the two methods diverge\nAmplified by Diff Gain slider")
+		}
 		if state.show_mipmap_diff^ && state.diff_gain != nil {
 			imgui.SliderFloat("Diff Gain", state.diff_gain, 1.0, 100.0)
 		}
@@ -331,6 +408,11 @@ draw_tab_scene :: proc(state: Scene_State) {
 	imgui.Separator()
 
 	imgui.Checkbox("Wireframe", state.wireframe_enabled)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Render billboard quads as wireframe\nShows the actual quad geometry used for raymarching")
+	}
 	imgui.Separator()
 
 	// Sort Mode
@@ -338,6 +420,11 @@ draw_tab_scene :: proc(state: Scene_State) {
 		sort_val := i32(state.sort_mode^)
 		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
 			state.sort_mode^ = rendering.Sort_Mode(sort_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
 		}
 	}
 }
@@ -620,6 +707,27 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 
 @(private)
 draw_tab_rendering :: proc(state: Scene_State) {
+	// --- Edge Anti-Aliasing (Billboard) ---
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Edge Anti-Aliasing")
+	imgui.Separator()
+	if state.edge_aa_enabled != nil {
+		imgui.Checkbox("Edge AA##edge", state.edge_aa_enabled)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Analytic billboard edge smoothing\n(smoothstep on ray-sphere discriminant)")
+		}
+		if state.edge_aa_debug != nil {
+			imgui.Checkbox("Debug View (Grayscale)##edge_dbg", state.edge_aa_debug)
+			imgui.SameLine()
+			imgui.TextDisabled("(?)")
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Heatmap of edge factor:\n- Dark interior = fully opaque (factor ~1.0)\n- Red = near edge (factor -> 0)\n- Yellow/Green = transition zone\nBand should be ~1px at silhouette")
+			}
+		}
+	}
+	imgui.Spacing()
+
 	// --- PBR Debug Modes ---
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "PBR Debug Modes")
 	imgui.Separator()
@@ -637,38 +745,11 @@ draw_tab_rendering :: proc(state: Scene_State) {
 
 	// --- Debug Views ---
 	// Note: per-FX debug toggles (Bloom/DoF/FXAA) now live in the Post-FX tab,
-	// inside each effect's Settings tree. Only debug views with no host FX
-	// (or requiring extra infra: histogram, velocity tex, stencil bind) remain here.
+	// Motion Blur debug lives in the dedicated MBlur tab.
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Debug Views")
 	imgui.Separator()
 
 	placeholder := false
-
-	// Motion Blur Debug — exclusive selector (Off / Velocity RG / Vector Field)
-	if state.postfx != nil {
-		p := state.postfx
-		mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
-		vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
-		current_dbg: i32 = 0
-		if mb_dbg { current_dbg = 1 }
-		if vf_dbg { current_dbg = 2 }
-		debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
-		if imgui.BeginCombo("MB Debug##render", debug_modes[current_dbg]) {
-			for i in i32(0) ..< 3 {
-				if imgui.Selectable(debug_modes[i], i == current_dbg) {
-					if .Motion_Blur_Debug in p.active_effects {
-						postfx.pipeline_toggle(p, .Motion_Blur_Debug)
-					}
-					if .Vector_Field_Debug in p.active_effects {
-						postfx.pipeline_toggle(p, .Vector_Field_Debug)
-					}
-					if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
-					if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
-				}
-			}
-			imgui.EndCombo()
-		}
-	}
 
 	imgui.BeginDisabled()
 	imgui.Checkbox("Fog Debug", &placeholder)
@@ -712,6 +793,11 @@ draw_tab_rendering :: proc(state: Scene_State) {
 		sort_val := i32(state.sort_mode^)
 		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
 			state.sort_mode^ = rendering.Sort_Mode(sort_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
 		}
 	}
 

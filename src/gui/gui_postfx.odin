@@ -198,6 +198,11 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("Debug##bloom", &bloom_debug) {
 				postfx.pipeline_toggle(p, .Bloom_Debug)
 			}
+			imgui.SameLine()
+			imgui.TextDisabled("(?)")
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Shows bloom texture in isolation\nBright = pixels above threshold\nBlack = not contributing to glow")
+			}
 			bloom_split := postfx.Post_Effect.Bloom in p.debug_split
 			if imgui.Checkbox("A/B Split##bloom", &bloom_split) {
 				postfx.pipeline_toggle_split(p, .Bloom)
@@ -221,6 +226,11 @@ draw_postfx_section :: proc(state: Scene_State) {
 			fxaa_debug := postfx.Post_Effect.FXAA_Debug in p.active_effects
 			if imgui.Checkbox("Debug##fxaa", &fxaa_debug) {
 				postfx.pipeline_toggle(p, .FXAA_Debug)
+			}
+			imgui.SameLine()
+			imgui.TextDisabled("(?)")
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Highlights pixels modified by FXAA:\nGreen = edge detected and smoothed\nOriginal color = no AA applied")
 			}
 			fxaa_split := postfx.Post_Effect.FXAA in p.debug_split
 			if imgui.Checkbox("A/B Split##fxaa", &fxaa_split) {
@@ -273,6 +283,11 @@ draw_postfx_section :: proc(state: Scene_State) {
 			dof_debug := postfx.Post_Effect.Dof_Debug in p.active_effects
 			if imgui.Checkbox("Debug##dof", &dof_debug) {
 				postfx.pipeline_toggle(p, .Dof_Debug)
+			}
+			imgui.SameLine()
+			imgui.TextDisabled("(?)")
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Depth-of-field mask:\nWhite = in focus (sharp)\nGray = transition zone\nBlack = fully blurred (bokeh)")
 			}
 			dof_split := postfx.Post_Effect.Dof in p.debug_split
 			if imgui.Checkbox("A/B Split##dof", &dof_split) {
@@ -387,6 +402,11 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("Debug (greyscale mask)##fog", &fog_debug) {
 				postfx.pipeline_toggle(p, .Fog_Debug)
 			}
+			imgui.SameLine()
+			imgui.TextDisabled("(?)")
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Fog density mask:\nWhite = fully fogged (max opacity)\nBlack = no fog\nGradient shows depth + height falloff")
+			}
 			fog_split := postfx.Post_Effect.Fog in p.debug_split
 			if imgui.Checkbox("A/B Split##fog", &fog_split) {
 				postfx.pipeline_toggle_split(p, .Fog)
@@ -437,6 +457,11 @@ draw_postfx_section :: proc(state: Scene_State) {
 		lut_debug := postfx.Post_Effect.LUT3D_Debug in p.active_effects
 		if imgui.Checkbox("Debug delta##lut3d", &lut_debug) {
 			postfx.pipeline_toggle(p, .LUT3D_Debug)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Color difference |LUT(color) - original|:\nBright = large color shift from LUT\nBlack = no change")
 		}
 		lut_split := postfx.Post_Effect.LUT3D in p.debug_split
 		if imgui.Checkbox("A/B Split##lut3d", &lut_split) {
@@ -974,11 +999,26 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 	if imgui.SmallButton("Reset to Defaults") { postfx.pipeline_reset_effect(p, .Motion_Blur) }
 
 	if imgui.SliderFloat("Intensity", &p.motion_blur.intensity, 0.0, 3.0) { p.ubo_dirty = true }
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Blur strength multiplier on velocity vectors\n1.0 = physically correct\n>1.0 = exaggerated (artistic)\n<1.0 = dampened motion")
+	}
 	if imgui.SliderFloat("Max Velocity (UV)", &p.motion_blur.max_velocity, 0.001, 0.3) { p.ubo_dirty = true }
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Clamp threshold for velocity vectors\nUnit: fraction of screen (0.05 = 5%% of viewport)\nHigher = longer streaks, Lower = caps blur length")
+	}
 	samples_f := f32(p.motion_blur.samples)
 	if imgui.SliderFloat("Samples", &samples_f, 2.0, 32.0) {
 		p.motion_blur.samples = i32(samples_f)
 		p.ubo_dirty = true
+	}
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Blur taps along velocity direction\n8 = good balance\n16+ = high quality for fast motion\nMore = smoother, heavier GPU cost")
 	}
 
 	imgui.Spacing()
@@ -1053,6 +1093,22 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 					p.ubo_dirty = true
 				}
 				if i == 5 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
+			}
+			// Per-mode tooltip on hover
+			if imgui.IsItemHovered() {
+				switch i {
+				case 0: // Off
+				case 1:
+					imgui.SetTooltip("Raw velocity buffer: abs(velocity) x 20\nRed = horizontal motion\nGreen = vertical motion\nBlack = no motion")
+				case 2:
+					imgui.SetTooltip("Per-tile (16x16 px) maximum velocity magnitude\nBlue->Red heatmap (0 -> max_velocity)\nShows coarse motion map before dilation")
+				case 3:
+					imgui.SetTooltip("3x3 dilated tile-max velocity\nBlue->Red heatmap\nEnsures blur extends beyond moving object edges")
+				case 4:
+					imgui.SetTooltip("Per-pixel velocity magnitude heatmap\nBlue->Red (0 -> max_velocity)\nFull resolution — shows exact motion boundaries")
+				case 5:
+					imgui.SetTooltip("SDF arrow grid (48px spacing)\nArrow direction = motion direction\nArrow color (HSV) = direction angle\nArrow length = velocity magnitude")
+				}
 			}
 		}
 		imgui.EndCombo()
