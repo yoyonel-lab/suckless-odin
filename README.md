@@ -21,16 +21,36 @@ PBR, IBL, compute shaders, post-processing pipeline.
 
 ## Build & Run
 
+Requires [Just](https://github.com/casey/just) task runner.
+
 ```bash
-odin build src/ -out:suckless-odin
-./suckless-odin
+# Debug build (default)
+just build
+just run
 
-# Debug build
-odin build src/ -out:suckless-odin -debug
+# Build and run in one step (all targets)
+just br            # debug
+just br-release    # optimized
+just br-ultra      # maximum perf
+just br-profile    # Tracy profiler
 
-# Run directly
-odin run src/
+# Profile build (Tracy Profiler enabled)
+just build-profile
+just run-profile
+
+# All available recipes
+just --list
 ```
+
+### Build Modes
+
+| Mode | Optimization | Safety | Use Case |
+|------|-------------|--------|----------|
+| `build` | `-debug` | Full | Development, debugging |
+| `build-release` | `-o:speed` | Full | Production |
+| `build-ultra` | `-o:aggressive -microarch:native` | None (`-no-bounds-check -no-type-assert`) | Benchmarking, max perf |
+| `build-profile` | `-o:speed -define:TRACY_ENABLE=true` | Full | Tracy profiling |
+| `build-sanitize` | `-debug -sanitize:address` | Full + ASAN | Memory bug detection |
 
 ## Dependencies
 
