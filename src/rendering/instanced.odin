@@ -89,15 +89,22 @@ instanced_upload :: proc(inst: ^Instanced_Spheres) {
 	if inst.ssbo == 0 {
 		gl.GenBuffers(1, &inst.ssbo)
 		dbg.object_label(gl.BUFFER, inst.ssbo, "Sphere_Instances_SSBO")
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
+		gl.BufferData(
+			gl.SHADER_STORAGE_BUFFER,
+			count * size_of(types.Sphere_Instance),
+			raw_data(gpu_data),
+			gl.DYNAMIC_DRAW,
+		)
+	} else {
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
+		gl.BufferSubData(
+			gl.SHADER_STORAGE_BUFFER,
+			0,
+			count * size_of(types.Sphere_Instance),
+			raw_data(gpu_data),
+		)
 	}
-
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
-	gl.BufferData(
-		gl.SHADER_STORAGE_BUFFER,
-		count * size_of(types.Sphere_Instance),
-		raw_data(gpu_data),
-		gl.DYNAMIC_DRAW,
-	)
 	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, SSBO_BINDING, inst.ssbo)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 }

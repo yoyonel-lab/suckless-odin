@@ -93,6 +93,7 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 	p.height = height
 	p.enabled = true
 	p.ubo_dirty = true
+	p.shader_cache.enabled = true
 
 	// Set default parameters
 	init_defaults(p)
@@ -287,6 +288,11 @@ pipeline_end :: proc(p: ^Pipeline) {
 
 	// Use cached optimized variant if available, otherwise fallback to dynamic
 	active_program := shader_cache_find(&p.shader_cache, p.active_effects)
+	if active_program == 0 && p.shader_cache.enabled {
+		// Cache miss: automatically compile and cache the optimized variant!
+		pipeline_compile_variant(p)
+		active_program = shader_cache_find(&p.shader_cache, p.active_effects)
+	}
 	if active_program == 0 {
 		active_program = p.composite_program
 	}
