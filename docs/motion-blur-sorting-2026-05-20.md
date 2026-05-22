@@ -120,5 +120,4 @@ Back-to-front (descending depth) sorting for correct rendering order of raymarch
 - Motion blur is screen-space post-process (McGuire 2012): silhouette bleeding at depth discontinuities is inherent to the technique.
 - No per-object alpha/edge-aware blur (legacy has same limitation).
 - GPU bitonic sort not ported — only CPU variants available.
-- Edge factor (analytic billboard AA) not yet ported from legacy.
 - Synthetic velocity injection produces uniform velocity (no perspective variation) — this is intentional for debug but differs from real camera motion.

@@ -57,9 +57,10 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 |---------|-----|------|--------|
 | Billboard PBR instancié (SSBO) | `billboard_rendering.c`, `ssbo_rendering.c` | `rendering/instanced.odin`, `rendering/billboard.odin` | ✅ |
 | Instanced VBO (icosphere) | `instanced_rendering.c` | — | ❌ |
-| Wireframe mode (Z) | `app_input.c`, `renderer.c` | — | ❌ |
+| Wireframe mode (Z) | `app_input.c`, `renderer.c` | `scene/scene.odin` (GUI toggle) | ✅ |
 | Toggle billboards (L) | `app_input.c` | — | ❌ |
-| Tri des sphères : CPU qsort / CPU Radix / GPU Bitonic (O) | `renderer.c` | — | ❌ |
+| Tri des sphères : CPU qsort / CPU Radix / GPU Bitonic (O) | `renderer.c` | `scene/scene.odin` (qsort + radix) | 🟡 GPU Bitonic not ported |
+| Edge factor (analytic billboard AA) | `scene_render.c`, `pbr_ibl_billboard.frag` | `scene/scene.odin`, `pbr_billboard.frag` | ✅ |
 | Icosphere subdiv Up/Down | `app_input.c` | — | ❌ |
 | RenderContext abstraction | `renderer.c` | — | ❌ |
 
