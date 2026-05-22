@@ -151,56 +151,93 @@ layout(std140, binding = 0) uniform PostProcessBlock
 // When STATIC_* defines are present (optimized variant), use compile-time constants.
 // Otherwise, fall back to runtime bitfield checks.
 #ifdef STATIC_VIGNETTE
-	#define enableVignette true
+	const bool enableVignette = bool(STATIC_VIGNETTE);
 #else
 	#define enableVignette      ((activeEffects & (1u << 0u)) != 0u)
 #endif
+
 #ifdef STATIC_GRAIN
-	#define enableGrain true
+	const bool enableGrain = bool(STATIC_GRAIN);
 #else
 	#define enableGrain         ((activeEffects & (1u << 1u)) != 0u)
 #endif
+
 #ifdef STATIC_EXPOSURE
-	#define enableExposure true
+	const bool enableExposure = bool(STATIC_EXPOSURE);
 #else
 	#define enableExposure      ((activeEffects & (1u << 2u)) != 0u)
 #endif
+
 #ifdef STATIC_CHROM_ABBR
-	#define enableChromAbbr true
+	const bool enableChromAbbr = bool(STATIC_CHROM_ABBR);
 #else
 	#define enableChromAbbr     ((activeEffects & (1u << 3u)) != 0u)
 #endif
+
 #ifdef STATIC_BLOOM
-	#define enableBloom true
+	const bool enableBloom = bool(STATIC_BLOOM);
 #else
 	#define enableBloom         ((activeEffects & (1u << 4u)) != 0u)
 #endif
+
 #ifdef STATIC_COLOR_GRADING
-	#define enableColorGrading true
+	const bool enableColorGrading = bool(STATIC_COLOR_GRADING);
 #else
 	#define enableColorGrading  ((activeEffects & (1u << 5u)) != 0u)
 #endif
+
+#ifdef STATIC_DOF
+	const bool enableDoF = bool(STATIC_DOF);
+#else
+	#define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
+#endif
+
+#ifdef STATIC_AUTO_EXPOSURE
+	const bool enableAutoExposure = bool(STATIC_AUTO_EXPOSURE);
+#else
+	#define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
+#endif
+
+#ifdef STATIC_MOTION_BLUR
+	const bool enableMotionBlur = bool(STATIC_MOTION_BLUR);
+#else
+	#define enableMotionBlur    ((activeEffects & (1u << 10u)) != 0u)
+#endif
+
 #ifdef STATIC_FXAA
-	#define enableFXAA true
+	const bool enableFXAA = bool(STATIC_FXAA);
 #else
 	#define enableFXAA          ((activeEffects & (1u << 12u)) != 0u)
 #endif
+
 #ifdef STATIC_TONEMAP
-	#define enableTonemap true
+	const bool enableTonemap = bool(STATIC_TONEMAP);
 #else
 	#define enableTonemap       ((activeEffects & (1u << 13u)) != 0u)
 #endif
 
-#define enableAutoExposure  ((activeEffects & (1u << 8u)) != 0u)
-#define enableMotionBlur    ((activeEffects & (1u << 10u)) != 0u)
+#ifdef STATIC_BANDING
+	const bool enableBanding = bool(STATIC_BANDING);
+#else
+	#define enableBanding       ((activeEffects & (1u << 14u)) != 0u)
+#endif
+
+#ifdef STATIC_FOG
+	const bool enableFog = bool(STATIC_FOG);
+#else
+	#define enableFog           ((activeEffects & (1u << 15u)) != 0u)
+#endif
+
+#ifdef STATIC_LUT3D
+	const bool enableLUT3D = bool(STATIC_LUT3D);
+#else
+	#define enableLUT3D         ((activeEffects & (1u << 16u)) != 0u)
+#endif
+
 #define enableMotionBlurDebug ((activeEffects & (1u << 11u)) != 0u)
-#define enableBanding       ((activeEffects & (1u << 14u)) != 0u)
-#define enableFog           ((activeEffects & (1u << 15u)) != 0u)
-#define enableLUT3D         ((activeEffects & (1u << 16u)) != 0u)
 #define enableFogDebug      ((activeEffects & (1u << 20u)) != 0u)
 #define enableLUT3DDebug    ((activeEffects & (1u << 21u)) != 0u)
 #define enableVectorFieldDebug ((activeEffects & (1u << 22u)) != 0u)
-#define enableDoF           ((activeEffects & (1u << 6u)) != 0u)
 #define enableDoFDebug      ((activeEffects & (1u << 7u)) != 0u)
 #define enableFXAADebug     ((activeEffects & (1u << 17u)) != 0u)
 #define enableStencilDebug  ((activeEffects & (1u << 18u)) != 0u)
@@ -886,16 +923,20 @@ void main()
 		return;
 	}
 
+	// Skybox detection: background pixels have depth exactly 1.0 (drawn at far plane)
+	float depth = texture(depthTexture, TexCoords).r;
+	bool isSkybox = (depth >= 0.9999);
+
 	// Pipeline: Motion Blur -> Chromatic Aberration -> FXAA
 	// CA calls getSceneSource() internally (which applies MB if enabled).
-	if (enableChromAbbr && !splitBypassed(3u)) {
+	if (enableChromAbbr && !splitBypassed(3u) && !isSkybox) {
 		color = applyChromAbbr(TexCoords);
 	} else {
 		color = getSceneSource(TexCoords);
 	}
 
 	// 2. FXAA (spatial anti-aliasing, operates on screenTexture neighbors)
-	if (enableFXAA && !splitBypassed(12u)) {
+	if (enableFXAA && !splitBypassed(12u) && !isSkybox) {
 		color = applyFXAA(color, TexCoords);
 	}
 

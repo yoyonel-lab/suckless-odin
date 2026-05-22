@@ -91,14 +91,20 @@ build_defines_preamble :: proc(effects: Effect_Flags) -> string {
 	defer strings.builder_destroy(&b)
 
 	// Static defines that override runtime bitfield checks
-	if .Vignette in effects      { fmt.sbprintf(&b, "#define STATIC_VIGNETTE 1\n") }
-	if .Grain in effects         { fmt.sbprintf(&b, "#define STATIC_GRAIN 1\n") }
-	if .Exposure in effects      { fmt.sbprintf(&b, "#define STATIC_EXPOSURE 1\n") }
-	if .Chrom_Abbr in effects    { fmt.sbprintf(&b, "#define STATIC_CHROM_ABBR 1\n") }
-	if .Bloom in effects         { fmt.sbprintf(&b, "#define STATIC_BLOOM 1\n") }
-	if .Color_Grading in effects { fmt.sbprintf(&b, "#define STATIC_COLOR_GRADING 1\n") }
-	if .FXAA in effects          { fmt.sbprintf(&b, "#define STATIC_FXAA 1\n") }
-	if .Tonemap in effects       { fmt.sbprintf(&b, "#define STATIC_TONEMAP 1\n") }
+	fmt.sbprintf(&b, "#define STATIC_VIGNETTE %d\n", 1 if .Vignette in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_GRAIN %d\n", 1 if .Grain in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_EXPOSURE %d\n", 1 if .Exposure in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_CHROM_ABBR %d\n", 1 if .Chrom_Abbr in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_BLOOM %d\n", 1 if .Bloom in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_COLOR_GRADING %d\n", 1 if .Color_Grading in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_DOF %d\n", 1 if .Dof in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_AUTO_EXPOSURE %d\n", 1 if .Auto_Exposure in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_MOTION_BLUR %d\n", 1 if .Motion_Blur in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_FXAA %d\n", 1 if .FXAA in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_TONEMAP %d\n", 1 if .Tonemap in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_BANDING %d\n", 1 if .Banding in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_FOG %d\n", 1 if .Fog in effects else 0)
+	fmt.sbprintf(&b, "#define STATIC_LUT3D %d\n", 1 if .LUT3D in effects else 0)
 
 	return strings.clone(strings.to_string(b))
 }
