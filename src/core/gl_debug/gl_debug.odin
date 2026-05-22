@@ -38,9 +38,10 @@ g_cache: [256]Source_Loc_Cache_Entry
 g_cache_count: int = 0
 
 @(private)
-get_or_create_srcloc :: proc(name: string) -> u64 {
+get_or_create_srcloc :: proc(name: cstring) -> u64 {
+	name_str := string(name)
 	for i in 0..<g_cache_count {
-		if g_cache[i].name == name {
+		if g_cache[i].name == name_str {
 			return g_cache[i].srcloc
 		}
 	}
@@ -48,26 +49,26 @@ get_or_create_srcloc :: proc(name: string) -> u64 {
 	if g_cache_count < len(g_cache) {
 		// Define matching hex colors (Nord Theme color mappings)
 		color: u32 = 0x81A1C1 // Default composite blue
-		if name == "Scene_Render" || name == "Instanced_PBR_Spheres" {
+		if name_str == "Scene_Render" || name_str == "Instanced_PBR_Spheres" {
 			color = 0xD08770 // Orange
-		} else if name == "Skybox_Pass" {
+		} else if name_str == "Skybox_Pass" {
 			color = 0x88C0D0 // Cyan
-		} else if name == "PostFX_Bloom" {
+		} else if name_str == "PostFX_Bloom" {
 			color = 0x5E81AC // Bloom blue
-		} else if name == "PostFX_DepthOfField" {
+		} else if name_str == "PostFX_DepthOfField" {
 			color = 0xA3BE8C // Green
-		} else if name == "PostFX_AutoExposure" {
+		} else if name_str == "PostFX_AutoExposure" {
 			color = 0xEBCB8B // Yellow
-		} else if name == "PostFX_FXAA_Prepass" {
+		} else if name_str == "PostFX_FXAA_Prepass" {
 			color = 0xBF616A // Red
-		} else if name == "Text_Overlay" {
+		} else if name_str == "Text_Overlay" {
 			color = 0x4C566A // Grey
 		}
 
-		srcloc := tracy.alloc_srcloc(0, "gl_debug.odin", "render_pass", color)
+		srcloc := tracy.alloc_srcloc(0, "gl_debug.odin", name, color)
 		
 		g_cache[g_cache_count] = Source_Loc_Cache_Entry{
-			name = name,
+			name = name_str,
 			srcloc = srcloc,
 		}
 		g_cache_count += 1
@@ -82,7 +83,7 @@ push_group :: proc(name: cstring) {
 
 	when tracy.TRACY_ENABLE {
 		name_str := string(name)
-		srcloc := get_or_create_srcloc(name_str)
+		srcloc := get_or_create_srcloc(name)
 		cpu_zone := tracy.zone_begin_alloc(srcloc)
 		
 		color: u32 = 0x81A1C1
@@ -102,7 +103,7 @@ push_group :: proc(name: cstring) {
 			color = 0x4C566A
 		}
 		
-		gpu_ctx := tracy.gpu_zone_begin(name, "render_pass", "gl_debug.odin", 0, color)
+		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
 		
 		if g_stack_depth < MAX_STACK_DEPTH {
 			g_zone_stack[g_stack_depth] = Active_Zone{
@@ -133,7 +134,7 @@ pop_group :: proc() {
 push_gpu_zone_only :: proc(name: cstring) {
 	when tracy.TRACY_ENABLE {
 		name_str := string(name)
-		srcloc := get_or_create_srcloc(name_str)
+		srcloc := get_or_create_srcloc(name)
 		cpu_zone := tracy.zone_begin_alloc(srcloc)
 		
 		color: u32 = 0x81A1C1
@@ -155,7 +156,7 @@ push_gpu_zone_only :: proc(name: cstring) {
 			color = 0xD08770
 		}
 		
-		gpu_ctx := tracy.gpu_zone_begin(name, "render_pass", "gl_debug.odin", 0, color)
+		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
 		
 		if g_stack_depth < MAX_STACK_DEPTH {
 			g_zone_stack[g_stack_depth] = Active_Zone{
