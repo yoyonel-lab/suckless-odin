@@ -35,6 +35,11 @@ build-release:
     @mkdir -p {{ build_base }}/release
     odin build src/ -out:{{ build_base }}/release/suckless-odin -o:{{ opt_flag }} -use-separate-modules -extra-linker-flags:"{{ extra_linker_flags }}"
 
+# Ultra-release build (maximum optimization, native arch, no safety checks)
+build-ultra:
+    @mkdir -p {{ build_base }}/ultra
+    odin build src/ -out:{{ build_base }}/ultra/suckless-odin -o:aggressive -microarch:native -no-bounds-check -no-type-assert -extra-linker-flags:"{{ extra_linker_flags }}"
+
 # Profile build (with Tracy Profiler active)
 build-profile:
     @mkdir -p {{ build_base }}/profile
@@ -59,6 +64,10 @@ run:
 # Run release build
 run-release:
     ./{{ build_base }}/release/suckless-odin
+
+# Run ultra-release build
+run-ultra:
+    ./{{ build_base }}/ultra/suckless-odin
 
 # Run profile build
 run-profile:
