@@ -1,7 +1,7 @@
 # Post-Processing Pipeline Architecture
 
-**Date:** 2026-05-18 (updated 2026-05-19)  
-**Status:** Complete (Phase 1–6, debug views)  
+**Date:** 2026-05-18 (updated 2026-05-22)  
+**Status:** Complete (Phase 1–6, debug views, FXAA pre-pass)  
 **Scope:** Full-screen post-processing with modular effects, bloom, DoF, auto-exposure, GPU profiling, shader variant cache, and A/B split debug
 
 ## Overview
@@ -9,7 +9,8 @@
 The post-processing pipeline renders the 3D scene into an HDR framebuffer, then applies a chain of full-screen effects via an uber-shader before presenting to screen.
 
 ```
-Scene Render → HDR FBO (RGBA16F) → Bloom Multi-Pass → DoF Quarter-Res → Auto-Exposure → Composite (uber-shader) → Screen
+Scene Render → HDR FBO (RGBA16F) → Bloom Multi-Pass → DoF Quarter-Res → Auto-Exposure
+  → [FXAA Pre-Pass if FXAA+MB] → Mipmap Gen → Composite (uber-shader) → Screen
 ```
 
 ## Package Layout
@@ -23,11 +24,13 @@ src/rendering/postfx/
 ├── auto_exposure.odin  # Compute luminance → adaptive exposure
 ├── presets.odin        # 15 named configurations + WIP table
 ├── gpu_timers.odin     # Double-buffered GL_TIME_ELAPSED queries (4 passes)
+├── fxaa_prepass.odin   # FXAA pre-pass FBO/texture/shader (when FXAA+MB)
 └── shader_cache.odin   # Compile-time optimized shader variants
 
 shaders/postfx/
 ├── postfx.vert         # Fullscreen quad vertex shader
 ├── postfx.frag         # Uber-shader (all effects, #ifdef STATIC_* support)
+├── fxaa_prepass.frag      # Standalone FXAA 3.11 (pre-pass before MB)
 ├── bloom_prefilter.frag   # UE4 quadratic threshold curve
 ├── bloom_downsample.frag  # 13-tap Jimenez (CoD:AW)
 └── bloom_upsample.frag    # 9-tap tent filter
