@@ -26,6 +26,8 @@ Session_State :: struct {
 	show_blur_diff: bool `json:"show_blur_diff"`,
 	diff_gain: f32 `json:"diff_gain"`,
 	sort_mode: i32 `json:"sort_mode"`,
+	edge_aa_enabled: bool `json:"edge_aa_enabled"`,
+	edge_aa_debug: bool `json:"edge_aa_debug"`,
 	
 	postfx_active: bool `json:"postfx_active"`,
 	postfx_settings: postfx.Settings_File `json:"postfx_settings"`,

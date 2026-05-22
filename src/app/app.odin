@@ -170,6 +170,8 @@ run :: proc(application: ^App) {
 			show_mipmap_diff    = &application.scene.skybox.show_diff,
 			diff_gain           = &application.scene.skybox.diff_gain,
 			sort_mode           = &application.scene.sort_mode,
+			edge_aa_enabled     = &application.scene.edge_aa_enabled,
+			edge_aa_debug       = &application.scene.edge_aa_debug,
 			ibl_irradiance_map  = application.scene.ibl.irradiance_map,
 			ibl_prefilter_map   = application.scene.ibl.prefilter_map,
 			ibl_brdf_lut        = application.scene.ibl.brdf_lut,
@@ -431,6 +433,8 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		show_blur_diff    = s.skybox.show_diff,
 		diff_gain         = s.skybox.diff_gain,
 		sort_mode         = i32(s.sort_mode),
+		edge_aa_enabled   = s.edge_aa_enabled,
+		edge_aa_debug     = s.edge_aa_debug,
 		postfx_active     = p.enabled,
 		postfx_settings   = pfx_settings,
 		gui_visible       = application.imgui.visible,
@@ -466,6 +470,8 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.skybox.diff_gain = state.diff_gain
 	}
 	s.sort_mode         = rendering.Sort_Mode(state.sort_mode)
+	s.edge_aa_enabled   = state.edge_aa_enabled
+	s.edge_aa_debug     = state.edge_aa_debug
 	
 	p := &s.postfx_pipeline
 	p.enabled = state.postfx_active
