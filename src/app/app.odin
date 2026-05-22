@@ -87,6 +87,9 @@ App :: struct {
 
 	// GUI (Dear ImGui)
 	imgui:           gui.Gui,
+
+	// Tracy frame capture (PBO ring-buffer for async screenshots)
+	frame_image:     tracy.Frame_Image,
 }
 
 // Creates the application (allocates + creates window).
@@ -141,6 +144,7 @@ init :: proc(application: ^App) -> bool {
 	gl.Enable(gl.DEPTH_TEST)
 	gl.ClearColor(0.1, 0.1, 0.1, 1.0)
 	tracy.gpu_init()
+	tracy.frame_image_init(&application.frame_image)
 
 	// Framebuffer resize callback
 	glfw.SetFramebufferSizeCallback(application.window, framebuffer_size_callback)
@@ -253,13 +257,18 @@ run :: proc(application: ^App) {
 
 		dbg.pop_group()
 
-		tracy.gpu_collect()
+		// Frame image capture for Tracy (async PBO readback)
+		tracy.frame_image_update(&application.frame_image, w, h)
+
 		tracy.zone_end(frame_zone)
 
 		// Swap
 		dbg.push_gpu_zone_only("Swap_Buffers")
 		glfw.SwapBuffers(application.window)
 		dbg.pop_gpu_zone_only()
+
+		// GPU collect AFTER swap (captures all GPU work including swap fence)
+		tracy.gpu_collect()
 	}
 
 	log.log_info("suckless-odin.app", "Main loop exited")
@@ -275,6 +284,7 @@ destroy :: proc(application: ^App) {
 
 	gui.destroy(&application.imgui)
 	scene.scene_destroy(&application.scene)
+	tracy.frame_image_destroy(&application.frame_image)
 	tracy.gpu_shutdown()
 	window_destroy(application.window)
 	free(application)
