@@ -1,0 +1,101 @@
+#version 450 core
+
+// Single-pass auto-exposure: downsample scene → reduce → adapt exposure.
+// Eliminates the intermediate 64x64 texture and the glMemoryBarrier between passes.
+// 256 threads (16×16), each samples a 4×4 block of scene tiles using 2×2 bilinear.
+// Reduction in shared memory → thread 0 writes final adapted exposure.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D sceneTexture;
+layout(rgba32f, binding = 1) uniform image2D exposureImage;  // 1x1 persistent
+
+uniform float deltaTime;
+uniform float minLuminance;
+uniform float maxLuminance;
+uniform float speedUp;
+uniform float speedDown;
+uniform float keyValue;
+
+const vec3 LUMINANCE_VECTOR = vec3(0.2126, 0.7152, 0.0722);
+const float MIN_LUMINANCE_THRESHOLD = 0.05;
+
+shared float sharedLogLum[256];
+shared float sharedValidCount[256];
+
+void main()
+{
+	uint localIdx = gl_LocalInvocationIndex;  // 0..255
+	ivec2 threadId = ivec2(gl_LocalInvocationID.xy);  // 0..15 in each axis
+
+	// Scene resolution
+	vec2 sceneSize = vec2(textureSize(sceneTexture, 0));
+
+	// Virtual 64×64 grid: each of the 256 threads covers a 4×4 block of tiles.
+	// Thread (tx, ty) covers tiles [(tx*4)..(tx*4+3), (ty*4)..(ty*4+3)]
+	vec2 tileSize = sceneSize / 64.0;
+
+	float localLogLum = 0.0;
+	float localValid = 0.0;
+
+	// Process 4×4 = 16 tiles per thread
+	for (int ty = 0; ty < 4; ty++) {
+		for (int tx = 0; tx < 4; tx++) {
+			ivec2 tileCoord = threadId * 4 + ivec2(tx, ty);
+			vec2 tileStart = vec2(tileCoord) * tileSize;
+
+			// 2×2 bilinear samples per tile (same as Solution 3)
+			for (int sy = 0; sy < 2; sy++) {
+				for (int sx = 0; sx < 2; sx++) {
+					vec2 offset = (vec2(sx, sy) + 0.5) * (tileSize / 2.0);
+					vec2 uv = (tileStart + offset) / sceneSize;
+
+					vec3 color = texture(sceneTexture, uv).rgb;
+					float lum = dot(color, LUMINANCE_VECTOR);
+
+					if (lum > MIN_LUMINANCE_THRESHOLD) {
+						localLogLum += log2(lum);
+						localValid += 1.0;
+					}
+				}
+			}
+		}
+	}
+
+	sharedLogLum[localIdx] = localLogLum;
+	sharedValidCount[localIdx] = localValid;
+	barrier();
+
+	// Parallel reduction: 256 → 1
+	for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+		if (localIdx < stride) {
+			sharedLogLum[localIdx] += sharedLogLum[localIdx + stride];
+			sharedValidCount[localIdx] += sharedValidCount[localIdx + stride];
+		}
+		barrier();
+	}
+
+	// Thread 0 computes final adapted exposure
+	if (localIdx == 0u) {
+		float totalLogLum = sharedLogLum[0];
+		float validPixels = sharedValidCount[0];
+
+		float currentExposure = imageLoad(exposureImage, ivec2(0, 0)).r;
+
+		if (validPixels > 0.0) {
+			float avgLogLum = totalLogLum / validPixels;
+			float sceneLum = exp2(avgLogLum);  // geometric mean
+			sceneLum = clamp(sceneLum, minLuminance, maxLuminance);
+
+			float targetExposure = keyValue / sceneLum;
+
+			// Temporal smoothing: asymmetric EMA (frame-rate independent)
+			float adjustSpeed = (targetExposure > currentExposure) ? speedUp : speedDown;
+			float factor = 1.0 - exp(-deltaTime * adjustSpeed);
+			float newExposure = mix(currentExposure, targetExposure, factor);
+
+			imageStore(exposureImage, ivec2(0, 0), vec4(newExposure, sceneLum, targetExposure, 0.0));
+		}
+		// If no valid pixels, keep current exposure unchanged
+	}
+}

@@ -1,7 +1,8 @@
 #version 450 core
 
 // Pass 1: Downsample scene HDR to 64x64 log-luminance map.
-// Each thread covers a 4x4 region of the scene texture, averaging 16 samples.
+// Each thread covers a 2x2 region of the scene texture (4 bilinear samples).
+// Exposure is temporally smoothed (EMA), so spatial precision is not critical.
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
@@ -24,13 +25,15 @@ void main()
 	vec2 tileSize = sceneSize / 64.0;
 	vec2 tileStart = vec2(pixelCoord) * tileSize;
 
-	// Sample 4x4 grid within this tile
+	// Sample 2x2 grid within this tile (4 bilinear samples — 4× fewer fetches).
+	// Hardware bilinear already averages the surrounding texels, so effective
+	// coverage is still good. Temporal EMA smooths any spatial noise.
 	float logLumSum = 0.0;
 	int validCount = 0;
 
-	for (int y = 0; y < 4; y++) {
-		for (int x = 0; x < 4; x++) {
-			vec2 offset = (vec2(x, y) + 0.5) * (tileSize / 4.0);
+	for (int y = 0; y < 2; y++) {
+		for (int x = 0; x < 2; x++) {
+			vec2 offset = (vec2(x, y) + 0.5) * (tileSize / 2.0);
 			vec2 uv = (tileStart + offset) / sceneSize;
 
 			vec3 color = texture(sceneTexture, uv).rgb;

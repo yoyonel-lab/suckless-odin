@@ -5,17 +5,12 @@ import gl "vendor:OpenGL"
 import log "../../core/log"
 import shader "../shader"
 
-// 64x64 intermediate luminance map resolution.
-LUM_MAP_SIZE :: 64
-
-// Auto-exposure effect — compute-shader luminance reduction with temporal adaptation.
+// Auto-exposure effect — single-pass compute-shader luminance reduction with temporal adaptation.
 Auto_Exposure_FX :: struct {
-	// Compute programs
-	downsample_program: u32,
-	adapt_program:      u32,
+	// Single compute program (downsample + reduce + adapt in one dispatch)
+	program: u32,
 
 	// GPU textures
-	lum_tex:      u32, // 64x64 R32F (log-luminance intermediate)
 	exposure_tex: u32, // 1x1 RGBA32F (persistent exposure state)
 
 	// Readback (for GUI display, async)
@@ -34,16 +29,8 @@ Auto_Exposure_FX :: struct {
 auto_exposure_create :: proc(fx: ^Auto_Exposure_FX) -> (ok: bool) {
 	defer if !ok { auto_exposure_destroy(fx) }
 
-	// Load compute shaders
-	fx.downsample_program = shader.load_compute("shaders/postfx/lum_downsample.comp") or_return
-	fx.adapt_program = shader.load_compute("shaders/postfx/lum_adapt.comp") or_return
-
-	// Create 64x64 R32F luminance texture
-	fx.lum_tex = create_texture_2d(
-		LUM_MAP_SIZE, LUM_MAP_SIZE,
-		gl.R32F, gl.RED,
-		filter = .Nearest,
-	)
+	// Load single-pass compute shader (downsample + reduce + adapt)
+	fx.program = shader.load_compute("shaders/postfx/lum_single_pass.comp") or_return
 
 	// Create 1x1 RGBA32F exposure texture (persistent across frames)
 	initial_data := [4]f32{DEFAULT_AUTO_EXPOSURE_INITIAL, 0.0, 0.0, 0.0}
@@ -78,9 +65,7 @@ auto_exposure_create :: proc(fx: ^Auto_Exposure_FX) -> (ok: bool) {
 
 // Destroy auto-exposure resources.
 auto_exposure_destroy :: proc(fx: ^Auto_Exposure_FX) {
-	delete_program(&fx.downsample_program)
-	delete_program(&fx.adapt_program)
-	delete_texture(&fx.lum_tex)
+	delete_program(&fx.program)
 	delete_texture(&fx.exposure_tex)
 	if fx.readback_pbo[0] != 0 {
 		gl.DeleteBuffers(2, raw_data(&fx.readback_pbo))
@@ -94,31 +79,26 @@ auto_exposure_destroy :: proc(fx: ^Auto_Exposure_FX) {
 	}
 }
 
-// Run auto-exposure compute passes. Call before the composite uber-shader pass.
+// Run auto-exposure single-pass compute. Call before the composite uber-shader pass.
 // scene_tex: the HDR scene color texture from the pipeline FBO.
 auto_exposure_render :: proc(fx: ^Auto_Exposure_FX, scene_tex: u32, dt: f32) {
-	// Pass 1: Downsample scene → 64x64 log-luminance
-	gl.UseProgram(fx.downsample_program)
+	gl.UseProgram(fx.program)
+
+	// Bind scene as sampler, exposure image as read-write
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, scene_tex)
-	gl.BindImageTexture(1, fx.lum_tex, 0, gl.FALSE, 0, gl.WRITE_ONLY, gl.R32F)
-	gl.DispatchCompute(4, 4, 1) // 4x4 workgroups × 16x16 threads = 64x64
-	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.TEXTURE_FETCH_BARRIER_BIT)
-
-	// Pass 2: Parallel reduction → 1x1 adapted exposure
-	gl.UseProgram(fx.adapt_program)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, fx.lum_tex)
 	gl.BindImageTexture(1, fx.exposure_tex, 0, gl.FALSE, 0, gl.READ_WRITE, gl.RGBA32F)
 
-	set_uniform_f32(fx.adapt_program, "deltaTime", dt)
-	set_uniform_f32(fx.adapt_program, "minLuminance", fx.params.min_luminance)
-	set_uniform_f32(fx.adapt_program, "maxLuminance", fx.params.max_luminance)
-	set_uniform_f32(fx.adapt_program, "speedUp", fx.params.speed_up)
-	set_uniform_f32(fx.adapt_program, "speedDown", fx.params.speed_down)
-	set_uniform_f32(fx.adapt_program, "keyValue", fx.params.key_value)
+	// Upload uniforms
+	set_uniform_f32(fx.program, "deltaTime", dt)
+	set_uniform_f32(fx.program, "minLuminance", fx.params.min_luminance)
+	set_uniform_f32(fx.program, "maxLuminance", fx.params.max_luminance)
+	set_uniform_f32(fx.program, "speedUp", fx.params.speed_up)
+	set_uniform_f32(fx.program, "speedDown", fx.params.speed_down)
+	set_uniform_f32(fx.program, "keyValue", fx.params.key_value)
 
-	gl.DispatchCompute(1, 1, 1) // single workgroup: 256 threads reduce 64x64
+	// Single dispatch: 256 threads do everything (sample scene, reduce, adapt)
+	gl.DispatchCompute(1, 1, 1)
 	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.TEXTURE_FETCH_BARRIER_BIT)
 	gl.UseProgram(0)
 
