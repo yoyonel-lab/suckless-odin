@@ -1,11 +1,17 @@
 # suckless-odin — Justfile
 # Build, run, and lint recipes for the Odin OpenGL PBR engine port.
-
 # Build output base directory (each config gets its own subdir)
+
 build_base := "build"
 
 # Extra linker flags (libc++ from linuxbrew, X11 for imgui_impl_glfw)
-extra_linker_flags := "-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11"
+in_container := env_var_or_default("CONTAINER_ID", "")
+extra_linker_flags := if in_container != "" { "-Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11" } else { "-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11" }
+
+
+
+# Optimization flag for release builds (maximum optimization level)
+opt_flag := "speed"
 
 # Default recipe: build + run
 default: build run
@@ -14,33 +20,42 @@ default: build run
 
 # Debug build
 build:
-    @mkdir -p {{build_base}}/debug
-    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -use-separate-modules -extra-linker-flags:"{{extra_linker_flags}}"
+    @mkdir -p {{ build_base }}/debug
+    odin build src/ -out:{{ build_base }}/debug/suckless-odin -debug -use-separate-modules -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # Release build (optimized)
 build-release:
-    @mkdir -p {{build_base}}/release
-    odin build src/ -out:{{build_base}}/release/suckless-odin -o:speed -use-separate-modules -extra-linker-flags:"{{extra_linker_flags}}"
+    @mkdir -p {{ build_base }}/release
+    odin build src/ -out:{{ build_base }}/release/suckless-odin -o:{{ opt_flag }} -use-separate-modules -extra-linker-flags:"{{ extra_linker_flags }}"
+
+# Profile build (with Tracy Profiler active)
+build-profile:
+    @mkdir -p {{ build_base }}/profile
+    odin build src/ -out:{{ build_base }}/profile/suckless-odin -o:{{ opt_flag }} -define:TRACY_ENABLE=true -extra-linker-flags:"{{ extra_linker_flags }} -lstdc++ /var/home/latty/Prog/suckless-ogl/build/_deps/glad-build/libglad.a"
 
 # Build with all vet checks + strict style (lint errors = build errors)
 build-strict:
-    @mkdir -p {{build_base}}/debug
-    odin build src/ -out:{{build_base}}/debug/suckless-odin -debug -use-separate-modules -vet -strict-style -warnings-as-errors -extra-linker-flags:"{{extra_linker_flags}}"
+    @mkdir -p {{ build_base }}/debug
+    odin build src/ -out:{{ build_base }}/debug/suckless-odin -debug -use-separate-modules -vet -strict-style -warnings-as-errors -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # Sanitizer build (address + undefined behavior)
 build-sanitize:
-    @mkdir -p {{build_base}}/sanitize
-    odin build src/ -out:{{build_base}}/sanitize/suckless-odin -debug -use-separate-modules -sanitize:address -extra-linker-flags:"{{extra_linker_flags}}"
+    @mkdir -p {{ build_base }}/sanitize
+    odin build src/ -out:{{ build_base }}/sanitize/suckless-odin -debug -use-separate-modules -sanitize:address -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # --- Run ---
 
 # Run the application (debug)
 run:
-    ./{{build_base}}/debug/suckless-odin
+    ./{{ build_base }}/debug/suckless-odin
 
 # Run release build
 run-release:
-    ./{{build_base}}/release/suckless-odin
+    ./{{ build_base }}/release/suckless-odin
+
+# Run profile build
+run-profile:
+    ./{{ build_base }}/profile/suckless-odin
 
 # Build and run in one step
 br: build run
@@ -64,7 +79,7 @@ test-shader:
 
 # Headless GL tests (shader compilation, GPU validation — single-threaded)
 test-gl:
-    odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
+    odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # --- Lint ---
 
@@ -90,7 +105,7 @@ strip-semicolons:
 
 # Remove all build artifacts
 clean:
-    rm -rf {{build_base}}
+    rm -rf {{ build_base }}
     rm -f *.o
 
 # --- Dependencies ---
@@ -118,17 +133,17 @@ ci: lint build test-unit test-cli test-shader test-gl-xvfb
 
 # GL tests under xvfb (headless, for CI or systems without display)
 test-gl-xvfb:
-    xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{extra_linker_flags}}"
+    xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # Generate visual regression references (DESTRUCTIVE — overwrites refs, requires confirmation)
 [confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
 gen-refs:
-    GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{extra_linker_flags}}"
+    GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # Generate refs under xvfb (DESTRUCTIVE — overwrites refs, requires confirmation)
 [confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
 gen-refs-xvfb:
-    xvfb-run -a -s "-screen 0 1024x768x24" env GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{extra_linker_flags}}"
+    xvfb-run -a -s "-screen 0 1024x768x24" env GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # --- Benchmarks ---
 
@@ -137,11 +152,11 @@ bench: bench-search bench-render
 
 # GPU render benchmark (all postfx effects, glFinish per frame, 200 frames)
 bench-render: build-release
-    vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{build_base}}/release/suckless-odin --benchmark --benchmark-frames=200
+    vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{ build_base }}/release/suckless-odin --benchmark --benchmark-frames=200
 
 # GPU render benchmark (debug build)
 bench-render-debug: build
-    vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{build_base}}/debug/suckless-odin --benchmark --benchmark-frames=200
+    vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{ build_base }}/debug/suckless-odin --benchmark --benchmark-frames=200
 
 # Fuzzy search benchmark (measures ns/call for fuzzy_match + levenshtein)
 bench-search:
@@ -155,9 +170,10 @@ bench-search-compare:
     @echo "Tip: run 'just bench-search' before and after changes to compare ns/call"
 
 # A/B commit comparison: checkout two commits, run benchmark, show delta table
+
 # Usage: just bench-compare search [commitA] [commitB]
 bench-compare name *args:
-    ./scripts/bench_compare.sh {{name}} {{args}}
+    ./scripts/bench_compare.sh {{ name }} {{ args }}
 
 # --- RenderDoc (Frame Analysis) ---
 
@@ -165,8 +181,8 @@ renderdoc_dir := env_var_or_default("RENDERDOC_DIR", "/usr/bin")
 
 # Launch qrenderdoc GUI with debug build for frame analysis
 renderdoc: build
-    {{renderdoc_dir}}/qrenderdoc --working-dir . ./{{build_base}}/debug/suckless-odin
+    {{ renderdoc_dir }}/qrenderdoc --working-dir . ./{{ build_base }}/debug/suckless-odin
 
 # Capture a frame via renderdoccmd CLI (headless, outputs .rdc file)
 renderdoc-capture: build
-    {{renderdoc_dir}}/renderdoccmd capture --working-dir . ./{{build_base}}/debug/suckless-odin
+    {{ renderdoc_dir }}/renderdoccmd capture --working-dir . ./{{ build_base }}/debug/suckless-odin
