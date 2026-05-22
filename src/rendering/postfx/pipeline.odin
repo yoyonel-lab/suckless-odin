@@ -24,6 +24,12 @@ Pipeline :: struct {
 	motion_blur_fx:   Motion_Blur_FX,
 	lut3d_fx:         LUT3D_FX,
 
+	// FXAA pre-pass (used when both FXAA + Motion Blur are active)
+	// Runs FXAA before MB to prevent edge detection on blur gradients.
+	fxaa_fbo:     u32,
+	fxaa_tex:     u32, // RGBA16F — same format as scene_color_tex
+	fxaa_program: u32,
+
 	// GPU profiling
 	timers: Gpu_Timers,
 
@@ -124,6 +130,9 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 		return false
 	}
 
+	// Create FXAA pre-pass resources (FBO + texture + shader)
+	fxaa_prepass_create(p) or_return
+
 	// Create sub-effects
 	bloom_create(&p.bloom_fx, width, height) or_return
 	dof_create(&p.dof_fx, width, height) or_return
@@ -146,6 +155,7 @@ pipeline_destroy :: proc(p: ^Pipeline) {
 	dof_destroy(&p.dof_fx)
 	bloom_destroy(&p.bloom_fx)
 	lut3d_destroy(&p.lut3d_fx)
+	fxaa_prepass_destroy(p)
 	delete_program(&p.composite_program)
 	destroy_framebuffer(p)
 	delete_buffer(&p.settings_ubo)
@@ -221,14 +231,55 @@ pipeline_end :: proc(p: ^Pipeline) {
 	}
 	gpu_timer_end(&p.timers, .Motion_Blur)
 
+	// --- FXAA Pre-pass (when both FXAA + Motion Blur are active) ---
+	// FXAA must run BEFORE motion blur to avoid detecting MB gradients as edges.
+	// Renders the anti-aliased scene into fxaa_tex, which MB then samples from.
+	fxaa_prepass_ran := false
+	if .FXAA in p.active_effects && .Motion_Blur in p.active_effects && p.fxaa_program != 0 {
+		dbg.push_group("PostFX_FXAA_Prepass")
+
+		gl.BindFramebuffer(gl.FRAMEBUFFER, p.fxaa_fbo)
+		gl.Viewport(0, 0, p.width, p.height)
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+
+		gl.UseProgram(p.fxaa_program)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, p.scene_color_tex)
+		quad_draw(&p.quad)
+		gl.UseProgram(0)
+
+		dbg.pop_group()
+		fxaa_prepass_ran = true
+	}
+
+	// Choose which texture the composite pass reads as "scene":
+	// If FXAA pre-pass ran, use the anti-aliased result; otherwise raw scene.
+	composite_source_tex := fxaa_prepass_ran ? p.fxaa_tex : p.scene_color_tex
+
 	// Restore the framebuffer that was active before begin
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
 	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	gl.Disable(gl.DEPTH_TEST)
 
-	// Upload UBO (already done above for bloom; this is a no-op if not dirty)
+	// Generate mipmaps on the composite source for motion blur LOD sampling.
+	// This pre-filters thin features so the MB gather loop can't miss them.
+	// Temporarily switch min filter to mipmap mode (reverted after composite).
+	if .Motion_Blur in p.active_effects {
+		gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+		gl.GenerateMipmap(gl.TEXTURE_2D)
+	}
+
+	// Upload UBO — if FXAA pre-pass ran, temporarily clear the FXAA bit so the
+	// uber-shader doesn't run FXAA again (it already ran in the pre-pass).
+	if fxaa_prepass_ran {
+		p.active_effects -= {.FXAA}
+	}
 	upload_ubo(p)
+	if fxaa_prepass_ran {
+		p.active_effects += {.FXAA}
+	}
 
 	// Composite pass (uber-shader)
 	gpu_timer_begin(&p.timers, .Composite)
@@ -243,9 +294,9 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Bind composite shader
 	gl.UseProgram(active_program)
 
-	// Bind scene color texture
+	// Bind scene color texture (FXAA'd if pre-pass ran, raw otherwise)
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_SCENE)
-	gl.BindTexture(gl.TEXTURE_2D, p.scene_color_tex)
+	gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
 
 	// Bind bloom texture (result of multi-pass, or empty if disabled)
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_BLOOM)
@@ -284,6 +335,12 @@ pipeline_end :: proc(p: ^Pipeline) {
 	dbg.pop_group()
 	gpu_timer_end(&p.timers, .Composite)
 
+	// Restore mipmap filter to LINEAR after composite (texture completeness)
+	if .Motion_Blur in p.active_effects {
+		gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	}
+
 	// Restore state
 	gl.Enable(gl.DEPTH_TEST)
 	gl.UseProgram(0)
@@ -299,6 +356,7 @@ pipeline_resize :: proc(p: ^Pipeline, width, height: i32) {
 
 	destroy_framebuffer(p)
 	create_framebuffer(p)
+	fxaa_prepass_resize(p)
 	bloom_resize(&p.bloom_fx, width, height)
 	dof_resize(&p.dof_fx, width, height)
 	motion_blur_resize(&p.motion_blur_fx, width, height)

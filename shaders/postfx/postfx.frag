@@ -224,6 +224,15 @@ float InterleavedGradientNoise(vec2 screenPos)
 	return fract(magic.z * fract(dot(screenPos.xy, magic.xy)));
 }
 
+// Spatial hash without structured diagonal pattern (Dave Hoskins).
+// Used for MB jitter where IGN's diagonal structure creates visible banding.
+float spatialHash(vec2 p)
+{
+	p = fract(p * vec2(443.8975, 397.2973));
+	p += dot(p, p.yx + 19.19);
+	return fract(p.x * p.y);
+}
+
 // Linearize depth from [0,1] depth buffer to view-space distance
 float linearizeDepth(float depth)
 {
@@ -272,7 +281,7 @@ vec3 applyVectorFieldDebug(vec2 uv)
 	}
 
 	/* Darken the base scene to make arrows visible */
-	vec3 baseColor = texture(screenTexture, uv).rgb;
+	vec3 baseColor = textureLod(screenTexture, uv, 0.0).rgb;
 	return baseColor * 0.3;
 }
 
@@ -340,35 +349,48 @@ vec3 applyMotionBlur(vec2 uv)
 	vec2 maxNeighborVelocity = texture(neighborMaxTexture, uv).rg * mb_intensity;
 	float maxNeighborSpeed = length(maxNeighborVelocity);
 
-	/* Fetch Center Color (Raw) */
-	vec3 centerColor = texture(screenTexture, uv).rgb;
+	/* Fetch Center Color (Raw) — LOD 0 to avoid mipmap bleed into FXAA */
+	vec3 centerColor = textureLod(screenTexture, uv, 0.0).rgb;
 
 	/* Early exit if negligible motion */
 	if (speed < 0.0001 && maxNeighborSpeed < 0.0001) {
 		return centerColor;
 	}
 
-	/* Jitter */
-	float noise = InterleavedGradientNoise(gl_FragCoord.xy);
-
 	/* Center Depth */
 	float centerDepth = linearizeDepth(texture(depthTexture, uv).r);
 
-	/* Adaptive Sample Count */
-	float speed_ratio = (mb_maxVelocity > 0.0) ? (speed / mb_maxVelocity) : 0.0;
-	int actual_samples = clamp(int(speed_ratio * float(mb_samples)), 2, mb_samples);
+	/* Adaptive Sample Count — based on blur span in pixels.
+	 * Ensures at least 1 sample per pixel of blur (step ≤ 1px).
+	 * At max velocity this naturally limits to mb_samples. */
+	float pixel_span = speed / min(screenTexelSize.x, screenTexelSize.y);
+	int actual_samples = clamp(int(pixel_span), 2, mb_samples);
+
+	/* Mipmap LOD: pre-filter source proportionally to step size (UE4-style).
+	 * Prevents thin features (< step_pixels) from being missed entirely.
+	 * Only apply when step > 1px (undersampling); at sub-pixel steps we
+	 * are already oversampling so LOD 0 is correct. */
+	float step_uv = speed / float(actual_samples);
+	float step_pixels = step_uv / min(screenTexelSize.x, screenTexelSize.y);
+	float mb_lod = (step_pixels > 1.0) ? (log2(step_pixels) + 1.0) : 0.0;
 
 	vec3 acc = centerColor;
 	float totalWeight = 1.0;
+
+	/* Per-pixel base noise (screen-space hash, no diagonal structure) */
+	float baseNoise = spatialHash(gl_FragCoord.xy);
 
 	for (int i = 0; i < actual_samples; ++i) {
 		if (i == actual_samples / 2)
 			continue; /* Skip center */
 
+		/* Golden ratio (R1) per-sample jitter: maximally spreads samples in [0,1].
+		 * Each sample gets unique noise = fract(baseHash + i * phi_inv). */
+		float noise = fract(baseNoise + float(i) * 0.6180339887498949);
 		float t = mix(-0.5, 0.5, (float(i) + noise) / float(actual_samples));
 		vec2 sampleUV = uv + velocity * t;
 
-		vec3 sampleColor = texture(screenTexture, sampleUV).rgb;
+		vec3 sampleColor = textureLod(screenTexture, sampleUV, mb_lod).rgb;
 
 		/* Soft Depth-Testing */
 		float sampleDepth = linearizeDepth(texture(depthTexture, sampleUV).r);
@@ -388,7 +410,7 @@ vec3 getSceneSource(vec2 uv)
 	if (enableMotionBlur) {
 		return applyMotionBlur(uv);
 	}
-	return texture(screenTexture, uv).rgb;
+	return textureLod(screenTexture, uv, 0.0).rgb;
 }
 
 // ============================================================================
@@ -402,8 +424,8 @@ vec3 applyChromAbbr(vec2 uv)
 	vec3 centerBlurred = getSceneSource(uv);
 
 	/* Direct texture samples for R/B channels (skip motion blur for performance) */
-	float r = texture(screenTexture, uv + direction * ca_strength).r;
-	float b = texture(screenTexture, uv - direction * ca_strength).b;
+	float r = textureLod(screenTexture, uv + direction * ca_strength, 0.0).r;
+	float b = textureLod(screenTexture, uv - direction * ca_strength, 0.0).b;
 
 	return vec3(r, centerBlurred.g, b);
 }
@@ -428,13 +450,13 @@ vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
 	vec2 inverseScreenSize = screenTexelSize;
 
 	// 1. Luma analysis (center + 4 neighbors)
-	vec3 rgbM = texture(screenTexture, texCoords).rgb;
+	vec3 rgbM = textureLod(screenTexture, texCoords, 0.0).rgb;
 	float lumaM = FxaaLuma(rgbM);
 
-	float lumaN = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(0, -1)).rgb);
-	float lumaW = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(-1, 0)).rgb);
-	float lumaE = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(1, 0)).rgb);
-	float lumaS = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(0, 1)).rgb);
+	float lumaN = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(0, -1)).rgb);
+	float lumaW = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(-1, 0)).rgb);
+	float lumaE = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(1, 0)).rgb);
+	float lumaS = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(0, 1)).rgb);
 
 	float rangeMin = min(lumaM, min(min(lumaN, lumaW), min(lumaS, lumaE)));
 	float rangeMax = max(lumaM, max(max(lumaN, lumaW), max(lumaS, lumaE)));
@@ -447,10 +469,10 @@ vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
 	}
 
 	// 2. Corner sampling (diagonal neighbors)
-	float lumaNW = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(-1, -1)).rgb);
-	float lumaNE = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(1, -1)).rgb);
-	float lumaSW = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(-1, 1)).rgb);
-	float lumaSE = FxaaLuma(textureOffset(screenTexture, texCoords, ivec2(1, 1)).rgb);
+	float lumaNW = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(-1, -1)).rgb);
+	float lumaNE = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(1, -1)).rgb);
+	float lumaSW = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(-1, 1)).rgb);
+	float lumaSE = FxaaLuma(textureLodOffset(screenTexture, texCoords, 0.0, ivec2(1, 1)).rgb);
 
 	// Filter direction
 	float lumaL = (lumaN + lumaS + lumaE + lumaW) * 0.25;
@@ -510,11 +532,11 @@ vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
 
 	for (int i = 1; i < FXAA_QUALITY_PS; i++) {
 		if (!reached1) {
-			lumaEnd1 = FxaaLuma(texture(screenTexture, uv1).rgb);
+			lumaEnd1 = FxaaLuma(textureLod(screenTexture, uv1, 0.0).rgb);
 			lumaEnd1 -= lumaLocalAverage;
 		}
 		if (!reached2) {
-			lumaEnd2 = FxaaLuma(texture(screenTexture, uv2).rgb);
+			lumaEnd2 = FxaaLuma(textureLod(screenTexture, uv2, 0.0).rgb);
 			lumaEnd2 -= lumaLocalAverage;
 		}
 
@@ -561,7 +583,7 @@ vec3 applyFXAA(vec3 colorInput, vec2 texCoords)
 		finalUv.x += finalOffset * stepLength;
 	}
 
-	return texture(screenTexture, finalUv).rgb;
+	return textureLod(screenTexture, finalUv, 0.0).rgb;
 }
 
 // ============================================================================
