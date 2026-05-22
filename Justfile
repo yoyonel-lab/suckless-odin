@@ -76,6 +76,15 @@ run-profile:
 # Build and run in one step
 br: build run
 
+# Build and run release
+br-release: build-release run-release
+
+# Build and run ultra-release
+br-ultra: build-ultra run-ultra
+
+# Build and run profile (Tracy)
+br-profile: build-profile run-profile
+
 # --- Test ---
 
 # Run all tests (external + in-package + shader + GL)
