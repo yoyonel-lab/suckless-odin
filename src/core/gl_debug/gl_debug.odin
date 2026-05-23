@@ -61,7 +61,7 @@ zone_color_for_name :: proc(name_str: string) -> u32 {
 
 Source_Loc_Cache_Entry :: struct {
 	name:   string,
-	srcloc: u64,
+	loc:    tracy.Source_Location_Data,
 }
 
 @(private)
@@ -69,27 +69,34 @@ g_cache: [256]Source_Loc_Cache_Entry
 @(private)
 g_cache_count: int = 0
 
+// Returns a pointer to a stable Source_Location_Data in the cache.
+// Static source locations enable Tracy zone aggregation in statistics.
 @(private)
-get_or_create_srcloc :: proc(name: cstring) -> u64 {
+get_or_create_srcloc :: proc(name: cstring) -> ^tracy.Source_Location_Data {
 	name_str := string(name)
 	for i in 0 ..< g_cache_count {
 		if g_cache[i].name == name_str {
-			return g_cache[i].srcloc
+			return &g_cache[i].loc
 		}
 	}
 
 	if g_cache_count < len(g_cache) {
 		color := zone_color_for_name(name_str)
-		srcloc := tracy.alloc_srcloc(0, "gl_debug.odin", name, color)
-
 		g_cache[g_cache_count] = Source_Loc_Cache_Entry{
-			name   = name_str,
-			srcloc = srcloc,
+			name = name_str,
+			loc  = tracy.Source_Location_Data{
+				name     = name,
+				function = name,
+				file     = "gl_debug.odin",
+				line     = 0,
+				color    = color,
+			},
 		}
+		entry := &g_cache[g_cache_count]
 		g_cache_count += 1
-		return srcloc
+		return &entry.loc
 	}
-	return 0
+	return nil
 }
 
 // Push a named debug group (visible in RenderDoc and Tracy).
@@ -97,8 +104,8 @@ push_group :: proc(name: cstring) {
 	gl.PushDebugGroup(gl.DEBUG_SOURCE_APPLICATION, 0, -1, name)
 
 	when tracy.TRACY_ENABLE {
-		srcloc := get_or_create_srcloc(name)
-		cpu_zone := tracy.zone_begin_alloc(srcloc)
+		loc := get_or_create_srcloc(name)
+		cpu_zone := tracy.zone_begin(loc)
 		color := zone_color_for_name(string(name))
 		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
 
@@ -130,8 +137,8 @@ pop_group :: proc() {
 // Bypasses driver/MangoHud debug stack boundaries for cross-frame sync.
 push_gpu_zone_only :: proc(name: cstring) {
 	when tracy.TRACY_ENABLE {
-		srcloc := get_or_create_srcloc(name)
-		cpu_zone := tracy.zone_begin_alloc(srcloc)
+		loc := get_or_create_srcloc(name)
+		cpu_zone := tracy.zone_begin(loc)
 		color := zone_color_for_name(string(name))
 		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
 
