@@ -282,10 +282,17 @@ New architecture (`lum_single_pass.comp`): 1 dispatch of 256 threads does everyt
 
 Eliminates: 1 dispatch, 1 barrier, 1 intermediate texture (64×64 R32F), 1 shader program.
 
-## Not Yet Ported (see postfx-porting-gap-2026-05-19.md)
+## Ported Since Initial Writing
 
-- **Motion Blur** (Phase 4): tile-max/neighbor-max compute, velocity buffer
-- **Banding** (Phase 2): 5 artistic quantization modes
+> **Updated 2026-05-23:** The following effects listed as "Not Yet Ported" in the
+> original doc have since been implemented:
+
+- **Motion Blur** — tile-max/neighbor-max compute, velocity buffer, per-pixel directional blur
+- **Banding** — 5 artistic quantization modes (horizontal, vertical, radial, angular, noise)
+- **FXAA Pre-pass** — runs before motion blur to prevent MB detecting FXAA edges as features
+- **Luminance Stops** — Filament-style 16-stop zone visualization
+
+Still not ported:
 - **Fog** (Phase 3): exponential height-based atmospheric
 - **LUT3D** (Phase 5): .cube file loading, 3D texture
 
@@ -293,7 +300,7 @@ Eliminates: 1 dispatch, 1 barrier, 1 intermediate texture (64×64 R32F), 1 shade
 
 The skybox blur originally used cubemap mipmap LOD sampling. This produced face-boundary seams at high LODs because:
 1. `glGenerateMipmap` does per-face box filtering (edge texels get clamped, not cross-face)
-2. A manual "seamless" downsample (via `GL_TEXTURE_CUBE_MAP_SEAMLESS`) produced identical results because modern drivers already use seamless filtering for `glGenerateMipmap`
+2. A manual "seamless" downsample (via `GL_TEXTURE_CUBE_MAP_SEAMLESS`) did NOT fully resolve the issue because seamless filtering only applies at *sample* time, not during `glGenerateMipmap` generation — the mip chain itself still has seam artifacts baked in
 3. The bilinear cross-face kernel at sample time is too narrow at high LODs to hide accumulated artifacts
 
 **Solution:** Reuse the IBL prefiltered specular map (2D equirect, 2048×1024, 5 mip levels) as an alternative blur source. This map is generated via importance-sampled GGX convolution (compute shader `spmap.glsl`), producing physically-correct blur with no face seams.

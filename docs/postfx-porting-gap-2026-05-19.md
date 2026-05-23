@@ -12,7 +12,7 @@
 | Core effects (vignette→FXAA, bloom, auto-exposure, DoF) | ~90% | All functional |
 | Pipeline architecture (uber-shader, shader cache, GPU timers) | ~85% | Complete |
 | Presets (variety, richness) | 38% | 5/13 ported |
-| Advanced FX (motion blur, fog, banding, LUT) | 75% | Banding ✅, Fog ✅, LUT3D ✅, Motion Blur pending |
+| Advanced FX (motion blur, fog, banding, LUT) | 100% | All implemented |
 | Camera Profile System | 0% | Not started |
 
 ## Missing Subsystems
@@ -20,9 +20,7 @@
 ### 1. Motion Blur (tile-max + neighbor-max compute)
 
 - **Legacy**: Full pipeline — tile_max shader, neighbor_max shader, velocity buffer, stencil masking, configurable samples/intensity/max_velocity
-- **Odin**: Bit `Motion_Blur = 10` defined, disabled in GUI, no shader/texture/pipeline
-- **UBO fields needed**: `mb_intensity`, `mb_maxVelocity`, `mb_samples` (16B section)
-- **Textures needed**: velocity buffer (unit 4), neighbor-max (unit 5), stencil (unit 7)
+- **Odin**: **[DONE]** Full pipeline ported — tile-max/neighbor-max compute, velocity buffer, per-pixel directional blur, FXAA pre-pass interaction, synthetic velocity debug mode
 
 ### 2. Banding (Color Quantization — 5 artistic modes)
 

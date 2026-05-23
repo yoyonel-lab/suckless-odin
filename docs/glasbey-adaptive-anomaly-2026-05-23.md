@@ -172,15 +172,19 @@ greedy heuristic. It is NOT a theoretical upper bound. Evidence:
 
 ### Complexity Class
 
-**The maximin dispersion problem is NP-hard** (Gonzalez 1985). Given a metric
-space $(X, d)$ and integer $k$, selecting $S \subseteq X$ with $|S| = k$ to
-maximize $\min_{p,q \in S, p \neq q} d(p,q)$ is computationally intractable.
+**The maximin dispersion problem is NP-hard** (Erkut 1990, Ravi et al. 1994).
+Given a metric space $(X, d)$ and integer $k$, selecting $S \subseteq X$ with
+$|S| = k$ to maximize $\min_{p,q \in S, p \neq q} d(p,q)$ is computationally
+intractable.
 
-- **Proof**: Gonzalez, T.F. (1985), "Clustering to minimize the maximum
-  intercluster distance", *Theoretical Computer Science*, 38: 293–306.
-  DOI: 10.1016/0304-3975(85)90224-5
+- **NP-hardness proof**: Erkut, E. (1990), "The Discrete p-Dispersion Problem",
+  *European Journal of Operational Research*, 46(1): 48–60.
+  Reduction from maximum independent set.
+- **Related (k-center, dual problem)**: Gonzalez, T.F. (1985), "Clustering to
+  minimize the maximum intercluster distance", *Theoretical Computer Science*,
+  38: 293–306. DOI: 10.1016/0304-3975(85)90224-5
 - **Inapproximability**: No poly-time algorithm achieves factor < 2 unless P=NP
-  (Hochbaum & Shmoys 1985)
+  (Ravi, Rosenkrantz & Tayi, 1994)
 - **Best poly-time approximation**: Factor 2, via farthest-first traversal
   (which IS the Glasbey algorithm)
 

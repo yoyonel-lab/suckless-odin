@@ -64,10 +64,15 @@ Checkpoint 2: offset_of(prev_center) == 92
 
 **Fix to reach 100%**: add `offset_of(Sphere_Instance, roughness) == 80` — splits section B into two sub-sections of 1-2 fields each, eliminating all same-type swap ambiguity.
 
-### `Post_FX_UBO` (240B, std140, 13 asserts)
+### `Post_FX_UBO` (512B since 2026-05-20, was 240B at time of writing, std140)
+
+> **Note:** This analysis was written when the UBO was 240B with 13 asserts.
+> The UBO has since grown to 512B with additional sections (motion blur, banding,
+> luminance stops, A/B split). The methodology below remains valid; the coverage
+> numbers are for the original 240B subset only.
 
 ```
-Checkpoint 0:  size_of == 240
+Checkpoint 0:  size_of == 240  (now 512)
 Checkpoint 1:  offset_of(active_effects)     == 0
 Checkpoint 2:  offset_of(vignette_intensity)  == 16
 Checkpoint 3:  offset_of(grain_intensity)     == 32

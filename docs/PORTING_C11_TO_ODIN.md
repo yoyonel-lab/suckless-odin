@@ -8,11 +8,11 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 
 | Métrique | C11 (legacy) | Odin (port) |
 |----------|-------------|-------------|
-| Fichiers source | ~45 `.c` + ~35 `.h` | 17 `.odin` |
-| Shaders GLSL | 55+ | 9 |
-| Tests | 63 | 0 |
+| Fichiers source | ~45 `.c` + ~35 `.h` | 49 `.odin` |
+| Shaders GLSL | 55+ | 27 |
+| Tests | 63 | 160 (16 fichiers) |
 | Keybindings | ~67 | 9 (Escape, F, F1, WASD, Q/E, C, Space, Scroll, mouse) |
-| Effets post-process | 13 | 0 |
+| Effets post-process | 13 | 9 |
 
 ---
 
@@ -171,9 +171,9 @@ Document de référence pour le portage ISO de l'application legacy C11 vers Odi
 
 | Feature | C11 | Odin | Statut |
 |---------|-----|------|--------|
-| GPU profiler (ping-pong queries, adaptive sampling) | `gpu_profiler.c` | — | ❌ |
+| GPU profiler (ping-pong queries, adaptive sampling) | `gpu_profiler.c` | `rendering/postfx/gpu_timer.odin` | ✅ |
 | Effect benchmark (A/B auto measurement) | `effect_benchmark.c` | — | ❌ |
-| Tracy integration | `tracy_manager.c` | — | ❌ |
+| Tracy integration | `tracy_manager.c` | `core/tracy/tracy.odin` | ✅ |
 | `perf_timer.c` (CPU timing) | `perf_timer.c` | — | ❌ |
 
 ### 12. Screenshot / Capture
@@ -322,11 +322,11 @@ Requiert : Scene FBO (MRT), ping-pong buffers, fullscreen quad pass.
 
 | Catégorie | Total C11 | Porté Odin | % |
 |-----------|-----------|------------|---|
-| Sous-systèmes | 13 | 8 | 62% |
-| Keybindings | 67 | 6 | 9% |
-| Effets PostFX | 13 | 0 | 0% |
-| Shaders | 55+ | 9 | ~16% |
-| Tests | 63 | 0 | 0% |
+| Sous-systèmes | 13 | 11 | 85% |
+| Keybindings | 67 | 9 | 13% |
+| Effets PostFX | 13 | 9 | 69% |
+| Shaders | 55+ | 27 | ~49% |
+| Tests | 63 | 160 | 254% |
 
 ### Ce qui fonctionne aujourd'hui
 - 100 sphères PBR instanciées (SSBO, grille 10×10)

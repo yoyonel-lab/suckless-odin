@@ -51,7 +51,14 @@ float[N]     16           N × 16 (!)
 struct       16           roundup(contents, 16)
 ```
 
-## Current UBO: Post_FX_UBO (240 bytes)
+## Current UBO: Post_FX_UBO (512 bytes)
+
+> **Note (2026-05-23):** The UBO has grown from 240B to 512B since this document
+> was first written. The table below reflects the original 240B layout for
+> historical context. Current authoritative layout is in
+> `src/rendering/postfx/types.odin` (`#assert(size_of(Post_FX_UBO) == 512)`).
+> Additional sections added since: Motion Blur, Banding, Luminance Stops,
+> A/B Split, Performance flags.
 
 | Section        | Fields | Useful bytes | Pad bytes | Total |
 |----------------|--------|-------------|-----------|-------|
@@ -67,9 +74,10 @@ struct       16           roundup(contents, 16)
 | FXAA           | 3      | 12          | 4         | 16    |
 | DoF            | 4      | 16          | 0         | 16    |
 | Camera planes  | 2      | 8           | 8         | 16    |
-| **Total**      | 42     | **168**     | **72**    | **240** |
+| *(original)*   | 42     | **168**     | **72**    | **240** |
+| + later sections | —   | —           | —         | **+272 → 512** |
 
-Padding overhead: 30% — acceptable for a single UBO uploaded once per frame.
+Padding overhead: ~33% — acceptable for a single UBO uploaded once per frame.
 
 ## Future Optimization
 

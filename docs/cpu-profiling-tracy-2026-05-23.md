@@ -127,7 +127,7 @@ Le 18% CPU résiduel avec vsync ON est **le coût réel incompressible** de :
 - ImGui overlay (vertex building + draw)
 - Driver GL overhead (state validation, command buffer building)
 
-C'est normal pour OpenGL. Seul Vulkan/Metal pourrait réduire la partie driver.
+C'est normal pour OpenGL. Des APIs à plus bas overhead (Vulkan, Metal, D3D12) pourraient réduire la partie driver-side validation/state-tracking, mais le travail applicatif resterait.
 
 ## Commandes
 

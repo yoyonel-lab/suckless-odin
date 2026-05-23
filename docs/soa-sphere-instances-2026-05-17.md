@@ -8,14 +8,14 @@
 
 ## Problème
 
-Chaque `Sphere_Instance` fait 64 bytes (Mat4 + Vec3 + 3×f32 + padding + Vec3). En layout AoS (Array of Structs), itérer un seul champ (ex: positions pour le culling) charge 64 bytes par sphère dans le cache L1, dont seuls 12 sont utiles.
+Chaque `Sphere_Instance` fait 128 bytes (#align(64), Mat4 + Vec3 + 3×f32 + padding + Vec3 + padding to 128B). En layout AoS (Array of Structs), itérer un seul champ (ex: positions pour le culling) charge 128 bytes par sphère dans le cache (2 cache lines), dont seuls 12 sont utiles.
 
 ```
-AoS : [model₀|albedo₀|metal₀|rough₀|ao₀|pad₀|prev₀] [model₁|albedo₁|...] ...
-       └──────────── 64 bytes, 1 cache line ──────────┘
+AoS : [model₀|albedo₀|metal₀|rough₀|ao₀|pad₀|prev₀|pad] [model₁|albedo₁|...] ...
+       └──────────────── 128 bytes, 2 cache lines ────────────────┘
 ```
 
-Pour 100 sphères, itérer les positions = 6400 bytes chargés, 1200 utiles → **19% d'efficacité cache**.
+Pour 100 sphères, itérer les positions = 12800 bytes chargés, 1200 utiles → **9% d'efficacité cache**.
 
 ---
 
@@ -84,7 +84,7 @@ instanced_upload :: proc(inst: ^Instanced_Spheres) {
 }
 ```
 
-Ce coût (100 × 64 bytes = 6.4 KB memcpy) est négligeable vs le gain sur les itérations CPU répétées.
+Ce coût (100 × 128 bytes = 12.5 KB memcpy) est négligeable vs le gain sur les itérations CPU répétées.
 
 ---
 
