@@ -16,6 +16,7 @@ The `session.json` save/restore system existed but was incomplete — several Sc
 | `skybox_blur_lod` | `f32` | Skybox blur level (slider in Scene tab) |
 | `sort_mode` | `i32` | Billboard sort algorithm (None/CPU/Radix) |
 | `gui_active_tab` | `i32` | Active tab index in Engine Controls window |
+| `perf_mode_active` | `bool` | Performance mode enabled state (added 2026-05-23) |
 
 ## ImGui Tab Restore — Lessons Learned
 
