@@ -1,8 +1,8 @@
 # Post-Processing Pipeline Architecture
 
-**Date:** 2026-05-18 (updated 2026-05-22)  
-**Status:** Complete (Phase 1–6, debug views, FXAA pre-pass)  
-**Scope:** Full-screen post-processing with modular effects, bloom, DoF, auto-exposure, GPU profiling, shader variant cache, and A/B split debug
+**Date:** 2026-05-18 (updated 2026-05-23)  
+**Status:** Complete (Phase 1–6, debug views, FXAA pre-pass, luminance stops)  
+**Scope:** Full-screen post-processing with modular effects, bloom, DoF, auto-exposure, GPU profiling, shader variant cache, A/B split debug, and luminance stops visualization
 
 ## Overview
 
@@ -49,6 +49,8 @@ Effects are applied in this order inside `postfx.frag`:
 7. **Color Grading** — Saturation, contrast, gamma, gain, offset, lift + white balance
 8. **Vignette** — Circular/elliptical darkening
 9. **Film Grain** — Hash-based temporal grain with per-zone intensity
+10. **Fog** — Exponential height-based atmospheric fog
+11. **Luminance Stops** — Filament-style color-coded exposure zone visualization (16-stop palette, cyan = 18% middle gray)
 
 ## Architecture Decisions
 
@@ -129,8 +131,9 @@ Single UBO at binding 0, `#packed` struct in Odin maps directly to GLSL `layout(
 | Fog | 112B | density, start, height_falloff, max_opacity, color, cam_pos, inv_view_proj |
 | LUT3D | 16B | intensity + pad |
 | Debug Split | 16B | debugSplitMask (u32) + pad |
+| Split Positions | 80B | splitPositions[5] (vec4[5] = 20 floats, 4 effects per vec4) |
 
-Total: 432 bytes, updated per-frame via `glBufferSubData`.
+Total: 512 bytes, updated per-frame via `glBufferSubData`.
 
 ## API Usage
 
@@ -199,12 +202,56 @@ Applied via CLI (`--postfx-preset=cinematic`) or GUI dropdown.
 
 Debug toggles live inside each effect's Settings tree in the Post-FX GUI tab.
 
+### Luminance Stops Debug (2026-05-23)
+
+Filament-style luminance visualization applied as the final step of the post-processing chain (after grain, before split lines). Maps HDR pixel luminance to a 16-color palette:
+
+| Stop Range | Color | Meaning |
+|-----------|-------|---------|
+| -5 EV | Black | Deep shadow |
+| -4 to -1 EV | Blues | Underexposed |
+| 0 EV | Cyan | Middle gray (18%) |
+| +1 to +3 EV | Greens/Yellows | Well-exposed highlights |
+| +4 to +6 EV | Oranges/Reds | Hot highlights |
+| +7 to +10 EV | Magenta/Purple/White | Clipping/overexposed |
+
+Toggled via standalone checkbox at the bottom of the Post-FX section. Uses `log2(luma / 0.18)` to map luminance to stops relative to middle gray.
+
 ### A/B Split-Screen
 
-Every implemented effect has an "A/B Split" checkbox:
-- Left half: effect applied
-- Right half: effect bypassed
-- Yellow vertical separator line at center
+Every implemented effect has an "A/B Split" checkbox with per-effect split position slider:
+- Left of split: effect applied
+- Right of split: effect bypassed
+- **Colored vertical separator line** — unique color per effect (matches `[S]` indicator)
+
+#### Per-Effect Split Colors
+
+| Effect | Split Line Color |
+|--------|------------------|
+| Vignette | Red |
+| Grain | Gold |
+| Exposure | Yellow |
+| Chromatic Aberration | Orange |
+| Bloom | Sky blue |
+| Color Grading | Purple |
+| DoF | Teal |
+| Auto-Exposure | Amber |
+| Motion Blur | Blue |
+| FXAA | Green |
+| Tonemap | Magenta |
+| Banding | Silver |
+| Fog | Pale blue |
+| LUT3D | Pink |
+
+#### GUI `[S]` Indicator
+
+When an effect has an active A/B split, a colored **`[S]`** marker appears next to its checkbox in the Post-FX section — visible even when the Settings tree is collapsed. The color matches the split line for instant identification.
+
+#### Session Persistence
+
+Split state (`debug_split` bitfield + per-effect `split_positions[24]`) is persisted across:
+- **Session save/restore** (`session.json` via `extract_session_state`/`restore_session_state`)
+- **Settings export/import** (`Settings_File` JSON)
 
 Split state is cached when an effect is disabled and restored on re-enable.
 Applying a preset clears all split/debug state.

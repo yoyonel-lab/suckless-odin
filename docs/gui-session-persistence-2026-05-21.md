@@ -17,6 +17,8 @@ The `session.json` save/restore system existed but was incomplete — several Sc
 | `sort_mode` | `i32` | Billboard sort algorithm (None/CPU/Radix) |
 | `gui_active_tab` | `i32` | Active tab index in Engine Controls window |
 | `perf_mode_active` | `bool` | Performance mode enabled state (added 2026-05-23) |
+| `debug_split` | `u32` | A/B split bitfield — which effects have split active (added 2026-05-23) |
+| `split_positions` | `[24]f32` | Per-effect split slider positions (added 2026-05-23) |
 
 ## ImGui Tab Restore — Lessons Learned
 
