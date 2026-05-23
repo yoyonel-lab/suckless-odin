@@ -507,6 +507,8 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		fog           = p.fog,
 		motion_blur   = p.motion_blur,
 		lut3d         = p.lut3d,
+		debug_split     = transmute(u32)p.debug_split,
+		split_positions = postfx.split_positions_to_array(p),
 	}
 
 	// Update window saved position if not fullscreen
@@ -578,6 +580,8 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 	
 	pfx := state.postfx_settings
 	p.active_effects = transmute(postfx.Effect_Flags)pfx.effects
+	p.debug_split    = transmute(postfx.Effect_Flags)pfx.debug_split
+	postfx.split_positions_from_array(p, pfx.split_positions)
 	p.vignette       = pfx.vignette
 	p.grain          = pfx.grain
 	p.exposure       = pfx.exposure

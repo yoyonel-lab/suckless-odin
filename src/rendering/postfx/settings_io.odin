@@ -26,6 +26,8 @@ Settings_File :: struct {
 	motion_blur:   Motion_Blur_Params      `json:"motion_blur"`,
 	lut3d:         LUT3D_Params            `json:"lut3d"`,
 	lut3d_path:    string                  `json:"lut3d_path"`,
+	debug_split:     u32                   `json:"debug_split"`,
+	split_positions:  [24]f32               `json:"split_positions"`,
 }
 
 // Default directory for user PostFX presets.
@@ -51,6 +53,8 @@ settings_export :: proc(p: ^Pipeline, path: string, name: string) -> bool {
 		motion_blur   = p.motion_blur,
 		lut3d         = p.lut3d,
 		lut3d_path    = p.lut3d_fx.path,
+		debug_split     = transmute(u32)p.debug_split,
+		split_positions  = split_positions_to_array(p),
 	}
 
 	// Ensure output directory exists
@@ -94,9 +98,10 @@ settings_import :: proc(p: ^Pipeline, path: string) -> bool {
 
 	// Apply to pipeline
 	p.active_effects = transmute(Effect_Flags)settings.effects
-	p.debug_split    = {}
+	p.debug_split    = transmute(Effect_Flags)settings.debug_split
 	p.cached_debug   = {}
 	p.cached_split   = {}
+	split_positions_from_array(p, settings.split_positions)
 	p.vignette       = settings.vignette
 	p.grain          = settings.grain
 	p.exposure       = settings.exposure
@@ -155,4 +160,20 @@ settings_build_path :: proc(dir, filename: string) -> string {
 		return strings.concatenate({dir, "/", filename}, context.temp_allocator)
 	}
 	return strings.concatenate({dir, "/", filename, ".json"}, context.temp_allocator)
+}
+
+// Convert enum-indexed split positions to flat [24]f32 for JSON serialization.
+split_positions_to_array :: proc(p: ^Pipeline) -> [24]f32 {
+	result: [24]f32
+	for effect in Post_Effect {
+		result[u32(effect)] = p.split_positions[effect]
+	}
+	return result
+}
+
+// Restore enum-indexed split positions from flat [24]f32.
+split_positions_from_array :: proc(p: ^Pipeline, arr: [24]f32) {
+	for effect in Post_Effect {
+		p.split_positions[effect] = arr[u32(effect)]
+	}
 }
