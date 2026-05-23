@@ -27,6 +27,38 @@ g_zone_stack: [MAX_STACK_DEPTH]Active_Zone
 @(private)
 g_stack_depth: int = 0
 
+// Nord Theme color mappings for Tracy zone visualization.
+Zone_Color :: struct {
+	prefix: string,
+	color:  u32,
+}
+
+ZONE_COLORS :: [?]Zone_Color{
+	{"Scene_Render", 0xD08770},
+	{"Instanced_PBR_Spheres", 0xD08770},
+	{"Swap_Buffers", 0xD08770},
+	{"Skybox_Pass", 0x88C0D0},
+	{"PostFX_Bloom", 0x5E81AC},
+	{"PostFX_DepthOfField", 0xA3BE8C},
+	{"PostFX_AutoExposure", 0xEBCB8B},
+	{"PostFX_FXAA_Prepass", 0xBF616A},
+	{"PostFX_MotionBlur_Compute", 0xBF616A},
+	{"Text_Overlay", 0x4C566A},
+	{"GUI_ImGui", 0x4C566A},
+}
+
+DEFAULT_ZONE_COLOR :: u32(0x81A1C1) // Composite blue
+
+@(private)
+zone_color_for_name :: proc(name_str: string) -> u32 {
+	for entry in ZONE_COLORS {
+		if entry.prefix == name_str {
+			return entry.color
+		}
+	}
+	return DEFAULT_ZONE_COLOR
+}
+
 Source_Loc_Cache_Entry :: struct {
 	name:   string,
 	srcloc: u64,
@@ -40,35 +72,18 @@ g_cache_count: int = 0
 @(private)
 get_or_create_srcloc :: proc(name: cstring) -> u64 {
 	name_str := string(name)
-	for i in 0..<g_cache_count {
+	for i in 0 ..< g_cache_count {
 		if g_cache[i].name == name_str {
 			return g_cache[i].srcloc
 		}
 	}
-	
-	if g_cache_count < len(g_cache) {
-		// Define matching hex colors (Nord Theme color mappings)
-		color: u32 = 0x81A1C1 // Default composite blue
-		if name_str == "Scene_Render" || name_str == "Instanced_PBR_Spheres" {
-			color = 0xD08770 // Orange
-		} else if name_str == "Skybox_Pass" {
-			color = 0x88C0D0 // Cyan
-		} else if name_str == "PostFX_Bloom" {
-			color = 0x5E81AC // Bloom blue
-		} else if name_str == "PostFX_DepthOfField" {
-			color = 0xA3BE8C // Green
-		} else if name_str == "PostFX_AutoExposure" {
-			color = 0xEBCB8B // Yellow
-		} else if name_str == "PostFX_FXAA_Prepass" {
-			color = 0xBF616A // Red
-		} else if name_str == "Text_Overlay" {
-			color = 0x4C566A // Grey
-		}
 
+	if g_cache_count < len(g_cache) {
+		color := zone_color_for_name(name_str)
 		srcloc := tracy.alloc_srcloc(0, "gl_debug.odin", name, color)
-		
+
 		g_cache[g_cache_count] = Source_Loc_Cache_Entry{
-			name = name_str,
+			name   = name_str,
 			srcloc = srcloc,
 		}
 		g_cache_count += 1
@@ -82,29 +97,11 @@ push_group :: proc(name: cstring) {
 	gl.PushDebugGroup(gl.DEBUG_SOURCE_APPLICATION, 0, -1, name)
 
 	when tracy.TRACY_ENABLE {
-		name_str := string(name)
 		srcloc := get_or_create_srcloc(name)
 		cpu_zone := tracy.zone_begin_alloc(srcloc)
-		
-		color: u32 = 0x81A1C1
-		if name_str == "Scene_Render" || name_str == "Instanced_PBR_Spheres" {
-			color = 0xD08770
-		} else if name_str == "Skybox_Pass" {
-			color = 0x88C0D0
-		} else if name_str == "PostFX_Bloom" {
-			color = 0x5E81AC
-		} else if name_str == "PostFX_DepthOfField" {
-			color = 0xA3BE8C
-		} else if name_str == "PostFX_AutoExposure" {
-			color = 0xEBCB8B
-		} else if name_str == "PostFX_FXAA_Prepass" {
-			color = 0xBF616A
-		} else if name_str == "Text_Overlay" {
-			color = 0x4C566A
-		}
-		
+		color := zone_color_for_name(string(name))
 		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
-		
+
 		if g_stack_depth < MAX_STACK_DEPTH {
 			g_zone_stack[g_stack_depth] = Active_Zone{
 				cpu = cpu_zone,
@@ -133,31 +130,11 @@ pop_group :: proc() {
 // Bypasses driver/MangoHud debug stack boundaries for cross-frame sync.
 push_gpu_zone_only :: proc(name: cstring) {
 	when tracy.TRACY_ENABLE {
-		name_str := string(name)
 		srcloc := get_or_create_srcloc(name)
 		cpu_zone := tracy.zone_begin_alloc(srcloc)
-		
-		color: u32 = 0x81A1C1
-		if name_str == "Scene_Render" || name_str == "Instanced_PBR_Spheres" {
-			color = 0xD08770
-		} else if name_str == "Skybox_Pass" {
-			color = 0x88C0D0
-		} else if name_str == "PostFX_Bloom" {
-			color = 0x5E81AC
-		} else if name_str == "PostFX_DepthOfField" {
-			color = 0xA3BE8C
-		} else if name_str == "PostFX_AutoExposure" {
-			color = 0xEBCB8B
-		} else if name_str == "PostFX_FXAA_Prepass" {
-			color = 0xBF616A
-		} else if name_str == "Text_Overlay" {
-			color = 0x4C566A
-		} else if name_str == "Swap_Buffers" {
-			color = 0xD08770
-		}
-		
+		color := zone_color_for_name(string(name))
 		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
-		
+
 		if g_stack_depth < MAX_STACK_DEPTH {
 			g_zone_stack[g_stack_depth] = Active_Zone{
 				cpu = cpu_zone,

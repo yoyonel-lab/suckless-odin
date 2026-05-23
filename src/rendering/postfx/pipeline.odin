@@ -228,7 +228,9 @@ pipeline_end :: proc(p: ^Pipeline) {
 	if .Motion_Blur in p.active_effects ||
 	   .Motion_Blur_Debug in p.active_effects ||
 	   .Vector_Field_Debug in p.active_effects {
+		dbg.push_group("PostFX_MotionBlur_Compute")
 		motion_blur_render(&p.motion_blur_fx, p.velocity_tex)
+		dbg.pop_group()
 	}
 	gpu_timer_end(&p.timers, .Motion_Blur)
 
@@ -258,6 +260,8 @@ pipeline_end :: proc(p: ^Pipeline) {
 	composite_source_tex := fxaa_prepass_ran ? p.fxaa_tex : p.scene_color_tex
 
 	// Restore the framebuffer that was active before begin
+	dbg.push_group("PostFX_Composite_Setup")
+
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
 	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
 	gl.Clear(gl.COLOR_BUFFER_BIT)
@@ -281,6 +285,8 @@ pipeline_end :: proc(p: ^Pipeline) {
 	if fxaa_prepass_ran {
 		p.active_effects += {.FXAA}
 	}
+
+	dbg.pop_group()
 
 	// Composite pass (uber-shader)
 	gpu_timer_begin(&p.timers, .Composite)

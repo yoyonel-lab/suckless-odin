@@ -154,6 +154,8 @@ void tracy_gpu_shutdown(void)
 		return;
 	}
 
+	s_loc_cache.clear();
+
 #ifdef TRACY_ENABLE
 	tracy::GetGpuCtx().ptr = nullptr;
 #endif

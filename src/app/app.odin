@@ -258,7 +258,9 @@ run :: proc(application: ^App) {
 		dbg.pop_group()
 
 		// Frame image capture for Tracy (async PBO readback)
+		dbg.push_gpu_zone_only("Frame_Image_Capture")
 		tracy.frame_image_update(&application.frame_image, w, h)
+		dbg.pop_gpu_zone_only()
 
 		tracy.zone_end(frame_zone)
 
