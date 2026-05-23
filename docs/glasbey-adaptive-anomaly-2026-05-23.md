@@ -257,3 +257,53 @@ odin run benchmarks/glasbey/ -- 2>&1 | tee /tmp/bench_glasbey_results.txt
 
 Algorithm is deterministic (no randomness) — same binary will always produce
 identical results on any platform with IEEE 754 float32 arithmetic.
+
+## Conclusion: State of Knowledge
+
+### Tight Encadrement of the Optimal
+
+For N=16 maximally distinct colors in full sRGB gamut under CIE76 (CIELAB ΔE):
+
+$$47.48 \leq \text{OPT} \leq \sim51$$
+
+| Bound | Value | Source |
+| --- | --- | --- |
+| Lower bound (empirical) | 47.48 ΔE | Our step=32 adaptive result |
+| Upper bound (packing density) | ~51 ΔE | Sphere packing volume argument |
+| Gap | ~7% | Unknown if closeable without exhaustive search |
+
+The lower bound could be tightened by running simulated annealing or genetic
+algorithms. The upper bound could be tightened by better characterizing the sRGB
+gamut boundary in CIELAB (it's not a convex body, so packing efficiency is lower
+than FCC density).
+
+### What Would Be Needed to Prove a Tight Bound
+
+1. **Exact gamut volume**: compute the precise volume of the sRGB solid in CIELAB
+   (currently estimated ~820K cubic ΔE)
+2. **Boundary-aware packing**: the gamut surface is highly non-convex (especially
+   in the blue/purple region); boundary effects dominate for N=16
+3. **Exhaustive verification**: for N=16 in a ~4K candidate set (step=4), one
+   could enumerate all $\binom{4096}{16} \approx 10^{44}$ subsets — intractable
+4. **Branch-and-bound with pruning**: potentially feasible with aggressive
+   distance-based pruning, but no published result exists
+
+### The Glasbey-as-Farthest-First Insight
+
+A key theoretical result: the Glasbey sequential algorithm is **exactly**
+farthest-first traversal (Gonzalez 1985), which is the optimal 2-approximation
+for maximin dispersion. This means:
+
+- It's the BEST you can do in polynomial time (unless P = NP)
+- Any polynomial improvement beyond factor 2 would resolve a major open problem
+- Our adaptive variant achieves better-than-greedy by implicitly doing
+  multi-start hill climbing within polynomial time
+
+### Open Questions
+
+1. Can simulated annealing on our CIELAB gamut achieve > 48 ΔE for N=16?
+2. What is the exact global optimum? (Would require days/weeks of computation)
+3. How does our CIE76 result translate to perceptual distinguishability vs.
+   CAM02-UCS? (Apples-to-oranges comparison due to metric non-uniformity)
+4. For our practical use case (up to 24 post-fx split indicators), what is the
+   min ΔE achievable for N=24? (Expected: significantly lower than N=16)
