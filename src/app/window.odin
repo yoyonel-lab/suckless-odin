@@ -11,7 +11,7 @@ GL_MINOR :: 4
 
 // Creates a GLFW window with an OpenGL 4.4 core profile context.
 // ISO port of window_create() from suckless-ogl/src/window.c.
-window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1) -> glfw.WindowHandle {
+window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1, vsync: bool = false) -> glfw.WindowHandle {
 	if !glfw.Init() {
 		log.log_error("suckless-odin.window", "Failed to initialize GLFW")
 		return nil
@@ -42,8 +42,8 @@ window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1) -> g
 
 	glfw.MakeContextCurrent(window)
 
-	// No VSync (match suckless-ogl C behavior)
-	glfw.SwapInterval(0)
+	// VSync: 1 = on (driver sleeps in SwapBuffers), 0 = off (uncapped FPS)
+	glfw.SwapInterval(1 if vsync else 0)
 
 	// Load OpenGL function pointers (bridge GLFW getter → vendor setter)
 	gl.load_up_to(GL_MAJOR, GL_MINOR, gl_set_proc_address)

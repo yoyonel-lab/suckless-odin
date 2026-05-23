@@ -107,7 +107,7 @@ create :: proc(width, height: i32, title: cstring) -> ^App {
 }
 
 // Initializes the application: window, OpenGL context, callbacks.
-init :: proc(application: ^App) -> bool {
+init :: proc(application: ^App, vsync: bool = false) -> bool {
 	if application == nil { return false }
 
 	log.set_callback(tracy_log_callback)
@@ -130,6 +130,7 @@ init :: proc(application: ^App) -> bool {
 		application.width,
 		application.height,
 		application.title,
+		vsync = vsync,
 	)
 	if application.window == nil {
 		return false

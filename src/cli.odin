@@ -14,10 +14,11 @@ Cli_Action :: enum {
 
 // CLI options passed to the application.
 Cli_Options :: struct {
-	postfx_preset:   Maybe(postfx.Preset_Id),
-	postfx_enabled:  bool,
-	benchmark:       bool,
+	postfx_preset:    Maybe(postfx.Preset_Id),
+	postfx_enabled:   bool,
+	benchmark:        bool,
 	benchmark_frames: i32,
+	vsync:            bool,
 }
 
 BENCHMARK_DEFAULT_FRAMES :: 300
@@ -28,6 +29,7 @@ DEFAULT_CLI_OPTIONS :: Cli_Options{
 	postfx_enabled   = true,
 	benchmark        = false,
 	benchmark_frames = BENCHMARK_DEFAULT_FRAMES,
+	vsync            = false,
 }
 
 cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
@@ -48,6 +50,8 @@ cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
 			return opts, .Exit_Success
 		case arg == "--no-postfx":
 			opts.postfx_enabled = false
+		case arg == "--vsync":
+			opts.vsync = true
 		case arg == "--benchmark":
 			opts.benchmark = true
 		case strings.has_prefix(arg, "--benchmark-frames="):
@@ -97,6 +101,7 @@ print_usage :: proc(program_name: string) {
 	fmt.println("  -v, --version               Show version information")
 	fmt.println("  --no-postfx                 Disable post-processing")
 	fmt.println("  --postfx-preset=<name>      Apply a preset (default, subtle, cinematic, vibrant, clean)")
+	fmt.println("  --vsync                     Enable vertical sync (default: off)")
 	fmt.println("  --benchmark                 Run benchmark (all effects, print stats, exit)")
 	fmt.println("  --benchmark-frames=<N>      Benchmark frame count (default: 300)")
 }
