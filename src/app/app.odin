@@ -9,6 +9,7 @@ import tracy "../core/tracy"
 
 import log "../core/log"
 import settings "../core/settings"
+import perf_mode "../core/perf_mode"
 import cam "../camera"
 import scene "../scene"
 import gui "../gui"
@@ -90,6 +91,9 @@ App :: struct {
 
 	// Tracy frame capture (PBO ring-buffer for async screenshots)
 	frame_image:     tracy.Frame_Image,
+
+	// Performance mode (GameMode / SCHED_FIFO / Nice)
+	perf:            perf_mode.Perf_Mode,
 }
 
 // Creates the application (allocates + creates window).
@@ -115,6 +119,11 @@ init :: proc(application: ^App) -> bool {
 	if has_session && session_state.window_size[0] > 0 && session_state.window_size[1] > 0 {
 		application.width = session_state.window_size[0]
 		application.height = session_state.window_size[1]
+	}
+
+	// Set Mesa env vars BEFORE GL context if perf mode was active last session
+	if has_session && session_state.perf_mode_active {
+		perf_mode.setup_mesa_early()
 	}
 
 	application.window = window_create(
@@ -169,6 +178,13 @@ init :: proc(application: ^App) -> bool {
 
 	if has_session {
 		restore_session_state(application, session_state)
+	}
+
+	// Initialize performance mode subsystem (probes backends)
+	// Must be after restore so session state is available, but probe before activate.
+	perf_mode.init(&application.perf)
+	if has_session && session_state.perf_mode_active {
+		perf_mode.activate(&application.perf)
 	}
 
 	application.last_frame_time = glfw.GetTime()
@@ -243,6 +259,7 @@ run :: proc(application: ^App) {
 				env_texture_width   = application.scene.env_texture.width,
 				env_texture_height  = application.scene.env_texture.height,
 				postfx              = &application.scene.postfx_pipeline,
+				perf                = &application.perf,
 				frame_time_ms       = application.scene.overlay.frame_time_display,
 			})
 			gui.render(&application.imgui)
@@ -280,9 +297,12 @@ run :: proc(application: ^App) {
 destroy :: proc(application: ^App) {
 	if application == nil { return }
 
-	// Save session state
+	// Save session state BEFORE cleanup (perf_mode.cleanup sets active=false)
 	state := extract_session_state(application)
 	session.save_session(&state)
+
+	// Deactivate performance mode
+	perf_mode.cleanup(&application.perf)
 
 	gui.destroy(&application.imgui)
 	scene.scene_destroy(&application.scene)
@@ -522,6 +542,7 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		is_fullscreen     = application.is_fullscreen,
 		overlay_mode      = i32(s.overlay.mode),
 		camera_enabled    = application.camera_enabled,
+		perf_mode_active  = application.perf.active,
 	}
 }
 

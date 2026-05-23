@@ -9,6 +9,7 @@ import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
 import "../core/search"
+import perf_mode "../core/perf_mode"
 import postfx "../rendering/postfx"
 import rendering "../rendering"
 
@@ -32,6 +33,9 @@ Scene_State :: struct {
 
 	// Post-processing pipeline (live controls)
 	postfx: ^postfx.Pipeline,
+
+	// Performance mode (optional — nil if not available)
+	perf: ^perf_mode.Perf_Mode,
 
 	// Smoothed frame time from overlay (single source of truth)
 	frame_time_ms: f32,
@@ -1037,8 +1041,8 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.Checkbox("GPU Metrics Log", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Perf Mode", "profiling fps benchmark") {
-			imgui.Checkbox("Perf Mode", &placeholder)
+		if fuzzy_match(filter, "Perf Mode", "performance gamemode sched nice cpu gpu boost priority") {
+			draw_perf_mode_widget(state)
 			match_count += 1
 		}
 		if fuzzy_match(filter, "Light Probes Debug", "gi global illumination") {
@@ -1171,7 +1175,7 @@ SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment backg
 RENDERING_KEYWORDS :: "rendering postfx post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus exposure tonemap tonemapping saturation contrast gamma"
 
 @(private)
-DEBUG_KEYWORDS :: "debug debug views bloom dof exposure histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization"
+DEBUG_KEYWORDS :: "debug debug views bloom dof exposure histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization performance gamemode sched nice cpu boost priority"
 
 @(private)
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"

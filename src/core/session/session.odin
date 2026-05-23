@@ -39,6 +39,7 @@ Session_State :: struct {
 	is_fullscreen: bool `json:"is_fullscreen"`,
 	overlay_mode: i32 `json:"overlay_mode"`,
 	camera_enabled: bool `json:"camera_enabled"`,
+	perf_mode_active: bool `json:"perf_mode_active"`,
 }
 
 SESSION_FILE_PATH :: "session.json"

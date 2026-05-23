@@ -3,6 +3,7 @@ package gui
 import "core:fmt"
 import "core:math"
 import imgui "../../deps/odin-imgui"
+import perf_mode "../core/perf_mode"
 import postfx "../rendering/postfx"
 
 // ─── Post-FX Section (live controls) ───────────────────────────────────────────
@@ -581,6 +582,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 // GPU Timings tab — separate from Post-FX controls.
 @(private)
 draw_gpu_timings_section :: proc(state: Scene_State) {
+	// Performance mode toggle (at the top of Profiling tab)
+	draw_perf_mode_widget(state)
+	imgui.Spacing()
+
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "GPU Profiling")
 	imgui.Separator()
 
@@ -1250,4 +1255,47 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 	imgui.Text("Motion_Blur_Debug (bit 11): %s", mb_dbg ? "ON" : "OFF")
 	imgui.Text("Vector_Field_Debug (bit 22): %s", vf_dbg ? "ON" : "OFF")
 	imgui.Text("Synthetic Inject: %s", p.motion_blur.inject_enabled ? "ACTIVE" : "off")
+}
+
+// ─── Performance Mode Widget ───────────────────────────────────────────────────
+
+draw_perf_mode_widget :: proc(state: Scene_State) {
+	pm := state.perf
+	if pm == nil {
+		imgui.TextColored(imgui.Vec4{0.5, 0.5, 0.5, 1.0}, "Performance Mode: N/A")
+		return
+	}
+
+	imgui.TextColored(imgui.Vec4{1.0, 0.8, 0.3, 1.0}, "Performance Mode")
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip(
+			"Maximizes system resources for this application.\n\n" +
+			"Backends (tried in order):\n" +
+			"  1. GameMode — CPU governor 'performance', GPU boost\n" +
+			"  2. SCHED_FIFO — Real-time scheduling (needs root)\n" +
+			"  3. Nice -10 — Higher process priority\n\n" +
+			"Also enables:\n" +
+			"  • mlockall — Locks memory, prevents stutter\n" +
+			"  • MESA_NO_ERROR — Skips GL validation (restart needed)\n" +
+			"  • mesa_glthread — Multi-threaded GL dispatch (restart needed)",
+		)
+	}
+	imgui.Separator()
+
+	active := pm.active
+	if imgui.Checkbox("Enable##perf_mode", &active) {
+		perf_mode.toggle(pm)
+	}
+	imgui.SameLine()
+	label := perf_mode.backend_label(pm)
+	if pm.active {
+		imgui.TextColored(imgui.Vec4{0.3, 1.0, 0.3, 1.0}, "[%s]", fmt.ctprintf("%s", label))
+	} else {
+		imgui.TextDisabled("[%s]", fmt.ctprintf("%s", label))
+	}
+	if pm.mesa_needs_restart {
+		imgui.TextColored(imgui.Vec4{1.0, 0.6, 0.2, 1.0}, "Mesa optimizations apply on next restart")
+	}
 }
