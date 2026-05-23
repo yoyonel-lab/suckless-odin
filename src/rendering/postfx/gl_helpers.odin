@@ -92,3 +92,13 @@ set_sampler_uniforms :: proc(program: u32) {
 	set_uniform_i32(program, "tileMaxTexture",      TEX_UNIT_TILE_MAX)
 	set_uniform_i32(program, "lut3dTexture",        TEX_UNIT_LUT3D)
 }
+
+// Upload Glasbey split-line colors (first 24 entries) as a uniform vec3 array.
+// Called once per program variant at creation time (static data).
+set_split_colors_uniform :: proc(program: u32) {
+	loc := gl.GetUniformLocation(program, "splitColors")
+	if loc >= 0 {
+		colors := GLASBEY_256
+		gl.Uniform3fv(loc, 24, ([^]f32)(raw_data(&colors)))
+	}
+}

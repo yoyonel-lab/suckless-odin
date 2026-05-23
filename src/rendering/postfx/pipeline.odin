@@ -124,6 +124,7 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 	// Set sampler uniforms (fixed texture unit bindings)
 	gl.UseProgram(p.composite_program)
 	set_sampler_uniforms(p.composite_program)
+	set_split_colors_uniform(p.composite_program)
 	gl.UseProgram(0)
 
 	// Validate UBO layout matches GPU expectations (std140 cross-check)

@@ -62,6 +62,7 @@ shader_cache_compile :: proc(cache: ^Shader_Cache, effects: Effect_Flags) -> u32
 	// Set ALL sampler uniforms (fixes missing depth/exposure/dof bindings)
 	gl.UseProgram(program)
 	set_sampler_uniforms(program)
+	set_split_colors_uniform(program)
 	gl.UseProgram(0)
 
 	// Store in cache

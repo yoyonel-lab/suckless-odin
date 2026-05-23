@@ -25,6 +25,9 @@ layout(binding = 7) uniform sampler2D tileMaxTexture;
 // 3D LUT texture (unit 8, RGB16F cube)
 layout(binding = 8) uniform sampler3D lut3dTexture;
 
+// Glasbey palette for debug split-line colors (set once at init from CPU).
+uniform vec3 splitColors[24];
+
 // --- UBO: Post-Processing Parameters (std140, binding 0) ---
 layout(std140, binding = 0) uniform PostProcessBlock
 {
@@ -33,8 +36,7 @@ layout(std140, binding = 0) uniform PostProcessBlock
 	vec2 screenTexelSize;
 
 	// Vignette (16 bytes)
-	float v_intensity;
-	float v_smoothness;
+	float v_intensity;	float v_smoothness;
 	float v_roundness;
 	float _pad1;
 
@@ -1058,34 +1060,8 @@ void main()
 	}
 
 	// Draw split-line separators for each active effect (unique color per effect).
-	// Glasbey palette (maximin CIELAB) — first 24 entries cover full Post_Effect enum.
+	// Colors come from the splitColors[] uniform (Glasbey palette, set at init).
 	if (debugSplitMask != 0u) {
-		const vec3 splitColors[24] = vec3[](
-			vec3(0.8431, 0.0000, 0.0000),  //  0 Vignette       #d70000
-			vec3(0.5255, 0.3176, 0.8902),  //  1 Grain           #8651e3
-			vec3(0.0000, 0.5412, 0.0000),  //  2 Exposure        #008a00
-			vec3(0.0000, 0.6824, 0.7922),  //  3 Chrom Abbr      #00aeca
-			vec3(0.6196, 1.0000, 0.0000),  //  4 Bloom           #9eff00
-			vec3(1.0000, 0.4902, 0.8235),  //  5 Color Grading   #ff7dd2
-			vec3(1.0000, 0.6353, 0.1255),  //  6 DoF             #ffa220
-			vec3(0.4588, 0.0314, 0.3490),  //  7 Dof_Debug       #750859
-			vec3(0.0000, 0.3020, 0.4118),  //  8 Auto-Exposure   #004d69
-			vec3(0.3647, 0.2392, 0.0000),  //  9 Exposure_Debug  #5d3d00
-			vec3(0.0000, 1.0000, 0.8078),  // 10 Motion Blur     #00ffce
-			vec3(0.6510, 0.4588, 0.4118),  // 11 MB_Debug        #a67569
-			vec3(0.7137, 0.6824, 1.0000),  // 12 FXAA            #b6aeff
-			vec3(0.6039, 0.7137, 0.4902),  // 13 Tonemap         #9ab67d
-			vec3(0.1255, 0.0000, 1.0000),  // 14 Banding         #2000ff
-			vec3(0.7608, 0.0314, 0.7765),  // 15 Fog             #c208c6
-			vec3(0.0000, 0.3176, 0.1569),  // 16 LUT3D           #005128
-			vec3(0.4431, 0.4588, 0.5725),  // 17 FXAA_Debug      #717592
-			vec3(0.9216, 0.7137, 0.6824),  // 18 Stencil_Debug   #ebb6ae
-			vec3(0.0000, 0.4902, 1.0000),  // 19 Bloom_Debug     #007dff
-			vec3(0.4902, 0.0314, 0.0314),  // 20 Fog_Debug       #7d0808
-			vec3(0.3176, 0.2078, 0.4902),  // 21 LUT3D_Debug     #51357d
-			vec3(0.5569, 0.4745, 0.0000),  // 22 VectorField     #8e7900
-			vec3(0.2706, 0.5255, 0.4431)   // 23 Luminance       #458671
-		);
 		for (uint i = 0u; i <= 23u; ++i) {
 			if ((debugSplitMask & (1u << i)) != 0u) {
 				float pos = splitPositions[i / 4u][i % 4u];

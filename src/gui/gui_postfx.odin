@@ -9,7 +9,7 @@ import postfx "../rendering/postfx"
 // ─── Post-FX Section (live controls) ───────────────────────────────────────────
 
 // Per-effect split line colors — indexed from Glasbey palette (maximin CIELAB).
-// Must match shader splitColors[] array (indexed by Post_Effect ordinal).
+// Must match shader splitColors[] uniform (indexed by Post_Effect ordinal).
 
 // Show a colored "[S]" marker if the effect has an active A/B split.
 @(private)
