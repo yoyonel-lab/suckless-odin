@@ -161,6 +161,24 @@ tracy-server:
 # Full Tracy setup: build client lib + server
 build-tracy: build-tracy-lib build-tracy-server
 
+# Update Tracy submodule to latest tag and rebuild everything
+update-tracy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd deps/tracy
+    git fetch --tags
+    LATEST=$(git tag --sort=-v:refname | head -1)
+    CURRENT=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+    if [[ "$LATEST" == "$CURRENT" ]]; then
+        echo "Tracy already at latest: $CURRENT"
+        exit 0
+    fi
+    echo "Updating Tracy: $CURRENT → $LATEST"
+    git checkout "$LATEST"
+    cd ../..
+    just build-tracy
+    echo "✓ Tracy updated to $LATEST (lib + server rebuilt)"
+
 # --- CI (local) ---
 
 # Install git hooks via pre-commit framework (https://pre-commit.com)
