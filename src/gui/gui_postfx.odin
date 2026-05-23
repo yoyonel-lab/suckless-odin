@@ -8,6 +8,34 @@ import postfx "../rendering/postfx"
 
 // ─── Post-FX Section (live controls) ───────────────────────────────────────────
 
+// Per-effect split line colors — must match shader splitColors[] palette.
+SPLIT_COLORS :: #partial [postfx.Post_Effect]imgui.Vec4{
+	.Vignette      = {1.0, 0.4, 0.4, 1.0}, // red
+	.Grain         = {0.8, 0.6, 0.2, 1.0}, // gold
+	.Exposure      = {1.0, 1.0, 0.3, 1.0}, // yellow
+	.Chrom_Abbr    = {1.0, 0.5, 0.0, 1.0}, // orange
+	.Bloom         = {0.4, 0.8, 1.0, 1.0}, // sky blue
+	.Color_Grading = {0.6, 0.3, 0.9, 1.0}, // purple
+	.Dof           = {0.2, 0.8, 0.6, 1.0}, // teal
+	.Auto_Exposure = {1.0, 0.85, 0.0, 1.0}, // amber
+	.Motion_Blur   = {0.3, 0.6, 1.0, 1.0}, // blue
+	.FXAA          = {0.0, 1.0, 0.5, 1.0}, // green
+	.Tonemap       = {0.9, 0.2, 0.6, 1.0}, // magenta
+	.Banding       = {0.7, 0.7, 0.7, 1.0}, // silver
+	.Fog           = {0.6, 0.8, 0.9, 1.0}, // pale blue
+	.LUT3D         = {0.9, 0.5, 0.8, 1.0}, // pink
+}
+
+// Show a colored "[S]" marker if the effect has an active A/B split.
+@(private)
+draw_split_indicator :: proc(p: ^postfx.Pipeline, effect: postfx.Post_Effect) {
+	if effect in p.debug_split {
+		colors := SPLIT_COLORS
+		imgui.SameLine()
+		imgui.TextColored(colors[effect], "[S]")
+	}
+}
+
 @(private)
 draw_postfx_section :: proc(state: Scene_State) {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Post-Processing")
@@ -66,6 +94,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Exposure", &exposure_on) {
 		postfx.pipeline_toggle(p, .Exposure)
 	}
+	draw_split_indicator(p, .Exposure)
 	if exposure_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##exposure", {}) {
@@ -94,6 +123,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Tonemapping", &tonemap_on) {
 		postfx.pipeline_toggle(p, .Tonemap)
 	}
+	draw_split_indicator(p, .Tonemap)
 	if tonemap_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##tonemap", {}) {
@@ -124,6 +154,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Vignette", &vignette_on) {
 		postfx.pipeline_toggle(p, .Vignette)
 	}
+	draw_split_indicator(p, .Vignette)
 	if vignette_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##vignette", {}) {
@@ -152,6 +183,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Film Grain", &grain_on) {
 		postfx.pipeline_toggle(p, .Grain)
 	}
+	draw_split_indicator(p, .Grain)
 	if grain_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##grain", {}) {
@@ -179,6 +211,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Chromatic Aberration", &ca_on) {
 		postfx.pipeline_toggle(p, .Chrom_Abbr)
 	}
+	draw_split_indicator(p, .Chrom_Abbr)
 	if ca_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##ca", {}) {
@@ -205,6 +238,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Color Grading", &cg_on) {
 		postfx.pipeline_toggle(p, .Color_Grading)
 	}
+	draw_split_indicator(p, .Color_Grading)
 	if cg_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##cg", {}) {
@@ -235,6 +269,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Bloom", &bloom_on) {
 		postfx.pipeline_toggle(p, .Bloom)
 	}
+	draw_split_indicator(p, .Bloom)
 	if bloom_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##bloom", {}) {
@@ -273,6 +308,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("FXAA", &fxaa_on) {
 		postfx.pipeline_toggle(p, .FXAA)
 	}
+	draw_split_indicator(p, .FXAA)
 	if fxaa_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##fxaa", {}) {
@@ -310,6 +346,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Auto-Exposure", &ae_on) {
 		postfx.pipeline_toggle(p, .Auto_Exposure)
 	}
+	draw_split_indicator(p, .Auto_Exposure)
 	if ae_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##ae", {}) {
@@ -344,6 +381,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Depth of Field", &dof_on) {
 		postfx.pipeline_toggle(p, .Dof)
 	}
+	draw_split_indicator(p, .Dof)
 	if dof_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##dof", {}) {
@@ -383,6 +421,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Motion Blur", &mb_on) {
 		postfx.pipeline_toggle(p, .Motion_Blur)
 	}
+	draw_split_indicator(p, .Motion_Blur)
 	if mb_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##mblur", {}) {
@@ -421,6 +460,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Banding", &banding_on) {
 		postfx.pipeline_toggle(p, .Banding)
 	}
+	draw_split_indicator(p, .Banding)
 	if banding_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##banding", {}) {
@@ -478,6 +518,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	if imgui.Checkbox("Fog", &fog_on) {
 		postfx.pipeline_toggle(p, .Fog)
 	}
+	draw_split_indicator(p, .Fog)
 	if fog_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##fog", {}) {
@@ -529,6 +570,7 @@ draw_postfx_section :: proc(state: Scene_State) {
 	} else if imgui.Checkbox("LUT3D", &lut_on) {
 		postfx.pipeline_toggle(p, .LUT3D)
 	}
+	draw_split_indicator(p, .LUT3D)
 	imgui.SameLine()
 	if imgui.TreeNodeEx("Settings##lut3d", {}) {
 		if p.lut3d_fx.loaded {

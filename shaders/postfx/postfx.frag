@@ -1059,11 +1059,31 @@ void main()
 
 	// Draw split-line separators for each active effect (unique color per effect).
 	if (debugSplitMask != 0u) {
+		const vec3 splitColors[17] = vec3[](
+			vec3(1.0, 0.4, 0.4),   //  0 Vignette      — red
+			vec3(0.8, 0.6, 0.2),   //  1 Grain          — gold
+			vec3(1.0, 1.0, 0.3),   //  2 Exposure       — yellow
+			vec3(1.0, 0.5, 0.0),   //  3 Chrom Abbr     — orange
+			vec3(0.4, 0.8, 1.0),   //  4 Bloom          — sky blue
+			vec3(0.6, 0.3, 0.9),   //  5 Color Grading  — purple
+			vec3(0.2, 0.8, 0.6),   //  6 DoF            — teal
+			vec3(0.5, 0.5, 0.5),   //  7 (unused)
+			vec3(1.0, 0.85, 0.0),  //  8 Auto-Exposure  — amber
+			vec3(0.5, 0.5, 0.5),   //  9 (unused)
+			vec3(0.3, 0.6, 1.0),   // 10 Motion Blur    — blue
+			vec3(0.5, 0.5, 0.5),   // 11 (unused)
+			vec3(0.0, 1.0, 0.5),   // 12 FXAA           — green
+			vec3(0.9, 0.2, 0.6),   // 13 Tonemap        — magenta
+			vec3(0.7, 0.7, 0.7),   // 14 Banding        — silver
+			vec3(0.6, 0.8, 0.9),   // 15 Fog            — pale blue
+			vec3(0.9, 0.5, 0.8)    // 16 LUT3D          — pink
+		);
 		for (uint i = 0u; i <= 16u; ++i) {
 			if ((debugSplitMask & (1u << i)) != 0u) {
 				float pos = splitPositions[i / 4u][i % 4u];
-				if (abs(TexCoords.x - pos) < screenTexelSize.x * 1.5) {
-					FragColor = vec4(1.0, 1.0, 0.0, 1.0);
+				float dist = abs(TexCoords.x - pos);
+				if (dist < screenTexelSize.x * 1.5) {
+					FragColor = vec4(splitColors[i], 1.0);
 					return;
 				}
 			}
