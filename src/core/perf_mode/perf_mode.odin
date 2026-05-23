@@ -36,23 +36,24 @@ init :: proc(pm: ^Perf_Mode) {
 }
 
 // Activates the best available backend.
+// When `quiet` is true, suppresses INFO logs (used for session restore).
 // Returns true if successfully activated.
-activate :: proc(pm: ^Perf_Mode) -> bool {
+activate :: proc(pm: ^Perf_Mode, quiet := false) -> bool {
 	if pm.active { return true }
 
 	// Try backends in order of preference
 	if try_gamemode(pm) {
 		pm.backend = .Game_Mode
 		pm.active = true
-		log.log_info("PERF", "Performance mode ON (GameMode)")
+		if !quiet { log.log_info("PERF", "Performance mode ON (GameMode)") }
 	} else if try_sched_fifo(pm) {
 		pm.backend = .Sched_FIFO
 		pm.active = true
-		log.log_info("PERF", "Performance mode ON (SCHED_FIFO)")
+		if !quiet { log.log_info("PERF", "Performance mode ON (SCHED_FIFO)") }
 	} else if try_nice(pm) {
 		pm.backend = .Nice
 		pm.active = true
-		log.log_info("PERF", "Performance mode ON (nice -10)")
+		if !quiet { log.log_info("PERF", "Performance mode ON (nice -10)") }
 	} else {
 		log.log_warning("PERF", "Performance mode: no scheduling backend available")
 	}
@@ -63,14 +64,14 @@ activate :: proc(pm: ^Perf_Mode) -> bool {
 		errno := linux.mlockall(transmute(linux.MLock_Flags)u32(3))
 		if errno == .NONE {
 			pm.memory_locked = true
-			log.log_info("PERF", "Memory locked (mlockall)")
-		} else {
+			if !quiet { log.log_info("PERF", "Memory locked (mlockall)") }
+		} else if !quiet {
 			log.log_debug("PERF", "mlockall failed (errno %v) — needs CAP_IPC_LOCK", errno)
 		}
 	}
 
 	// Set Mesa env vars (take effect on next GL context creation = restart)
-	set_mesa_env(pm)
+	set_mesa_env(pm, quiet)
 
 	if !pm.active && !pm.memory_locked {
 		return false
@@ -210,14 +211,29 @@ try_nice :: proc(pm: ^Perf_Mode) -> bool {
 }
 
 @(private)
-set_mesa_env :: proc(pm: ^Perf_Mode) {
+mesa_env_already_set :: proc() -> bool {
+	buf1: [8]u8
+	buf2: [8]u8
+	v1 := os.get_env_buf(buf1[:], "MESA_NO_ERROR")
+	v2 := os.get_env_buf(buf2[:], "mesa_glthread")
+	return v1 == "1" && v2 == "true"
+}
+
+@(private)
+set_mesa_env :: proc(pm: ^Perf_Mode, quiet: bool) {
 	// These env vars are read by Mesa at context creation time.
 	// Setting them mid-session only takes effect on restart.
+	// Skip if already set (e.g. setup_mesa_early called before context creation).
+	if mesa_env_already_set() {
+		return
+	}
 	err1 := os.set_env("MESA_NO_ERROR", "1")
 	err2 := os.set_env("mesa_glthread", "true")
 	if err1 == nil && err2 == nil {
 		pm.mesa_needs_restart = true
-		log.log_info("PERF", "Mesa env vars set (MESA_NO_ERROR=1, mesa_glthread=true) — restart needed")
+		if !quiet {
+			log.log_info("PERF", "Mesa env vars set (MESA_NO_ERROR=1, mesa_glthread=true) — restart needed")
+		}
 	}
 }
 

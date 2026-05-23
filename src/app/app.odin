@@ -184,7 +184,8 @@ init :: proc(application: ^App) -> bool {
 	// Must be after restore so session state is available, but probe before activate.
 	perf_mode.init(&application.perf)
 	if has_session && session_state.perf_mode_active {
-		perf_mode.activate(&application.perf)
+		perf_mode.activate(&application.perf, quiet = true)
+		log.log_debug("PERF", "Performance mode restored from session (%s)", perf_mode.backend_label(&application.perf))
 	}
 
 	application.last_frame_time = glfw.GetTime()
