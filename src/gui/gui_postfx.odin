@@ -8,31 +8,18 @@ import postfx "../rendering/postfx"
 
 // ─── Post-FX Section (live controls) ───────────────────────────────────────────
 
-// Per-effect split line colors — must match shader splitColors[] palette.
-SPLIT_COLORS :: #partial [postfx.Post_Effect]imgui.Vec4{
-	.Vignette      = {1.0, 0.4, 0.4, 1.0}, // red
-	.Grain         = {0.8, 0.6, 0.2, 1.0}, // gold
-	.Exposure      = {1.0, 1.0, 0.3, 1.0}, // yellow
-	.Chrom_Abbr    = {1.0, 0.5, 0.0, 1.0}, // orange
-	.Bloom         = {0.4, 0.8, 1.0, 1.0}, // sky blue
-	.Color_Grading = {0.6, 0.3, 0.9, 1.0}, // purple
-	.Dof           = {0.2, 0.8, 0.6, 1.0}, // teal
-	.Auto_Exposure = {1.0, 0.85, 0.0, 1.0}, // amber
-	.Motion_Blur   = {0.3, 0.6, 1.0, 1.0}, // blue
-	.FXAA          = {0.0, 1.0, 0.5, 1.0}, // green
-	.Tonemap       = {0.9, 0.2, 0.6, 1.0}, // magenta
-	.Banding       = {0.7, 0.7, 0.7, 1.0}, // silver
-	.Fog           = {0.6, 0.8, 0.9, 1.0}, // pale blue
-	.LUT3D         = {0.9, 0.5, 0.8, 1.0}, // pink
-}
+// Per-effect split line colors — indexed from Glasbey palette (maximin CIELAB).
+// Must match shader splitColors[] array (indexed by Post_Effect ordinal).
 
 // Show a colored "[S]" marker if the effect has an active A/B split.
 @(private)
 draw_split_indicator :: proc(p: ^postfx.Pipeline, effect: postfx.Post_Effect) {
 	if effect in p.debug_split {
-		colors := SPLIT_COLORS
+		palette := postfx.GLASBEY_256
+		rgb := palette[u32(effect)]
+		color := imgui.Vec4{rgb[0], rgb[1], rgb[2], 1.0}
 		imgui.SameLine()
-		imgui.TextColored(colors[effect], "[S]")
+		imgui.TextColored(color, "[S]")
 	}
 }
 
