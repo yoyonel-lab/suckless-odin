@@ -37,6 +37,7 @@ test_session_save_load :: proc(t: ^testing.T) {
 	state_to_save.is_fullscreen = true
 	state_to_save.overlay_mode = 2
 	state_to_save.camera_enabled = false
+	state_to_save.perf_mode_active = true
 	
 	// 1. Test save
 	save_ok := session.save_session(&state_to_save, test_file)
@@ -73,6 +74,7 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.is_fullscreen, true)
 	testing.expect_value(t, loaded_state.overlay_mode, 2)
 	testing.expect_value(t, loaded_state.camera_enabled, false)
+	testing.expect_value(t, loaded_state.perf_mode_active, true)
 }
 
 @(test)
