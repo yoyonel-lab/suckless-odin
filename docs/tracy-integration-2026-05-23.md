@@ -132,3 +132,21 @@ free when no debug context is active (the driver short-circuits them).
 Zone colors use a centralized `ZONE_COLORS` table in `src/core/gl_debug/gl_debug.odin`
 (Nord color theme), resolved by `zone_color_for_name()`. To add a new zone color, add a
 single entry to the table — no duplication across call sites.
+
+## Zone Aggregation (Statistics)
+
+All CPU zones use **static source locations** — a stable pointer to a `Source_Location_Data`
+stored in a global cache array (`g_cache`). This allows Tracy to recognize the same zone
+across frames and aggregate them in Statistics/Histograms.
+
+Key implementation detail: `zone_begin(loc)` (static pointer) enables aggregation.
+`zone_begin_alloc(srcloc)` (dynamic u64 handle) does NOT — Tracy treats each call as unique.
+
+### Interpreting Swap_Buffers
+
+Without VSync, `SwapBuffers` should be near-instantaneous. If Tracy shows significant time
+in `Swap_Buffers`, the application is **GPU-bound**: the CPU has submitted all work and is
+waiting for the GPU to release a back-buffer (implicit driver back-pressure).
+
+To reduce frame time when GPU-bound, optimize the heaviest GPU passes (use Tracy Statistics
+to identify them by total/mean self-time).
