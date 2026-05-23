@@ -28,6 +28,7 @@ Post_Effect :: enum u32 {
 	Fog_Debug      = 20,
 	LUT3D_Debug    = 21,
 	Vector_Field_Debug = 22,
+	Luminance_Debug = 23,
 }
 
 // Type-safe set of enabled effects — maps directly to GLSL uint bitfield.

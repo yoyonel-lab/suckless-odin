@@ -505,7 +505,7 @@ pipeline_reset_effect :: proc(p: ^Pipeline, effect: Post_Effect) {
 	case .LUT3D:             p.lut3d = d.lut3d
 	case .Dof_Debug, .Exposure_Debug, .Motion_Blur_Debug,
 	     .FXAA_Debug, .Stencil_Debug, .Bloom_Debug, .Fog_Debug, .LUT3D_Debug,
-	     .Vector_Field_Debug:
+	     .Vector_Field_Debug, .Luminance_Debug:
 		// Debug views have no settings to reset.
 	}
 	p.ubo_dirty = true

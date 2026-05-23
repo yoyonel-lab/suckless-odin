@@ -576,6 +576,16 @@ draw_postfx_section :: proc(state: Scene_State) {
 	}
 	_ = mb_on
 
+	// --- Luminance Stops (final visualization) ---
+	imgui.Separator()
+	lum_on := postfx.Post_Effect.Luminance_Debug in p.active_effects
+	if imgui.Checkbox("Luminance Stops", &lum_on) {
+		postfx.pipeline_toggle(p, .Luminance_Debug)
+	}
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Filament-style luminance visualization.\nColor-codes final pixel luminance by stops:\n  Cyan = middle gray (18%%)\n  Blue = darker stops\n  Green/Yellow/Red = brighter stops")
+	}
+
 	imgui.Spacing()
 }
 
@@ -717,6 +727,7 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 		.Fog_Debug     = "Fog Debug",
 		.LUT3D_Debug   = "LUT3D Debug",
 		.Vector_Field_Debug = "Vector Field",
+		.Luminance_Debug = "Luminance Stops",
 	}
 	effect_names := EFFECT_NAMES
 	active_count := 0

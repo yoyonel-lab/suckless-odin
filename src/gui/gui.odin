@@ -1175,7 +1175,7 @@ SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment backg
 RENDERING_KEYWORDS :: "rendering postfx post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus exposure tonemap tonemapping saturation contrast gamma"
 
 @(private)
-DEBUG_KEYWORDS :: "debug debug views bloom dof exposure histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization performance gamemode sched nice cpu boost priority"
+DEBUG_KEYWORDS :: "debug debug views bloom dof exposure luminance stops histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization performance gamemode sched nice cpu boost priority"
 
 @(private)
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"

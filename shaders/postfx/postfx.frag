@@ -245,6 +245,7 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #define enableFXAADebug     ((activeEffects & (1u << 17u)) != 0u)
 #define enableStencilDebug  ((activeEffects & (1u << 18u)) != 0u)
 #define enableBloomDebug    ((activeEffects & (1u << 19u)) != 0u)
+#define enableLuminanceDebug ((activeEffects & (1u << 23u)) != 0u)
 
 // Split-screen A/B debug: returns true when the pixel is past the per-effect split position
 // AND the given effect bit is set in debugSplitMask → the effect should be bypassed.
@@ -906,6 +907,41 @@ float getFogAmount(vec2 uv)
 }
 
 // ============================================================================
+// EFFECT: Luminance Stops Debug (Filament-style color-coded exposure zones)
+// Cyan = middle gray (18%), each stop up/down shifts color.
+// ============================================================================
+
+const vec3 luminanceDebugColors[16] = vec3[](
+	vec3(0.0, 0.0, 0.0),         // black
+	vec3(0.0, 0.0, 0.1647),      // darkest blue
+	vec3(0.0, 0.0, 0.3647),      // darker blue
+	vec3(0.0, 0.0, 0.6647),      // dark blue
+	vec3(0.0, 0.0, 0.9647),      // blue
+	vec3(0.0, 0.9255, 0.9255),   // cyan (middle gray)
+	vec3(0.0, 0.5647, 0.0),      // dark green
+	vec3(0.0, 0.7843, 0.0),      // green
+	vec3(1.0, 1.0, 0.0),         // yellow
+	vec3(0.90588, 0.75294, 0.0), // yellow-orange
+	vec3(1.0, 0.5647, 0.0),      // orange
+	vec3(1.0, 0.0, 0.0),         // bright red
+	vec3(0.8392, 0.0, 0.0),      // red
+	vec3(1.0, 0.0, 1.0),         // magenta
+	vec3(0.6, 0.3333, 0.7882),   // purple
+	vec3(1.0, 1.0, 1.0)          // white
+);
+
+vec3 applyLuminanceStops(vec3 hdrColor)
+{
+	float luma = dot(hdrColor, vec3(0.2126, 0.7152, 0.0722));
+	// The 5th color (cyan) represents middle gray (18%)
+	// Each stop above/below shifts one color index
+	float v = log2(max(luma, 1e-7) / 0.18);
+	v = clamp(v + 5.0, 0.0, 15.0);
+	int index = int(floor(v));
+	return mix(luminanceDebugColors[index], luminanceDebugColors[min(15, index + 1)], fract(v));
+}
+
+// ============================================================================
 void main()
 {
 	vec3 color;
@@ -1016,7 +1052,12 @@ void main()
 		color = applyGrain(color, TexCoords);
 	}
 
-	// Draw split-line separators for each active effect.
+	// 11. Luminance Stops (Filament-style — final visualization of pipeline output)
+	if (enableLuminanceDebug) {
+		color = applyLuminanceStops(color);
+	}
+
+	// Draw split-line separators for each active effect (unique color per effect).
 	if (debugSplitMask != 0u) {
 		for (uint i = 0u; i <= 16u; ++i) {
 			if ((debugSplitMask & (1u << i)) != 0u) {
