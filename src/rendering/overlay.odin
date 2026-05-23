@@ -187,8 +187,9 @@ overlay_render :: proc(overlay: ^Text_Overlay, width, height: i32, cam_pos: mt.V
 
 	if vert_count == 0 { return }
 
-	// Upload vertex data
+	// Upload vertex data (orphan previous backing store to avoid implicit sync)
 	gl.BindBuffer(gl.ARRAY_BUFFER, overlay.vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, MAX_VERTICES * FLOATS_PER_VERTEX * size_of(f32), nil, gl.DYNAMIC_DRAW)
 	gl.BufferSubData(gl.ARRAY_BUFFER, 0, vert_count * FLOATS_PER_VERTEX * size_of(f32), &verts[0])
 
 	// Setup orthographic projection
