@@ -307,3 +307,85 @@ for maximin dispersion. This means:
    CAM02-UCS? (Apples-to-oranges comparison due to metric non-uniformity)
 4. For our practical use case (up to 24 post-fx split indicators), what is the
    min ΔE achievable for N=24? (Expected: significantly lower than N=16)
+
+## Quantum Computing Approaches
+
+### The Problem Has Been Studied in Quantum Computing (2024)
+
+**Yukiyoshi, K.; Mikuriya, T.; Rou, H.S.; de Abreu, G.T.F.; Ishikawa, N.**
+(2024). "Quantum Speedup of the Dispersion and Codebook Design Problems."
+*IEEE Transactions on Quantum Engineering*.
+DOI: 10.1109/TQE.2024.3450852 — arXiv: 2406.07187.
+
+This paper **directly addresses** the max-min dispersion problem (our exact
+problem) with quantum algorithms. Key results:
+
+1. **Algorithm**: Grover Adaptive Search (GAS) — a quantum exhaustive search
+   that finds the globally optimal solution
+2. **Speedup**: Quadratic over classical exhaustive search:
+   $O\left(\sqrt{\binom{N}{k}}\right)$ vs $O\left(\binom{N}{k}\right)$
+3. **Innovation**: Formulate the search over **Dicke states** (equal-weight
+   superpositions of binary vectors) instead of full $2^N$ Hilbert space,
+   eliminating penalty terms and reducing the quantum circuit complexity
+4. **Qubit reduction**: Replace distance coefficients with their ranks,
+   reducing the number of qubits needed
+
+### What This Means for Our Problem
+
+For our specific instance (N=16,777,216 candidate colors, k=16):
+
+| Approach | Complexity | Feasibility |
+| --- | --- | --- |
+| Classical exhaustive | $\binom{16.7M}{16} \approx 10^{115}$ | Impossible |
+| Quantum (GAS+Dicke) | $\sqrt{10^{115}} \approx 10^{57}$ | Still impossible |
+| Classical with step=4 (4K candidates) | $\binom{4096}{16} \approx 10^{44}$ | Impossible |
+| Quantum with step=4 | $\sqrt{10^{44}} \approx 10^{22}$ | Far future hardware |
+| Classical greedy (our approach) | $O(N \cdot k) \approx 10^8$ | 5.7 seconds |
+| Classical adaptive (ours) | $O((N/s + s^3) \cdot k) \approx 10^6$ | 672 ms |
+
+**Conclusion**: Quantum computing provides the theoretical framework to find
+the EXACT global optimum, but current and near-term quantum hardware cannot
+handle our problem size. Even with the Dicke state trick, the search space
+remains exponential. Our greedy/adaptive classical approach remains the only
+practical method for the foreseeable future.
+
+### Why Quantum Doesn't Help (Yet)
+
+1. **Quadratic speedup is not enough**: $\sqrt{10^{44}}$ is still $10^{22}$
+   operations. Even at 1 GHz quantum gate clock, that's $10^{13}$ seconds
+   (~300,000 years)
+2. **Current hardware**: ~1000 noisy qubits (IBM Heron, 2024). Our problem
+   needs $O(\log_2 \binom{4096}{16}) \approx 146$ logical qubits minimum,
+   but with error correction overhead: ~100,000+ physical qubits
+3. **The sweet spot for quantum**: much smaller instances (N~20-50 candidates,
+   k~5-10) where exhaustive search is classically expensive but quantum-feasible
+4. **No quantum algorithm beats greedy's quality guarantee**: the 2-approximation
+   of farthest-first traversal is already near-optimal in practice
+
+### Related Quantum Work
+
+- **Hall et al. (2024)**: "Sphere Packing on a Quantum Computer for
+  Chromatography Modeling." arXiv:2412.00601. Uses QAOA for maximum independent
+  set reformulation of sphere packing — same mathematical family as dispersion.
+- **Buß, N. (2024)**: "Near-Term Quantum-Algorithmic Approaches to the Facility
+  Location Problem." Master's thesis, Leibniz Universität Hannover. Applies
+  QAOA to facility location (covering dual of dispersion).
+- **Broesamle & Nickel (2026)**: "Quantum Optimization in Loc(Q)ation Science:
+  QUBO Formulations, Benchmark Problems." arXiv:2602.10951. QUBO formulations
+  for location problems with QAOA and WS-QAOA benchmarks.
+
+### The Theoretical Takeaway
+
+The maximin dispersion problem sits in an interesting complexity class for
+quantum computing:
+
+- **NP-hard** → no polynomial classical algorithm exists (unless P=NP)
+- **Not known to be in BQP** → no polynomial quantum algorithm known either
+- **Grover gives quadratic speedup** → from $O(2^n)$ to $O(2^{n/2})$, but
+  still exponential
+- **No quantum polynomial algorithm is expected** → dispersion is likely
+  not in BQP (bounded-error quantum polynomial time)
+
+This means: even with a perfect quantum computer, finding the exact optimum
+for our problem size would take exponential time. The greedy heuristic (with
+its 2-approximation guarantee) remains the practically optimal approach.
