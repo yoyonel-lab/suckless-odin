@@ -116,7 +116,7 @@ gl.BufferSubData(gl.ARRAY_BUFFER, 0, vert_count * FLOATS_PER_VERTEX * size_of(f3
 This is 1 extra line. The `BufferData(nil)` tells the driver "I don't care about
 the old contents" → it can allocate fresh storage without waiting for the GPU.
 
-**Verdict**: Trivial fix. Do it if ever overlay causes a hitch (unlikely at ~4 KB).
+**Verdict**: Trivial fix — **IMPLEMENTED** in commit `11edff3`.
 
 ---
 
@@ -213,7 +213,7 @@ no "transfer" to avoid — just cache coherency management.
 |---|--------|---------|--------|
 | 1 | Profile with Tracy GPU zones | Before any optimization | Low |
 | 2 | Inspector PBO readback | Inspector open causes hitch | Low |
-| 3 | Overlay VBO orphaning | Overlay causes hitch | Trivial (1 line) |
+| 3 | ~~Overlay VBO orphaning~~ | ~~Overlay causes hitch~~ | ✅ Done (11edff3) |
 | 4 | SSBO ring buffer | Tracy shows sync stall at upload | Medium |
 | 5 | Persistent mapping | Multiple resources show stalls | Medium |
 

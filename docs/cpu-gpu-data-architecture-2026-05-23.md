@@ -289,8 +289,9 @@ MAX_VERTICES x 32B"]
 | **Source** | `src/rendering/overlay.odin` |
 | **Stride** | 8 floats/vertex (32 bytes): x, y, u, v, r, g, b, a |
 | **Attribs** | 0: vec2 pos, 1: vec2 uv, 2: vec4 color |
-| **Buffer** | Pre-allocated at MAX_VERTICES, SubData each frame |
+| **Buffer** | Pre-allocated at MAX_VERTICES, orphan + SubData each frame |
 | **Direction** | CPU → GPU per frame |
+| **Sync strategy** | Buffer orphaning (`BufferData(nil)` before `SubData`) |
 
 ---
 
