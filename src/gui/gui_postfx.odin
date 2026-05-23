@@ -76,6 +76,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("A/B Split##exposure", &exposure_split) {
 				postfx.pipeline_toggle_split(p, .Exposure)
 			}
+			if exposure_split {
+				pos_pct := p.split_positions[.Exposure] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_exposure", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Exposure] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
+			}
 			imgui.TreePop()
 		}
 	}
@@ -98,6 +106,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("A/B Split##tonemap", &tonemap_split) {
 				postfx.pipeline_toggle_split(p, .Tonemap)
 			}
+			if tonemap_split {
+				pos_pct := p.split_positions[.Tonemap] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_tonemap", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Tonemap] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
+			}
 			imgui.TreePop()
 		}
 	}
@@ -118,6 +134,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("A/B Split##vignette", &vignette_split) {
 				postfx.pipeline_toggle_split(p, .Vignette)
 			}
+			if vignette_split {
+				pos_pct := p.split_positions[.Vignette] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_vignette", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Vignette] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
+			}
 			imgui.TreePop()
 		}
 	}
@@ -137,6 +161,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("A/B Split##grain", &grain_split) {
 				postfx.pipeline_toggle_split(p, .Grain)
 			}
+			if grain_split {
+				pos_pct := p.split_positions[.Grain] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_grain", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Grain] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
+			}
 			imgui.TreePop()
 		}
 	}
@@ -154,6 +186,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			ca_split := postfx.Post_Effect.Chrom_Abbr in p.debug_split
 			if imgui.Checkbox("A/B Split##ca", &ca_split) {
 				postfx.pipeline_toggle_split(p, .Chrom_Abbr)
+			}
+			if ca_split {
+				pos_pct := p.split_positions[.Chrom_Abbr] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_ca", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Chrom_Abbr] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
 			}
 			imgui.TreePop()
 		}
@@ -176,6 +216,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			cg_split := postfx.Post_Effect.Color_Grading in p.debug_split
 			if imgui.Checkbox("A/B Split##cg", &cg_split) {
 				postfx.pipeline_toggle_split(p, .Color_Grading)
+			}
+			if cg_split {
+				pos_pct := p.split_positions[.Color_Grading] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_cg", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Color_Grading] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
 			}
 			imgui.TreePop()
 		}
@@ -207,6 +255,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("A/B Split##bloom", &bloom_split) {
 				postfx.pipeline_toggle_split(p, .Bloom)
 			}
+			if bloom_split {
+				pos_pct := p.split_positions[.Bloom] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_bloom", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Bloom] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
+			}
 			imgui.TreePop()
 		}
 	}
@@ -236,6 +292,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("A/B Split##fxaa", &fxaa_split) {
 				postfx.pipeline_toggle_split(p, .FXAA)
 			}
+			if fxaa_split {
+				pos_pct := p.split_positions[.FXAA] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_fxaa", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.FXAA] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
+			}
 			imgui.TreePop()
 		}
 	}
@@ -261,6 +325,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			ae_split := postfx.Post_Effect.Auto_Exposure in p.debug_split
 			if imgui.Checkbox("A/B Split##ae", &ae_split) {
 				postfx.pipeline_toggle_split(p, .Auto_Exposure)
+			}
+			if ae_split {
+				pos_pct := p.split_positions[.Auto_Exposure] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_ae", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Auto_Exposure] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
 			}
 			imgui.TreePop()
 		}
@@ -292,6 +364,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			dof_split := postfx.Post_Effect.Dof in p.debug_split
 			if imgui.Checkbox("A/B Split##dof", &dof_split) {
 				postfx.pipeline_toggle_split(p, .Dof)
+			}
+			if dof_split {
+				pos_pct := p.split_positions[.Dof] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_dof", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Dof] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
 			}
 			imgui.TreePop()
 		}
@@ -380,6 +460,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			if imgui.Checkbox("A/B Split##banding", &banding_split) {
 				postfx.pipeline_toggle_split(p, .Banding)
 			}
+			if banding_split {
+				pos_pct := p.split_positions[.Banding] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_banding", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Banding] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
+			}
 			imgui.TreePop()
 		}
 	}
@@ -410,6 +498,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 			fog_split := postfx.Post_Effect.Fog in p.debug_split
 			if imgui.Checkbox("A/B Split##fog", &fog_split) {
 				postfx.pipeline_toggle_split(p, .Fog)
+			}
+			if fog_split {
+				pos_pct := p.split_positions[.Fog] * 100.0
+				imgui.SetNextItemWidth(-1)
+				if imgui.SliderFloat("##split_pos_fog", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					p.split_positions[.Fog] = pos_pct / 100.0
+					p.ubo_dirty = true
+				}
 			}
 			imgui.TreePop()
 		}
@@ -466,6 +562,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 		lut_split := postfx.Post_Effect.LUT3D in p.debug_split
 		if imgui.Checkbox("A/B Split##lut3d", &lut_split) {
 			postfx.pipeline_toggle_split(p, .LUT3D)
+		}
+		if lut_split {
+			pos_pct := p.split_positions[.LUT3D] * 100.0
+			imgui.SetNextItemWidth(-1)
+			if imgui.SliderFloat("##split_pos_lut3d", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				p.split_positions[.LUT3D] = pos_pct / 100.0
+				p.ubo_dirty = true
+			}
 		}
 		imgui.TreePop()
 	}

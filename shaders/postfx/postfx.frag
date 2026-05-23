@@ -145,6 +145,9 @@ layout(std140, binding = 0) uniform PostProcessBlock
 	float _pad16_a;
 	float _pad16_b;
 	float _pad16_c;
+
+	// Per-effect split positions (80 bytes = 5 × vec4)
+	vec4 splitPositions[5];
 };
 
 // --- Effect flag helpers ---
@@ -243,11 +246,13 @@ layout(std140, binding = 0) uniform PostProcessBlock
 #define enableStencilDebug  ((activeEffects & (1u << 18u)) != 0u)
 #define enableBloomDebug    ((activeEffects & (1u << 19u)) != 0u)
 
-// Split-screen A/B debug: returns true when the pixel is in the right half
+// Split-screen A/B debug: returns true when the pixel is past the per-effect split position
 // AND the given effect bit is set in debugSplitMask → the effect should be bypassed.
 bool splitBypassed(uint effectBit)
 {
-	return (debugSplitMask & (1u << effectBit)) != 0u && TexCoords.x > 0.5;
+	if ((debugSplitMask & (1u << effectBit)) == 0u) return false;
+	float pos = splitPositions[effectBit / 4u][effectBit % 4u];
+	return TexCoords.x > pos;
 }
 
 // ============================================================================
@@ -1011,10 +1016,17 @@ void main()
 		color = applyGrain(color, TexCoords);
 	}
 
-	// Draw split-line separator when any debug split is active.
-	if (debugSplitMask != 0u && abs(TexCoords.x - 0.5) < screenTexelSize.x * 1.5) {
-		FragColor = vec4(1.0, 1.0, 0.0, 1.0); // Yellow vertical line
-		return;
+	// Draw split-line separators for each active effect.
+	if (debugSplitMask != 0u) {
+		for (uint i = 0u; i <= 16u; ++i) {
+			if ((debugSplitMask & (1u << i)) != 0u) {
+				float pos = splitPositions[i / 4u][i % 4u];
+				if (abs(TexCoords.x - pos) < screenTexelSize.x * 1.5) {
+					FragColor = vec4(1.0, 1.0, 0.0, 1.0);
+					return;
+				}
+			}
+		}
 	}
 
 	FragColor = vec4(color, 1.0);

@@ -65,6 +65,7 @@ UBO_MAPPINGS :: [?]UBO_MAPPING{
 	{"fog_density",        "fog_density"},
 	{"lut3d_intensity",    "lut3d_intensity"},
 	{"debugSplitMask",     "debug_split_mask"},
+	{"splitPositions[0]",  "split_positions"},
 }
 
 // Lookup a struct field's offset by name using runtime type info.

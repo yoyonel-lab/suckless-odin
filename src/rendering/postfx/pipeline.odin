@@ -45,7 +45,8 @@ Pipeline :: struct {
 
 	// Effect state
 	active_effects: Effect_Flags,
-	debug_split:    Effect_Flags, // Per-effect A/B split (right half bypasses effect)
+	debug_split:     Effect_Flags, // Per-effect A/B split (right half bypasses effect)
+	split_positions: [Post_Effect]f32, // Per-effect split line position (0.0-1.0)
 	enabled:        bool,
 
 	// Cached debug/split state — restored when parent effect is re-enabled
@@ -567,6 +568,9 @@ init_defaults :: proc(p: ^Pipeline) {
 		edge_threshold_min = DEFAULT_FXAA_EDGE_THRESHOLD_MIN,
 	}
 	p.dof = DEFAULT_DOF_PARAMS
+	for &pos in p.split_positions {
+		pos = 0.5
+	}
 }
 
 @(private)
@@ -616,6 +620,18 @@ destroy_framebuffer :: proc(p: ^Pipeline) {
 	delete_texture(&p.velocity_tex)
 	delete_texture(&p.depth_tex)
 	delete_fbo(&p.scene_fbo)
+}
+
+@(private)
+build_split_positions :: proc(p: ^Pipeline) -> [20]f32 {
+	result: [20]f32
+	for effect in Post_Effect {
+		idx := u32(effect)
+		if idx < 20 {
+			result[idx] = p.split_positions[effect]
+		}
+	}
+	return result
 }
 
 @(private)
@@ -696,6 +712,7 @@ upload_ubo :: proc(p: ^Pipeline) {
 		lut3d_intensity = p.lut3d.intensity,
 
 		debug_split_mask = transmute(u32)p.debug_split,
+		split_positions  = build_split_positions(p),
 	}
 
 	gl.BindBuffer(gl.UNIFORM_BUFFER, p.settings_ubo)

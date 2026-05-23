@@ -349,13 +349,16 @@ Post_FX_UBO :: struct #packed {
 	lut3d_intensity: f32,
 	_:               [3]f32,
 
-	// Debug split-screen mask (16 bytes) — per-effect: right half (UV.x > 0.5)
-	// bypasses the effect, left half applies it (A/B comparison view).
+	// Debug split-screen mask (16 bytes) — per-effect A/B comparison view.
 	debug_split_mask: u32,
 	_pad_split:       [3]f32,
+
+	// Per-effect split positions (80 bytes = 5 × vec4).
+	// Indexed as splitPositions[bit/4][bit%4] in GLSL.
+	split_positions: [20]f32,
 }
 
-#assert(size_of(Post_FX_UBO) == 432)
+#assert(size_of(Post_FX_UBO) == 512)
 
 // Compile-time offset verification — matches GLSL PostProcessBlock (std140).
 // If any field shifts, these will catch the mismatch at compile time.
@@ -376,6 +379,7 @@ Post_FX_UBO :: struct #packed {
 #assert(offset_of(Post_FX_UBO, fog_density)          == 288)  // Fog
 #assert(offset_of(Post_FX_UBO, lut3d_intensity)      == 400)  // LUT3D
 #assert(offset_of(Post_FX_UBO, debug_split_mask)     == 416)  // Debug split
+#assert(offset_of(Post_FX_UBO, split_positions)      == 432)  // Per-effect split pos
 
 // Texture unit assignments for post-processing samplers.
 TEX_UNIT_SCENE        :: 0
