@@ -162,21 +162,22 @@ update-imgui:
 build-tracy-lib:
     {{ bash }} scripts/build_tracy_lib.sh
 
-# Build Tracy profiler server GUI (CMake, downloads deps via CPM)
-build-tracy-server:
-    {{ cmake }} -B deps/tracy/profiler/build -S deps/tracy/profiler -DCMAKE_BUILD_TYPE=Release -DLEGACY={{ tracy_legacy }} -Wno-dev
-    {{ cmake }} --build deps/tracy/profiler/build --parallel {{ nprocs }}
-
 # Launch Tracy profiler server (auto-connects to instrumented app)
 tracy-server:
-    deps/tracy/profiler/build/tracy-profiler
+    @if ! command -v tracy &> /dev/null; then \
+        echo "Tracy Profiler GUI is not installed natively."; \
+        echo "On Bazzite/immutable OS, please install it instead of building from source:"; \
+        echo "  brew install tracy"; \
+        exit 1; \
+    fi
+    tracy
 
-# Full Tracy setup: build client lib + server
-build-tracy: build-tracy-lib build-tracy-server
+# Full Tracy setup: build client lib
+build-tracy: build-tracy-lib
 
-# Update Tracy submodule to latest tag and rebuild everything
+# Update Tracy submodule to latest tag and rebuild the client library
 update-tracy:
-    {{ bash }} -c 'set -euo pipefail && cd deps/tracy && git fetch --tags && LATEST=$$(git tag --sort=-v:refname | head -1) && CURRENT=$$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD) && if [[ "$$LATEST" == "$$CURRENT" ]]; then echo "Tracy already at latest: $$CURRENT"; exit 0; fi && echo "Updating Tracy: $$CURRENT -> $$LATEST" && git checkout "$$LATEST" && cd ../.. && just build-tracy && echo "✓ Tracy updated to $$LATEST (lib + server rebuilt)"'
+    {{ bash }} -c 'set -euo pipefail && cd deps/tracy && git fetch --tags && LATEST=$$(git tag --sort=-v:refname | head -1) && CURRENT=$$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD) && if [[ "$$LATEST" == "$$CURRENT" ]]; then echo "Tracy already at latest: $$CURRENT"; exit 0; fi && echo "Updating Tracy: $$CURRENT -> $$LATEST" && git checkout "$$LATEST" && cd ../.. && just build-tracy && echo "✓ Tracy updated to $$LATEST (client lib rebuilt)"'
 
 # --- CI (local) ---
 
