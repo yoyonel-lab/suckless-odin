@@ -128,10 +128,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        mode: [debug, release, ultra, sanitize, strict]
+        mode: [debug, fast-release, release, ultra, sanitize, strict]
         include:
           - mode: debug
             flags: "-debug -use-separate-modules"
+          - mode: fast-release
+            flags: "-o:minimal -use-separate-modules"
           - mode: release
             flags: "-o:speed -use-separate-modules"
           - mode: ultra
