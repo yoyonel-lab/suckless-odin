@@ -103,6 +103,9 @@ run-profile:
 # Build and run in one step
 br: build run
 
+# Build and run fast-release
+br-fr: build-fast-release run-release
+
 # Build and run release
 br-release: build-release run-release
 
