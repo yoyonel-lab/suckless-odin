@@ -112,6 +112,8 @@ just ci              # lint + build + all tests (with xvfb)
 just test-gl-xvfb   # GL tests only, headless
 ```
 
+> **Note:** For executing the local build pipeline across isolated containers (e.g., `distrobox`) or offloading to NVIDIA GPUs via MangoHud natively, refer to [Distrobox Environment & Native GPU Offloading](distrobox-optimus-2026-05-24.md).
+
 ## Dependencies
 
 ### Dear ImGui (odin-imgui submodule)

@@ -23,6 +23,8 @@ PBR, IBL, compute shaders, post-processing pipeline.
 
 Requires [Just](https://github.com/casey/just) task runner.
 
+> **Note:** For systems using isolated containers (like Bazzite or Fedora Silverblue), see [Distrobox Environment & Native GPU Offloading (Optimus)](docs/distrobox-optimus-2026-05-24.md) for compiling inside `distrobox` while running natively on the host GPU.
+
 ```bash
 # Debug build (default)
 just build
