@@ -1,0 +1,41 @@
+#version 450 core
+/* Tile-max velocity: parallel reduction of per-pixel velocity to one
+   max-magnitude vector per 16×16 tile. Uses shared memory reduction. */
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D velocityTexture;
+layout(binding = 1, rg16f) uniform writeonly image2D tileMaxTexture;
+
+shared vec2 sharedVelocity[256];
+
+void main() {
+    ivec2 pixelPos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 screenSize = textureSize(velocityTexture, 0);
+
+    vec2 velocity = vec2(0.0);
+    if (pixelPos.x < screenSize.x && pixelPos.y < screenSize.y) {
+        velocity = texelFetch(velocityTexture, pixelPos, 0).rg;
+    }
+
+    uint localIndex = gl_LocalInvocationID.y * 16u + gl_LocalInvocationID.x;
+    sharedVelocity[localIndex] = velocity;
+    barrier();
+
+    // Parallel reduction: keep vector with largest magnitude
+    for (uint s = 128u; s > 0u; s >>= 1u) {
+        if (localIndex < s) {
+            vec2 v1 = sharedVelocity[localIndex];
+            vec2 v2 = sharedVelocity[localIndex + s];
+            if (dot(v2, v2) > dot(v1, v1)) {
+                sharedVelocity[localIndex] = v2;
+            }
+        }
+        barrier();
+    }
+
+    if (localIndex == 0u) {
+        imageStore(tileMaxTexture, ivec2(gl_WorkGroupID.xy),
+                   vec4(sharedVelocity[0], 0.0, 0.0));
+    }
+}

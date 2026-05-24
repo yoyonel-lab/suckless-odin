@@ -122,18 +122,26 @@ jobs:
           path: deps/odin-imgui/imgui_linux_x64.a
           retention-days: 1
 
-  # ─── JOB 3: BUILD (debug + release matrix) ────────────────────────────────────
+  # ─── JOB 3: BUILD (all Justfile targets matrix) ─────────────────────────────────
   build:
     needs: [lint, deps]
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        mode: [debug, release]
+        mode: [debug, fast-release, release, ultra, sanitize, strict]
         include:
           - mode: debug
-            flags: "-debug"
+            flags: "-debug -use-separate-modules"
+          - mode: fast-release
+            flags: "-o:minimal -use-separate-modules"
           - mode: release
-            flags: "-o:speed"
+            flags: "-o:speed -use-separate-modules"
+          - mode: ultra
+            flags: "-o:aggressive -no-bounds-check -no-type-assert"
+          - mode: sanitize
+            flags: "-debug -use-separate-modules -sanitize:address"
+          - mode: strict
+            flags: "-debug -use-separate-modules -vet -strict-style -warnings-as-errors"
     steps:
       - uses: actions/checkout@v4
         with:

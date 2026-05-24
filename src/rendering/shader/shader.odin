@@ -6,6 +6,7 @@ import "core:os"
 import "core:strings"
 
 import log "../../core/log"
+import dbg "../../core/gl_debug"
 
 // Shader warning throttle limit
 SHADER_WARNING_THROTTLE_LIMIT :: 10
@@ -161,6 +162,63 @@ load_program :: proc(vertex_path, fragment_path: string) -> (program: u32, ok: b
 	return program, true
 }
 
+// Load a program with #define preamble injected after #version in the fragment shader.
+// Used for optimized shader variants (compile-time effect toggling).
+load_program_with_defines :: proc(vertex_path, fragment_path: string, defines: string) -> (program: u32, ok: bool) {
+	vs_source, vs_ok := read_file(vertex_path)
+	if !vs_ok { return 0, false }
+	defer delete(vs_source)
+
+	fs_source, fs_ok := read_file(fragment_path)
+	if !fs_ok { return 0, false }
+	defer delete(fs_source)
+
+	// Inject defines after #version line in fragment shader
+	fs_modified := inject_defines(fs_source, defines)
+	defer delete(fs_modified)
+
+	vs, vs_compile_ok := compile(vs_source, gl.VERTEX_SHADER)
+	if !vs_compile_ok { return 0, false }
+	defer gl.DeleteShader(vs)
+
+	fs, fs_compile_ok := compile(fs_modified, gl.FRAGMENT_SHADER)
+	if !fs_compile_ok { return 0, false }
+	defer gl.DeleteShader(fs)
+
+	program = gl.CreateProgram()
+	gl.AttachShader(program, vs)
+	gl.AttachShader(program, fs)
+	gl.LinkProgram(program)
+
+	success: i32
+	gl.GetProgramiv(program, gl.LINK_STATUS, &success)
+	if success == 0 {
+		info_log: [INFO_LOG_SIZE]u8
+		gl.GetProgramInfoLog(program, INFO_LOG_SIZE, nil, raw_data(&info_log))
+		log.log_error("suckless-odin.shader", "Program linking failed (with defines):\n%s", string(info_log[:]))
+		gl.DeleteProgram(program)
+		return 0, false
+	}
+
+	return program, true
+}
+
+// Inject defines after the first #version line.
+@(private)
+inject_defines :: proc(source: string, defines: string) -> string {
+	if len(defines) == 0 { return strings.clone(source) }
+
+	// Find end of #version line
+	version_end := strings.index(source, "\n")
+	if version_end < 0 {
+		// No newline, just prepend defines
+		return strings.concatenate({source, "\n", defines})
+	}
+
+	// Insert after #version line
+	return strings.concatenate({source[:version_end + 1], defines, source[version_end + 1:]})
+}
+
 // Load a compute shader program
 load_compute :: proc(compute_path: string) -> (program: u32, ok: bool) {
 	cs_source, cs_ok := read_file(compute_path)
@@ -200,6 +258,8 @@ load :: proc(vertex_path, fragment_path: string) -> ^Shader {
 	shader.silent_warnings = false
 	shader.warning_count = 0
 
+	dbg.object_label(gl.PROGRAM, program, fmt.ctprintf("%s + %s", vertex_path, fragment_path))
+
 	cache_uniforms(shader)
 	return shader
 }
@@ -215,6 +275,8 @@ load_compute_shader :: proc(compute_path: string) -> ^Shader {
 	shader.entries = make([dynamic]Uniform_Entry)
 	shader.silent_warnings = false
 	shader.warning_count = 0
+
+	dbg.object_label(gl.PROGRAM, program, fmt.ctprintf("%s", compute_path))
 
 	cache_uniforms(shader)
 	return shader

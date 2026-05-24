@@ -1,0 +1,80 @@
+#version 450 core
+
+// Pass 2: Parallel reduction of 64x64 log-luminance → 1x1 adapted exposure.
+// 256 threads (16x16), each processes 4x4 texels of the 64x64 map.
+// Temporal exponential moving average with asymmetric speed.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D lumTexture;     // 64x64 log-lum from pass 1
+layout(rgba32f, binding = 1) uniform image2D exposureImage;  // 1x1 persistent
+
+uniform float deltaTime;
+uniform float minLuminance;
+uniform float maxLuminance;
+uniform float speedUp;
+uniform float speedDown;
+uniform float keyValue;
+
+shared float sharedLogLum[256];
+shared float sharedValidCount[256];
+
+void main()
+{
+	uint localIdx = gl_LocalInvocationIndex;  // 0..255
+
+	// Each thread reads 4x4 texels from the 64x64 map (16 texels total)
+	// Thread grid: 16x16 threads → 4x4 texels each = 64x64 coverage
+	ivec2 threadBase = ivec2(gl_LocalInvocationID.xy) * 4;
+
+	float localLogLum = 0.0;
+	float localValid = 0.0;
+
+	for (int y = 0; y < 4; y++) {
+		for (int x = 0; x < 4; x++) {
+			ivec2 coord = threadBase + ivec2(x, y);
+			float val = texelFetch(lumTexture, coord, 0).r;
+			if (val > -99.0) {  // not sentinel
+				localLogLum += val;
+				localValid += 1.0;
+			}
+		}
+	}
+
+	sharedLogLum[localIdx] = localLogLum;
+	sharedValidCount[localIdx] = localValid;
+	barrier();
+
+	// Parallel reduction: 256 → 1
+	for (uint stride = 128u; stride > 0u; stride >>= 1u) {
+		if (localIdx < stride) {
+			sharedLogLum[localIdx] += sharedLogLum[localIdx + stride];
+			sharedValidCount[localIdx] += sharedValidCount[localIdx + stride];
+		}
+		barrier();
+	}
+
+	// Thread 0 computes final exposure
+	if (localIdx == 0u) {
+		float totalLogLum = sharedLogLum[0];
+		float validPixels = sharedValidCount[0];
+
+		float currentExposure = imageLoad(exposureImage, ivec2(0, 0)).r;
+
+		if (validPixels > 0.0) {
+			float avgLogLum = totalLogLum / validPixels;
+			float sceneLum = exp2(avgLogLum);  // geometric mean
+			sceneLum = clamp(sceneLum, minLuminance, maxLuminance);
+
+			float targetExposure = keyValue / sceneLum;
+
+			// Temporal smoothing: asymmetric EMA (frame-rate independent)
+			float adjustSpeed = (targetExposure > currentExposure) ? speedUp : speedDown;
+			float factor = 1.0 - exp(-deltaTime * adjustSpeed);
+			float newExposure = mix(currentExposure, targetExposure, factor);
+
+			imageStore(exposureImage, ivec2(0, 0), vec4(newExposure, sceneLum, targetExposure, 0.0));
+		}
+		// If no valid pixels, keep current exposure unchanged
+	}
+}

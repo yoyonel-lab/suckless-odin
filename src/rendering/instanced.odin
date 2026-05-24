@@ -3,6 +3,7 @@ package rendering
 import gl "vendor:OpenGL"
 
 import log "../core/log"
+import dbg "../core/gl_debug"
 import mt  "../core/math_types"
 import types "./types"
 import settings "../core/settings"
@@ -87,15 +88,23 @@ instanced_upload :: proc(inst: ^Instanced_Spheres) {
 
 	if inst.ssbo == 0 {
 		gl.GenBuffers(1, &inst.ssbo)
+		dbg.object_label(gl.BUFFER, inst.ssbo, "Sphere_Instances_SSBO")
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
+		gl.BufferData(
+			gl.SHADER_STORAGE_BUFFER,
+			count * size_of(types.Sphere_Instance),
+			raw_data(gpu_data),
+			gl.DYNAMIC_DRAW,
+		)
+	} else {
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
+		gl.BufferSubData(
+			gl.SHADER_STORAGE_BUFFER,
+			0,
+			count * size_of(types.Sphere_Instance),
+			raw_data(gpu_data),
+		)
 	}
-
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
-	gl.BufferData(
-		gl.SHADER_STORAGE_BUFFER,
-		count * size_of(types.Sphere_Instance),
-		raw_data(gpu_data),
-		gl.DYNAMIC_DRAW,
-	)
 	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, SSBO_BINDING, inst.ssbo)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 }
@@ -123,15 +132,10 @@ instanced_bind :: proc(inst: ^Instanced_Spheres) {
 instanced_draw :: proc(inst: ^Instanced_Spheres, bb: ^Billboard) {
 	if bb.vao == 0 || inst.count == 0 { return }
 
-	culling_enabled := gl.IsEnabled(gl.CULL_FACE)
-	gl.Disable(gl.CULL_FACE)
-
+	// Billboards are always front-facing — culling is globally disabled in this app,
+	// so no state change needed here.
 	gl.BindVertexArray(bb.vao)
 	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, inst.count)
-
-	if culling_enabled {
-		gl.Enable(gl.CULL_FACE)
-	}
 }
 
 instanced_destroy :: proc(inst: ^Instanced_Spheres) {

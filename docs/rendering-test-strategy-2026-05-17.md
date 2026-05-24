@@ -1,7 +1,7 @@
 # Rendering Test Strategy
 
-**Date:** 2026-05-17  
-**Status:** In Progress  
+**Date:** 2026-05-17 (updated 2026-05-23)  
+**Status:** Implemented  
 **Scope:** GPU rendering validation, visual regression, headless testing
 
 ## Context
@@ -117,6 +117,7 @@ xvfb-run just test-gl
 
 | Date | Phase | What | Status |
 |------|-------|------|--------|
-| 2026-05-17 | 1 | CPU tests: shader path, overlay math, instanced grid | 🔧 In Progress |
-| 2026-05-17 | 2 | Headless GL context test harness | ⏳ Planned |
-| — | 3 | Visual regression pipeline | ⏳ Planned |
+| 2026-05-17 | 1 | CPU tests: shader path, overlay math, instanced grid | ✅ Done |
+| 2026-05-17 | 2 | Headless GL context test harness | ✅ Done |
+| 2026-05-19 | 2 | GL shader/uniform/bloom/DoF tests | ✅ Done |
+| 2026-05-22 | 3 | Visual regression (FXAA+MB sweep) | ✅ Done |

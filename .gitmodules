@@ -2,3 +2,7 @@
 	path = deps/odin-imgui
 	url = https://github.com/steinarb1234/odin-imgui.git
 	ignore = dirty
+[submodule "deps/tracy"]
+	path = deps/tracy
+	url = https://github.com/wolfpld/tracy.git
+	ignore = dirty

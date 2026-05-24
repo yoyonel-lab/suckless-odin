@@ -225,7 +225,7 @@ texture_hdr_load :: proc(path: cstring) -> (tex: Texture_HDR, ok: bool) {
     return tex, true
 }
 
-// Appel : destructuring obligatoire (impossible d'ignorer l'erreur par accident)
+// Appel : multi-retour rend l'erreur explicite (on peut ignorer avec `_` mais c'est délibéré)
 tex, ok := texture_hdr_load("env.hdr")
 if !ok {
     // gérer l'erreur

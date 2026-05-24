@@ -1,14 +1,66 @@
 package app
 
+import "core:fmt"
 import "vendor:glfw"
 import gl "vendor:OpenGL"
 import "base:runtime"
+import session "../core/session"
+import tracy "../core/tracy"
 
 import log "../core/log"
 import settings "../core/settings"
+import perf_mode "../core/perf_mode"
 import cam "../camera"
 import scene "../scene"
 import gui "../gui"
+import postfx "../rendering/postfx"
+import rendering "../rendering"
+import dbg "../core/gl_debug"
+
+@(private)
+frame_zone_loc := tracy.Source_Location_Data{
+	name     = "Frame",
+	function = "run",
+	file     = #file,
+	line     = #line,
+	color    = 0,
+}
+
+@(private)
+update_zone_loc := tracy.Source_Location_Data{
+	name     = "Scene Update",
+	function = "scene_update",
+	file     = #file,
+	line     = #line,
+	color    = 0xAA6666,
+}
+
+@(private)
+render_zone_loc := tracy.Source_Location_Data{
+	name     = "Scene Render",
+	function = "scene_render",
+	file     = #file,
+	line     = #line,
+	color    = 0x66AA66,
+}
+
+@(private)
+poll_zone_loc := tracy.Source_Location_Data{
+	name     = "GLFW PollEvents",
+	function = "glfw.PollEvents",
+	file     = #file,
+	line     = #line,
+	color    = 0x4C566A,
+}
+
+@(private)
+swap_zone_loc := tracy.Source_Location_Data{
+	name     = "GLFW SwapBuffers",
+	function = "glfw.SwapBuffers",
+	file     = #file,
+	line     = #line,
+	color    = 0xD08770,
+}
 
 // Application state — top-level struct owning all subsystems.
 // ISO port of App struct from suckless-ogl/include/app.h.
@@ -36,6 +88,12 @@ App :: struct {
 
 	// GUI (Dear ImGui)
 	imgui:           gui.Gui,
+
+	// Tracy frame capture (PBO ring-buffer for async screenshots)
+	frame_image:     tracy.Frame_Image,
+
+	// Performance mode (GameMode / SCHED_FIFO / Nice)
+	perf:            perf_mode.Perf_Mode,
 }
 
 // Creates the application (allocates + creates window).
@@ -49,16 +107,41 @@ create :: proc(width, height: i32, title: cstring) -> ^App {
 }
 
 // Initializes the application: window, OpenGL context, callbacks.
-init :: proc(application: ^App) -> bool {
+init :: proc(application: ^App, vsync: bool = false) -> bool {
 	if application == nil { return false }
+
+	log.set_callback(tracy_log_callback)
+
+	// Try to load previous session
+	session_state := session.Session_State{}
+	has_session := session.load_session(&session_state)
+	
+	if has_session && session_state.window_size[0] > 0 && session_state.window_size[1] > 0 {
+		application.width = session_state.window_size[0]
+		application.height = session_state.window_size[1]
+	}
+
+	// Set Mesa env vars BEFORE GL context if perf mode was active last session
+	if has_session && session_state.perf_mode_active {
+		perf_mode.setup_mesa_early()
+	}
 
 	application.window = window_create(
 		application.width,
 		application.height,
 		application.title,
+		vsync = vsync,
 	)
 	if application.window == nil {
 		return false
+	}
+	
+	if has_session {
+		glfw.SetWindowPos(application.window, session_state.window_pos[0], session_state.window_pos[1])
+		application.saved_x = session_state.window_pos[0]
+		application.saved_y = session_state.window_pos[1]
+		application.saved_width = session_state.window_size[0]
+		application.saved_height = session_state.window_size[1]
 	}
 
 	// Register Escape key callback
@@ -70,6 +153,8 @@ init :: proc(application: ^App) -> bool {
 	// Basic OpenGL setup
 	gl.Enable(gl.DEPTH_TEST)
 	gl.ClearColor(0.1, 0.1, 0.1, 1.0)
+	tracy.gpu_init()
+	tracy.frame_image_init(&application.frame_image)
 
 	// Framebuffer resize callback
 	glfw.SetFramebufferSizeCallback(application.window, framebuffer_size_callback)
@@ -92,6 +177,18 @@ init :: proc(application: ^App) -> bool {
 		return false
 	}
 
+	if has_session {
+		restore_session_state(application, session_state)
+	}
+
+	// Initialize performance mode subsystem (probes backends)
+	// Must be after restore so session state is available, but probe before activate.
+	perf_mode.init(&application.perf)
+	if has_session && session_state.perf_mode_active {
+		perf_mode.activate(&application.perf, quiet = true)
+		log.log_debug("PERF", "Performance mode restored from session (%s)", perf_mode.backend_label(&application.perf))
+	}
+
 	application.last_frame_time = glfw.GetTime()
 	application.running = true
 
@@ -107,45 +204,92 @@ run :: proc(application: ^App) {
 	log.log_info("suckless-odin.app", "Entering main loop (Escape to quit)")
 
 	for application.running && !glfw.WindowShouldClose(application.window) {
+		tracy.frame_mark()
+		frame_zone := tracy.zone_begin(&frame_zone_loc)
+
 		// Timing
 		current_time := glfw.GetTime()
 		application.delta_time = f32(current_time - application.last_frame_time)
 		application.last_frame_time = current_time
 
 		// Input
+		poll_zone := tracy.zone_begin(&poll_zone_loc)
 		glfw.PollEvents()
+		tracy.zone_end(poll_zone)
 		if !gui.wants_keyboard(&application.imgui) {
 			process_keyboard(application)
 		}
 
 		// Update scene (camera physics, etc.)
+		update_zone := tracy.zone_begin(&update_zone_loc)
 		scene.scene_update(&application.scene, application.delta_time)
+		tracy.zone_end(update_zone)
 
 		// Render
+		dbg.push_group("Render_Frame")
+
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		w, h := glfw.GetFramebufferSize(application.window)
+		render_zone := tracy.zone_begin(&render_zone_loc)
 		scene.scene_render(&application.scene, w, h)
+		tracy.zone_end(render_zone)
 
 		// GUI (Dear ImGui) — render on top of scene
-		gui.new_frame(&application.imgui)
-		gui.update(&application.imgui, gui.Scene_State{
-			camera              = &application.scene.camera,
-			skybox_visible      = &application.scene.skybox_visible,
-			wireframe_enabled   = &application.scene.wireframe_enabled,
-			exposure            = &application.scene.exposure,
-			skybox_blur_lod     = &application.scene.skybox.blur_lod,
-			ibl_irradiance_map  = application.scene.ibl.irradiance_map,
-			ibl_prefilter_map   = application.scene.ibl.prefilter_map,
-			ibl_brdf_lut        = application.scene.ibl.brdf_lut,
-			env_texture_id      = application.scene.env_texture.id,
-			env_texture_width   = application.scene.env_texture.width,
-			env_texture_height  = application.scene.env_texture.height,
-		})
-		gui.render(&application.imgui)
+		if application.imgui.visible {
+			dbg.push_group("GUI_ImGui")
+			gui.new_frame(&application.imgui)
+			gui.update(&application.imgui, gui.Scene_State{
+				camera              = &application.scene.camera,
+				skybox_visible      = &application.scene.skybox_visible,
+				wireframe_enabled   = &application.scene.wireframe_enabled,
+				exposure            = &application.scene.exposure,
+				skybox_blur_lod     = &application.scene.skybox.blur_lod,
+				skybox_mode         = &application.scene.skybox.mode,
+				mipmap_mode         = &application.scene.skybox.mipmap_mode,
+				blur_source         = &application.scene.skybox.blur_source,
+				cubemap_dirty       = &application.scene.skybox.cubemap_dirty,
+				show_mipmap_diff    = &application.scene.skybox.show_diff,
+				diff_gain           = &application.scene.skybox.diff_gain,
+				sort_mode           = &application.scene.sort_mode,
+				edge_aa_enabled     = &application.scene.edge_aa_enabled,
+				edge_aa_debug       = &application.scene.edge_aa_debug,
+				ibl_irradiance_map  = application.scene.ibl.irradiance_map,
+				ibl_prefilter_map   = application.scene.ibl.prefilter_map,
+				ibl_brdf_lut        = application.scene.ibl.brdf_lut,
+				env_texture_id      = application.scene.env_texture.id,
+				env_texture_width   = application.scene.env_texture.width,
+				env_texture_height  = application.scene.env_texture.height,
+				postfx              = &application.scene.postfx_pipeline,
+				perf                = &application.perf,
+				frame_time_ms       = application.scene.overlay.frame_time_display,
+			})
+			gui.render(&application.imgui)
+			dbg.pop_group()
+		}
+
+		// Regenerate cubemap if mipmap mode was changed via GUI
+		if application.scene.skybox.cubemap_dirty {
+			rendering.skybox_regenerate_cubemap(&application.scene.skybox)
+			application.scene.skybox.cubemap_dirty = false
+		}
+
+		dbg.pop_group()
+
+		// Frame image capture for Tracy (async PBO readback)
+		dbg.push_gpu_zone_only("Frame_Image_Capture")
+		tracy.frame_image_update(&application.frame_image, w, h)
+		dbg.pop_gpu_zone_only()
+
+		tracy.zone_end(frame_zone)
 
 		// Swap
+		dbg.push_gpu_zone_only("Swap_Buffers")
 		glfw.SwapBuffers(application.window)
+		dbg.pop_gpu_zone_only()
+
+		// GPU collect AFTER swap (captures all GPU work including swap fence)
+		tracy.gpu_collect()
 	}
 
 	log.log_info("suckless-odin.app", "Main loop exited")
@@ -155,12 +299,29 @@ run :: proc(application: ^App) {
 destroy :: proc(application: ^App) {
 	if application == nil { return }
 
+	// Save session state BEFORE cleanup (perf_mode.cleanup sets active=false)
+	state := extract_session_state(application)
+	session.save_session(&state)
+
+	// Deactivate performance mode
+	perf_mode.cleanup(&application.perf)
+
 	gui.destroy(&application.imgui)
 	scene.scene_destroy(&application.scene)
+	tracy.frame_image_destroy(&application.frame_image)
+	tracy.gpu_shutdown()
 	window_destroy(application.window)
 	free(application)
 
 	log.log_info("suckless-odin.app", "Application destroyed")
+}
+
+// Apply CLI postfx options (preset, enable/disable).
+apply_postfx_options :: proc(application: ^App, enabled: bool, preset: Maybe(postfx.Preset_Id)) {
+	application.scene.postfx_pipeline.enabled = enabled
+	if id, ok := preset.?; ok {
+		postfx.pipeline_apply_preset(&application.scene.postfx_pipeline, id)
+	}
 }
 
 // GLFW key callback — handles press-only actions.
@@ -316,5 +477,172 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 // GLFW framebuffer resize callback.
 @(private)
 framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
+	context = runtime.default_context()
 	gl.Viewport(0, 0, width, height)
+	app := cast(^App)glfw.GetWindowUserPointer(window)
+	if app != nil {
+		app.width = width
+		app.height = height
+		scene.scene_resize(&app.scene, width, height)
+	}
+}
+
+// Extract current app state into a Session_State struct
+extract_session_state :: proc(application: ^App) -> session.Session_State {
+	s := &application.scene
+	p := &s.postfx_pipeline
+	
+	pfx_settings := postfx.Settings_File{
+		name          = "session_autosave",
+		effects       = transmute(u32)p.active_effects,
+		vignette      = p.vignette,
+		grain         = p.grain,
+		exposure      = p.exposure,
+		chrom_abbr    = p.chrom_abbr,
+		white_balance = p.white_balance,
+		color_grading = p.color_grading,
+		tonemapper    = p.tonemapper,
+		bloom         = p.bloom,
+		fxaa          = p.fxaa,
+		dof           = p.dof,
+		banding       = p.banding,
+		fog           = p.fog,
+		motion_blur   = p.motion_blur,
+		lut3d         = p.lut3d,
+		debug_split     = transmute(u32)p.debug_split,
+		split_positions = postfx.split_positions_to_array(p),
+	}
+
+	// Update window saved position if not fullscreen
+	if !application.is_fullscreen {
+		application.saved_x, application.saved_y = glfw.GetWindowPos(application.window)
+		application.saved_width, application.saved_height = glfw.GetWindowSize(application.window)
+	}
+
+	return session.Session_State{
+		window_pos        = {application.saved_x, application.saved_y},
+		window_size       = {application.saved_width, application.saved_height},
+		camera_pos        = s.camera.position,
+		camera_yaw        = s.camera.yaw,
+		camera_pitch      = s.camera.pitch,
+		camera_zoom       = s.camera.zoom,
+		exposure          = s.exposure,
+		wireframe_enabled = s.wireframe_enabled,
+		skybox_visible    = s.skybox_visible,
+		skybox_blur_lod   = s.skybox.blur_lod,
+		skybox_mode       = i32(s.skybox.mode),
+		mipmap_mode       = i32(s.skybox.mipmap_mode),
+		blur_source       = i32(s.skybox.blur_source),
+		show_blur_diff    = s.skybox.show_diff,
+		diff_gain         = s.skybox.diff_gain,
+		sort_mode         = i32(s.sort_mode),
+		edge_aa_enabled   = s.edge_aa_enabled,
+		edge_aa_debug     = s.edge_aa_debug,
+		postfx_active     = p.enabled,
+		postfx_settings   = pfx_settings,
+		gui_visible       = application.imgui.visible,
+		gui_active_tab    = application.imgui.active_tab,
+		ibl_debug_open    = application.imgui.ibl_debug_open,
+		is_fullscreen     = application.is_fullscreen,
+		overlay_mode      = i32(s.overlay.mode),
+		camera_enabled    = application.camera_enabled,
+		perf_mode_active  = application.perf.active,
+	}
+}
+
+// Restore app state from a Session_State struct
+restore_session_state :: proc(application: ^App, state: session.Session_State) {
+	s := &application.scene
+	
+	s.camera.position = state.camera_pos
+	s.camera.yaw      = state.camera_yaw
+	s.camera.pitch    = state.camera_pitch
+	s.camera.yaw_target   = state.camera_yaw
+	s.camera.pitch_target = state.camera_pitch
+	s.camera.zoom     = state.camera_zoom
+	cam.update_vectors(&s.camera)
+	
+	s.exposure          = state.exposure
+	s.wireframe_enabled = state.wireframe_enabled
+	s.skybox_visible    = state.skybox_visible
+	s.skybox.blur_lod   = state.skybox_blur_lod
+	s.skybox.mode       = rendering.Skybox_Mode(state.skybox_mode)
+	s.skybox.mipmap_mode = rendering.Mipmap_Mode(state.mipmap_mode)
+	s.skybox.blur_source = rendering.Blur_Source(state.blur_source)
+	s.skybox.show_diff   = state.show_blur_diff
+	if state.diff_gain > 0 {
+		s.skybox.diff_gain = state.diff_gain
+	}
+	s.sort_mode         = rendering.Sort_Mode(state.sort_mode)
+	s.edge_aa_enabled   = state.edge_aa_enabled
+	s.edge_aa_debug     = state.edge_aa_debug
+	
+	p := &s.postfx_pipeline
+	p.enabled = state.postfx_active
+	
+	pfx := state.postfx_settings
+	p.active_effects = transmute(postfx.Effect_Flags)pfx.effects
+	p.debug_split    = transmute(postfx.Effect_Flags)pfx.debug_split
+	postfx.split_positions_from_array(p, pfx.split_positions)
+	p.vignette       = pfx.vignette
+	p.grain          = pfx.grain
+	p.exposure       = pfx.exposure
+	p.chrom_abbr     = pfx.chrom_abbr
+	p.white_balance  = pfx.white_balance
+	p.color_grading  = pfx.color_grading
+	p.tonemapper     = pfx.tonemapper
+	p.bloom          = pfx.bloom
+	p.fxaa           = pfx.fxaa
+	p.dof            = pfx.dof
+	p.banding        = pfx.banding
+	p.fog            = pfx.fog
+	p.motion_blur    = pfx.motion_blur
+	p.lut3d          = pfx.lut3d
+	p.ubo_dirty      = true
+	
+	application.imgui.visible = state.gui_visible
+	application.imgui.active_tab = state.gui_active_tab
+	application.imgui.restore_tab = 3
+	application.imgui.ibl_debug_open = state.ibl_debug_open
+	
+	s.overlay.mode = rendering.Overlay_Mode(state.overlay_mode)
+	
+	application.camera_enabled = state.camera_enabled
+	if state.gui_visible {
+		application.camera_enabled = false
+	}
+	
+	if application.camera_enabled {
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+	} else {
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+	}
+	
+	if state.is_fullscreen {
+		monitor := glfw.GetPrimaryMonitor()
+		if monitor != nil {
+			mode := glfw.GetVideoMode(monitor)
+			glfw.SetWindowMonitor(application.window, monitor, 0, 0, mode.width, mode.height, mode.refresh_rate)
+			application.is_fullscreen = true
+		}
+	}
+}
+
+@(private)
+tracy_log_callback :: proc(level: log.Log_Level, tag: string, message: string) {
+	color: u32 = 0xFFFFFF
+	switch level {
+	case .Critical:
+		color = 0xFF0000
+	case .Error:
+		color = 0xFF5555
+	case .Warning:
+		color = 0xFFFF55
+	case .Debug:
+		color = 0xAAAAAA
+	case .Info, .Not_Set:
+		color = 0xFFFFFF
+	}
+	formatted := fmt.tprintf("[%s] %s", tag, message)
+	tracy.message_c(formatted, color)
 }

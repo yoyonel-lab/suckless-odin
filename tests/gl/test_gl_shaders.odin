@@ -110,7 +110,7 @@ test_pbr_billboard_frag_compiles :: proc(t: ^testing.T) {
 test_simple_billboard_vert_compiles :: proc(t: ^testing.T) {
 	if !ensure_gl_context(t) { return }
 
-	source, ok := shader.read_file("shaders/simple_billboard.vert")
+	source, ok := shader.read_file("shaders/test/simple_billboard.vert")
 	testing.expect(t, ok, "failed to read simple_billboard.vert")
 	defer delete(source)
 
@@ -123,7 +123,7 @@ test_simple_billboard_vert_compiles :: proc(t: ^testing.T) {
 test_simple_billboard_frag_compiles :: proc(t: ^testing.T) {
 	if !ensure_gl_context(t) { return }
 
-	source, ok := shader.read_file("shaders/simple_billboard.frag")
+	source, ok := shader.read_file("shaders/test/simple_billboard.frag")
 	testing.expect(t, ok, "failed to read simple_billboard.frag")
 	defer delete(source)
 
@@ -195,7 +195,7 @@ test_pbr_billboard_program_links :: proc(t: ^testing.T) {
 test_simple_billboard_program_links :: proc(t: ^testing.T) {
 	if !ensure_gl_context(t) { return }
 
-	program, ok := shader.load_program("shaders/simple_billboard.vert", "shaders/simple_billboard.frag")
+	program, ok := shader.load_program("shaders/test/simple_billboard.vert", "shaders/test/simple_billboard.frag")
 	testing.expect(t, ok, "simple_billboard program linking failed")
 	if ok { gl.DeleteProgram(program) }
 }

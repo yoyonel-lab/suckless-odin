@@ -9,6 +9,9 @@ import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
 import "../core/search"
+import perf_mode "../core/perf_mode"
+import postfx "../rendering/postfx"
+import rendering "../rendering"
 
 // Forward-declare scene data needed by GUI panels.
 // Avoids circular import by accepting raw pointers from app.
@@ -18,6 +21,24 @@ Scene_State :: struct {
 	wireframe_enabled: ^bool,
 	exposure:          ^f32,
 	skybox_blur_lod:   ^f32,
+	skybox_mode:       ^rendering.Skybox_Mode,
+	mipmap_mode:       ^rendering.Mipmap_Mode,
+	blur_source:       ^rendering.Blur_Source,
+	cubemap_dirty:     ^bool,
+	show_mipmap_diff:  ^bool,
+	diff_gain:         ^f32,
+	sort_mode:         ^rendering.Sort_Mode,
+	edge_aa_enabled:   ^bool,
+	edge_aa_debug:     ^bool,
+
+	// Post-processing pipeline (live controls)
+	postfx: ^postfx.Pipeline,
+
+	// Performance mode (optional — nil if not available)
+	perf: ^perf_mode.Perf_Mode,
+
+	// Smoothed frame time from overlay (single source of truth)
+	frame_time_ms: f32,
 
 	// IBL debug textures (GL handles)
 	ibl_irradiance_map: u32,
@@ -43,6 +64,8 @@ Gui :: struct {
 	ctx:              ^imgui.Context,
 	visible:          bool,
 	docking_enabled:  bool,
+	active_tab:       i32,
+	restore_tab:      i32, // Frame counter for SetSelected (needs 2 frames)
 	search_buf:       [SEARCH_BUF_SIZE]u8,
 	focus_search:     bool,
 	ibl_debug_open:   bool,
@@ -133,24 +156,62 @@ update :: proc(g: ^Gui, state: Scene_State) {
 		} else {
 			// Normal tab bar
 			if imgui.BeginTabBar("##tabs") {
-				if imgui.BeginTabItem("Camera") {
+				tab_flags :: proc(g: ^Gui, idx: i32) -> imgui.TabItemFlags {
+					if g.restore_tab > 0 && g.active_tab == idx {
+						return {.SetSelected}
+					}
+					return {}
+				}
+				restoring := g.restore_tab > 0
+				if imgui.BeginTabItem("Camera", flags = tab_flags(g, 0)) {
+					if !restoring { g.active_tab = 0 }
 					draw_tab_camera(state.camera)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("Scene") {
+				if imgui.BeginTabItem("Scene", flags = tab_flags(g, 1)) {
+					if !restoring { g.active_tab = 1 }
 					draw_tab_scene(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("Rendering") {
-					draw_tab_rendering()
+				if imgui.BeginTabItem("Rendering", flags = tab_flags(g, 2)) {
+					if !restoring { g.active_tab = 2 }
+					draw_tab_rendering(state)
 					imgui.EndTabItem()
 				}
-				if imgui.BeginTabItem("IBL Debug", flags = g.ibl_debug_open ? imgui.TabItemFlags{.SetSelected} : {}) {
+				if imgui.BeginTabItem("Post-FX", flags = tab_flags(g, 3)) {
+					if !restoring { g.active_tab = 3 }
+					draw_postfx_section(state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("MBlur", flags = tab_flags(g, 4)) {
+					if !restoring { g.active_tab = 4 }
+					draw_tab_motion_blur(state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("Profiling", flags = tab_flags(g, 5)) {
+					if !restoring { g.active_tab = 5 }
+					draw_gpu_timings_section(state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("Shaders", flags = tab_flags(g, 6)) {
+					if !restoring { g.active_tab = 6 }
+					draw_shader_cache_section(state)
+					imgui.EndTabItem()
+				}
+				ibl_flags := tab_flags(g, 7)
+				if g.ibl_debug_open {
+					ibl_flags += {.SetSelected}
+				}
+				if imgui.BeginTabItem("IBL Debug", flags = ibl_flags) {
+					if !restoring { g.active_tab = 7 }
 					g.ibl_debug_open = false
 					draw_tab_ibl_debug(g, state)
 					imgui.EndTabItem()
 				} else {
 					g.ibl_debug_open = false
+				}
+				if g.restore_tab > 0 {
+					g.restore_tab -= 1
 				}
 				imgui.EndTabBar()
 			}
@@ -215,18 +276,68 @@ draw_tab_camera :: proc(c: ^cam.Camera) {
 	imgui.Separator()
 
 	imgui.SliderFloat("Speed", &c.velocity, 1.0, 100.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Maximum movement speed (units/sec)\nHigher = faster camera travel")
+	}
 	imgui.SliderFloat("Acceleration", &c.acceleration, 1.0, 50.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("How quickly camera reaches max speed\nHigher = snappier response, Lower = more inertia")
+	}
 	imgui.SliderFloat("Friction", &c.friction, 0.5, 0.99)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Velocity damping per frame\n0.5 = stops fast (heavy), 0.99 = slides long (ice)")
+	}
 	imgui.SliderFloat("Sensitivity", &c.sensitivity, 0.01, 1.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Mouse look sensitivity\nMultiplier on raw mouse delta for yaw/pitch rotation")
+	}
 	imgui.SliderFloat("Rotation Smoothing", &c.rotation_smoothing, 0.0, 0.5)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Lerp factor for yaw/pitch interpolation\n0 = instant (no smoothing), 0.5 = heavy lag")
+	}
 	imgui.SliderFloat("Mouse Smoothing", &c.mouse_smoothing_factor, 0.0, 0.5)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("EMA filter on raw mouse input\n0 = raw (no filter), 0.5 = heavy averaging\nReduces jitter at cost of latency")
+	}
 	imgui.SliderFloat("FOV", &c.zoom, 10.0, 120.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Vertical field of view (degrees)\n60 = standard, 90 = wide, 10 = telephoto zoom")
+	}
 	imgui.Separator()
 
 	imgui.Checkbox("Head Bobbing", &c.bobbing_enabled)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Simulates head bob during movement\nAdds subtle vertical oscillation to camera position")
+	}
 	if c.bobbing_enabled {
 		imgui.SliderFloat("Bobbing Freq", &c.bobbing_frequency, 0.5, 10.0)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Oscillation frequency (Hz)\nHigher = faster bobbing cycle")
+		}
 		imgui.SliderFloat("Bobbing Amp", &c.bobbing_amplitude, 0.0, 0.01)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Vertical displacement amplitude (world units)\nHigher = more pronounced head movement")
+		}
 	}
 
 	imgui.Separator()
@@ -241,6 +352,58 @@ draw_tab_camera :: proc(c: ^cam.Camera) {
 draw_tab_scene :: proc(state: Scene_State) {
 	imgui.Checkbox("Skybox", state.skybox_visible)
 	imgui.SliderFloat("Skybox Blur", state.skybox_blur_lod, 0.0, 8.0)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("LOD level for background blur\n0 = sharp, 8 = maximum blur\nUses mipmap or prefilter depending on Blur Source")
+	}
+	if state.blur_source != nil {
+		src_val := i32(state.blur_source^)
+		if imgui.Combo("Blur Source", &src_val, "Mipmap LOD\x00IBL Prefilter\x00") {
+			state.blur_source^ = rendering.Blur_Source(src_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Mipmap LOD: standard GL mipmaps (box filter)\nIBL Prefilter: physically-based specular convolution\n(smoother, more accurate at high blur)")
+		}
+	}
+	if state.skybox_mode != nil {
+		mode_val := i32(state.skybox_mode^)
+		if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
+			state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Equirectangular: sample HDR directly (2D texture)\nCubemap: pre-converted 6-face cube\n(required for seamless mipmap filtering)")
+		}
+	}
+	if state.mipmap_mode != nil {
+		mip_val := i32(state.mipmap_mode^)
+		if imgui.Combo("Cubemap Mipmaps", &mip_val, "glGenerateMipmap\x00Seamless (cross-face)\x00") {
+			state.mipmap_mode^ = rendering.Mipmap_Mode(mip_val)
+			if state.cubemap_dirty != nil {
+				state.cubemap_dirty^ = true
+			}
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("glGenerateMipmap: fast, may have seams at cube edges\nSeamless (cross-face): custom downsampler\nthat blends across cube face boundaries")
+		}
+	}
+	if state.show_mipmap_diff != nil {
+		imgui.Checkbox("Show Blur Diff", state.show_mipmap_diff)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Visualize difference between Mipmap and Prefilter blur\nShows where the two methods diverge\nAmplified by Diff Gain slider")
+		}
+		if state.show_mipmap_diff^ && state.diff_gain != nil {
+			imgui.SliderFloat("Diff Gain", state.diff_gain, 1.0, 100.0)
+		}
+	}
 	imgui.Separator()
 
 	imgui.BeginDisabled()
@@ -249,6 +412,25 @@ draw_tab_scene :: proc(state: Scene_State) {
 	imgui.Separator()
 
 	imgui.Checkbox("Wireframe", state.wireframe_enabled)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Render billboard quads as wireframe\nShows the actual quad geometry used for raymarching")
+	}
+	imgui.Separator()
+
+	// Sort Mode
+	if state.sort_mode != nil {
+		sort_val := i32(state.sort_mode^)
+		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
+			state.sort_mode^ = rendering.Sort_Mode(sort_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
+		}
+	}
 }
 
 // ─── Tab: IBL Debug ────────────────────────────────────────────────────────────
@@ -528,7 +710,28 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 // ─── Tab: Rendering (all debug views & post-FX, greyed until implemented) ────
 
 @(private)
-draw_tab_rendering :: proc() {
+draw_tab_rendering :: proc(state: Scene_State) {
+	// --- Edge Anti-Aliasing (Billboard) ---
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Edge Anti-Aliasing")
+	imgui.Separator()
+	if state.edge_aa_enabled != nil {
+		imgui.Checkbox("Edge AA##edge", state.edge_aa_enabled)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Analytic billboard edge smoothing\n(smoothstep on ray-sphere discriminant)")
+		}
+		if state.edge_aa_debug != nil {
+			imgui.Checkbox("Debug View (Grayscale)##edge_dbg", state.edge_aa_debug)
+			imgui.SameLine()
+			imgui.TextDisabled("(?)")
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Heatmap of edge factor:\n- Dark interior = fully opaque (factor ~1.0)\n- Red = near edge (factor -> 0)\n- Yellow/Green = transition zone\nBand should be ~1px at silhouette")
+			}
+		}
+	}
+	imgui.Spacing()
+
 	// --- PBR Debug Modes ---
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "PBR Debug Modes")
 	imgui.Separator()
@@ -544,42 +747,18 @@ draw_tab_rendering :: proc() {
 	imgui.EndDisabled()
 	imgui.Spacing()
 
-	// --- Post-Processing ---
-	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Post-Processing")
-	imgui.Separator()
-	imgui.BeginDisabled()
-
-	placeholder := false
-	placeholder_f: f32 = 0.5
-
-	imgui.Checkbox("Bloom", &placeholder)
-	imgui.SliderFloat("Bloom Intensity", &placeholder_f, 0.0, 2.0)
-	imgui.Checkbox("Depth of Field", &placeholder)
-	imgui.SliderFloat("DoF Focus Dist", &placeholder_f, 0.0, 100.0)
-	imgui.Checkbox("Auto-Exposure", &placeholder)
-	imgui.SliderFloat("Manual Exposure", &placeholder_f, 0.1, 10.0)
-	imgui.Checkbox("Motion Blur", &placeholder)
-	imgui.Checkbox("FXAA", &placeholder)
-	imgui.Checkbox("Vignette", &placeholder)
-	imgui.Checkbox("Film Grain", &placeholder)
-	imgui.Checkbox("Chromatic Aberration", &placeholder)
-	imgui.Checkbox("Color Grading (LUT)", &placeholder)
-
-	imgui.EndDisabled()
-	imgui.Spacing()
-
 	// --- Debug Views ---
+	// Note: per-FX debug toggles (Bloom/DoF/FXAA) now live in the Post-FX tab,
+	// Motion Blur debug lives in the dedicated MBlur tab.
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Debug Views")
 	imgui.Separator()
+
+	placeholder := false
+
 	imgui.BeginDisabled()
-
-	imgui.Checkbox("Bloom Debug", &placeholder)
-	imgui.Checkbox("DoF Debug", &placeholder)
+	imgui.Checkbox("Fog Debug", &placeholder)
 	imgui.Checkbox("Exposure Histogram", &placeholder)
-	imgui.Checkbox("Motion Blur Debug", &placeholder)
-	imgui.Checkbox("FXAA Debug", &placeholder)
 	imgui.Checkbox("Stencil Debug", &placeholder)
-
 	imgui.EndDisabled()
 	imgui.Spacing()
 
@@ -601,6 +780,7 @@ draw_tab_rendering :: proc() {
 	imgui.Separator()
 	imgui.BeginDisabled()
 
+	placeholder_f: f32 = 0.0
 	imgui.Checkbox("Light Probes Debug", &placeholder)
 	imgui.Checkbox("N-Body Simulation", &placeholder)
 	imgui.SliderFloat("Sim Speed", &placeholder_f, 0.0, 5.0)
@@ -610,10 +790,21 @@ draw_tab_rendering :: proc() {
 	gi_mode: i32 = 0
 	imgui.Combo("GI Mode", &gi_mode, "OFF\x00Volume 3D Tex\x00SSBO\x00")
 
-	sort_mode: i32 = 0
-	imgui.Combo("Sort Mode", &sort_mode, "None\x00CPU\x00GPU\x00")
-
 	imgui.EndDisabled()
+
+	// Sort Mode — functional (CPU variants)
+	if state.sort_mode != nil {
+		sort_val := i32(state.sort_mode^)
+		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
+			state.sort_mode^ = rendering.Sort_Mode(sort_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
+		}
+	}
+
 	imgui.Spacing()
 
 	// --- Environment ---
@@ -708,6 +899,36 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.SliderFloat("Skybox Blur", state.skybox_blur_lod, 0.0, 8.0)
 			match_count += 1
 		}
+		if fuzzy_match(filter, "Blur Source", "ibl prefilter mipmap lod") {
+			if state.blur_source != nil {
+				src_val := i32(state.blur_source^)
+				if imgui.Combo("Blur Source", &src_val, "Mipmap LOD\x00IBL Prefilter\x00") {
+					state.blur_source^ = rendering.Blur_Source(src_val)
+				}
+			}
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Skybox Mode", "equirectangular cubemap projection") {
+			if state.skybox_mode != nil {
+				mode_val := i32(state.skybox_mode^)
+				if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
+					state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
+				}
+			}
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Cubemap Mipmaps", "seamless cross-face mipmap generation") {
+			if state.mipmap_mode != nil {
+				mip_val := i32(state.mipmap_mode^)
+				if imgui.Combo("Cubemap Mipmaps", &mip_val, "glGenerateMipmap\x00Seamless (cross-face)\x00") {
+					state.mipmap_mode^ = rendering.Mipmap_Mode(mip_val)
+					if state.cubemap_dirty != nil {
+						state.cubemap_dirty^ = true
+					}
+				}
+			}
+			match_count += 1
+		}
 		if fuzzy_match(filter, "Exposure", "tone mapping hdr brightness") {
 			imgui.BeginDisabled()
 			imgui.SliderFloat("Exposure", state.exposure, 0.1, 10.0)
@@ -718,6 +939,15 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.Checkbox("Wireframe", state.wireframe_enabled)
 			match_count += 1
 		}
+		if fuzzy_match(filter, "Sort Mode", "sorting back-to-front radix qsort depth order") {
+			if state.sort_mode != nil {
+				sort_val := i32(state.sort_mode^)
+				if imgui.Combo("Sort Mode##filt", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
+					state.sort_mode^ = rendering.Sort_Mode(sort_val)
+				}
+			}
+			match_count += 1
+		}
 		imgui.Spacing()
 	}
 
@@ -725,57 +955,22 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 	if section_has_matches(filter, RENDERING_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Rendering")
 		imgui.Separator()
+
+		// Live PostFX controls
+		match_count += draw_postfx_filtered(state, filter)
+
+		// PBR debug (still disabled)
 		imgui.BeginDisabled()
 
-		placeholder := false
-		placeholder_f: f32 = 0.5
-
-		if fuzzy_match(filter, "PBR Debug Mode", "post-processing post processing rendering albedo normal metallic roughness ao irradiance prefilter brdf") {
+		if fuzzy_match(filter, "PBR Debug Mode", "rendering albedo normal metallic roughness ao irradiance prefilter brdf") {
 			pbr_debug_mode: i32 = 0
 			imgui.Combo("Debug Mode", &pbr_debug_mode,
 				"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance\x00Prefilter\x00BRDF LUT\x00GI Probes\x00")
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Specular Anti-Aliasing", "post-processing post processing rendering aa filtering") {
-			imgui.Checkbox("Specular Anti-Aliasing", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Bloom", "post-processing post processing rendering glow effect") {
-			imgui.Checkbox("Bloom", &placeholder)
-			imgui.SliderFloat("Bloom Intensity", &placeholder_f, 0.0, 2.0)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Depth of Field", "post-processing post processing rendering dof bokeh blur focus") {
-			imgui.Checkbox("Depth of Field", &placeholder)
-			imgui.SliderFloat("DoF Focus Dist", &placeholder_f, 0.0, 100.0)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Auto-Exposure", "post-processing post processing rendering adaptation luminance eye") {
-			imgui.Checkbox("Auto-Exposure", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Motion Blur", "post-processing post processing rendering velocity tile") {
-			imgui.Checkbox("Motion Blur", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "FXAA", "post-processing post processing rendering anti-aliasing antialiasing smooth") {
-			imgui.Checkbox("FXAA", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Vignette", "post-processing post processing rendering border darken") {
-			imgui.Checkbox("Vignette", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Film Grain", "post-processing post processing rendering noise cinematic") {
-			imgui.Checkbox("Film Grain", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Chromatic Aberration", "post-processing post processing rendering color fringe lens") {
-			imgui.Checkbox("Chromatic Aberration", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Color Grading", "post-processing post processing rendering lut tone color correction") {
-			imgui.Checkbox("Color Grading (LUT)", &placeholder)
+		if fuzzy_match(filter, "Specular Anti-Aliasing", "rendering aa filtering") {
+			placeholder_aa := false
+			imgui.Checkbox("Specular Anti-Aliasing", &placeholder_aa)
 			match_count += 1
 		}
 
@@ -803,8 +998,31 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.Checkbox("Exposure Histogram", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Motion Blur Debug", "velocity visualization") {
-			imgui.Checkbox("Motion Blur Debug", &placeholder)
+		if fuzzy_match(filter, "Motion Blur Debug", "velocity visualization vector field") {
+			if state.postfx != nil {
+				p := state.postfx
+				mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
+				vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
+				current_dbg: i32 = 0
+				if mb_dbg { current_dbg = 1 }
+				if vf_dbg { current_dbg = 2 }
+				debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
+				if imgui.BeginCombo("MB Debug##filt", debug_modes[current_dbg]) {
+					for i in i32(0) ..< 3 {
+						if imgui.Selectable(debug_modes[i], i == current_dbg) {
+							if .Motion_Blur_Debug in p.active_effects {
+								postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+							}
+							if .Vector_Field_Debug in p.active_effects {
+								postfx.pipeline_toggle(p, .Vector_Field_Debug)
+							}
+							if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
+							if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
+						}
+					}
+					imgui.EndCombo()
+				}
+			}
 			match_count += 1
 		}
 		if fuzzy_match(filter, "FXAA Debug", "edge detection visualization") {
@@ -823,8 +1041,8 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 			imgui.Checkbox("GPU Metrics Log", &placeholder)
 			match_count += 1
 		}
-		if fuzzy_match(filter, "Perf Mode", "profiling fps benchmark") {
-			imgui.Checkbox("Perf Mode", &placeholder)
+		if fuzzy_match(filter, "Perf Mode", "performance gamemode sched nice cpu gpu boost priority") {
+			draw_perf_mode_widget(state)
 			match_count += 1
 		}
 		if fuzzy_match(filter, "Light Probes Debug", "gi global illumination") {
@@ -951,13 +1169,13 @@ ibl_goto_button :: proc(g: ^Gui, target: IBL_Scroll_Target) {
 CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov bobbing zoom projection mouse movement"
 
 @(private)
-SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon"
+SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon sort mode radix cubemap equirectangular projection"
 
 @(private)
-RENDERING_KEYWORDS :: "rendering post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus"
+RENDERING_KEYWORDS :: "rendering postfx post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus exposure tonemap tonemapping saturation contrast gamma"
 
 @(private)
-DEBUG_KEYWORDS :: "debug debug views bloom dof exposure histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization"
+DEBUG_KEYWORDS :: "debug debug views bloom dof exposure luminance stops histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization performance gamemode sched nice cpu boost priority"
 
 @(private)
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"

@@ -16,3 +16,14 @@ Thumbs.db
 # Dependencies (submodule build artifacts ignored via .gitmodules ignore=dirty)
 imgui.ini
 tests/references/failed_*.png
+
+# Tracy profiler server build (built locally via `just build-tracy-server`)
+deps/tracy/profiler/build/
+
+# User PostFX presets (generated at runtime)
+assets/postfx/*.json
+session.json
+.token-savior-cache.json
+
+# Local environment
+.env

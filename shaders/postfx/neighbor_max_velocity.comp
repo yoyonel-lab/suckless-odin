@@ -1,0 +1,37 @@
+#version 450 core
+/* Neighbor-max velocity: 3×3 search over tile-max texture to dilate
+   the max velocity per tile. Prevents gaps where fast-moving objects
+   are adjacent to stationary ones. */
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D tileMaxTexture;
+layout(binding = 1, rg16f) uniform writeonly image2D neighborMaxTexture;
+
+void main() {
+    ivec2 tilePos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 gridSize = textureSize(tileMaxTexture, 0);
+
+    if (tilePos.x >= gridSize.x || tilePos.y >= gridSize.y) {
+        return;
+    }
+
+    vec2 maxVel = vec2(0.0);
+    float maxLenSq = 0.0;
+
+    // 3×3 neighborhood search
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec2 samplePos = tilePos + ivec2(dx, dy);
+            samplePos = clamp(samplePos, ivec2(0), gridSize - 1);
+            vec2 vel = texelFetch(tileMaxTexture, samplePos, 0).rg;
+            float lenSq = dot(vel, vel);
+            if (lenSq > maxLenSq) {
+                maxLenSq = lenSq;
+                maxVel = vel;
+            }
+        }
+    }
+
+    imageStore(neighborMaxTexture, tilePos, vec4(maxVel, 0.0, 0.0));
+}
