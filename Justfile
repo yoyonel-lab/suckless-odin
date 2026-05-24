@@ -52,6 +52,11 @@ build:
     @mkdir -p {{ build_base }}/debug
     {{ odin }} build src/ -out:{{ build_base }}/debug/suckless-odin -debug -use-separate-modules -extra-linker-flags:"{{ extra_linker_flags }}"
 
+# Fast release build (minimal optimization, fast compile)
+build-fast-release:
+    @mkdir -p {{ build_base }}/release
+    {{ odin }} build src/ -out:{{ build_base }}/release/suckless-odin -o:minimal -use-separate-modules -extra-linker-flags:"{{ extra_linker_flags }}"
+
 # Release build (optimized)
 build-release:
     @mkdir -p {{ build_base }}/release
