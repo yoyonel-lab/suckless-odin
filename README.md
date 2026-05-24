@@ -1,5 +1,7 @@
 # suckless-odin
 
+![PBR rendering — front view](tests/references/ref_front.png)
+
 Suckless OpenGL rendering engine — ISO port from [suckless-ogl](https://github.com/yoyonel/suckless-ogl) (C) to [Odin](https://odin-lang.org/).
 
 PBR physically-based rendering, IBL image-based lighting, uber-shader post-processing pipeline, Dear ImGui GUI, Tracy profiling.
