@@ -24,3 +24,6 @@ deps/tracy/profiler/build/
 assets/postfx/*.json
 session.json
 .token-savior-cache.json
+
+# Local environment
+.env
