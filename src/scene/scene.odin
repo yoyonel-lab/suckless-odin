@@ -56,7 +56,7 @@ Scene :: struct {
 	edge_aa_debug:     bool,
 }
 
-HDR_PATH      :: "../suckless-ogl/assets/textures/hdr/cedar_bridge_2_4k.hdr"
+HDR_PATH       :: "assets/textures/hdr/cedar_bridge_2_4k.hdr"
 MATERIALS_PATH :: "assets/materials/pbr_materials.json"
 
 scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {

@@ -249,14 +249,48 @@ jobs:
           name: imgui-lib
           path: deps/odin-imgui
 
-      - name: Unit tests
-        run: odin test tests/ -out:/tmp/odin-test-unit -extra-linker-flags:"-lX11"
+      - name: System resources (diagnostic)
+        run: |
+          echo "=== Memory ==="
+          free -m
+          echo "=== CPU ==="
+          nproc
+          echo "=== Limits ==="
+          ulimit -a
+          echo "=== Disk ==="
+          df -h /tmp
 
-      - name: CLI tests
-        run: odin test src/ -out:/tmp/odin-test-cli -extra-linker-flags:"-lX11"
+      - name: Enable core dumps
+        run: |
+          ulimit -c unlimited
+          echo '/tmp/core.%e.%p' | sudo tee /proc/sys/kernel/core_pattern
 
-      - name: Shader CPU tests
-        run: odin test src/rendering/shader/ -out:/tmp/odin-test-shader -extra-linker-flags:"-lX11"
+      - name: Build unit tests (compilation only)
+        run: odin build tests/ -out:/tmp/odin-test-unit -build-mode:test -extra-linker-flags:"-lX11"
+
+      - name: Run unit tests (execution)
+        run: /tmp/odin-test-unit
+
+      - name: Build CLI tests (compilation only)
+        run: odin build src/ -out:/tmp/odin-test-cli -build-mode:test -extra-linker-flags:"-lX11"
+
+      - name: Run CLI tests (execution)
+        run: /tmp/odin-test-cli
+
+      - name: Build shader CPU tests (compilation only)
+        run: odin build src/rendering/shader/ -out:/tmp/odin-test-shader -build-mode:test -extra-linker-flags:"-lX11"
+
+      - name: Run shader CPU tests (execution)
+        run: /tmp/odin-test-shader
+
+      - name: Upload core dump (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-dump-unit-tests
+          path: /tmp/core.*
+          if-no-files-found: ignore
+          retention-days: 3
 
   # ─── JOB 5: GL TESTS + VISUAL REGRESSION (Mesa + xvfb) ────────────────────────
   test-gl:
@@ -301,14 +335,6 @@ jobs:
           sudo cp -a glfw-install/include/* /usr/local/include/
           cd /usr/local/lib && sudo ln -sf libglfw.so.3 libglfw.so 2>/dev/null || true
           sudo ldconfig
-
-      - name: Fetch HDR texture from sibling repo
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://x-access-token:${{ github.token }}@github.com/yoyonel/suckless-ogl.git \
-            ../suckless-ogl
-          cd ../suckless-ogl
-          git sparse-checkout set assets/textures/hdr/
 
       - name: Download ImGui library
         uses: actions/download-artifact@v4

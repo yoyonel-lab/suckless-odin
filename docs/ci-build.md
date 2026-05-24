@@ -89,19 +89,9 @@ just gen-refs        # With display
 just gen-refs-xvfb   # Headless
 ```
 
-### HDR Asset Dependency
+### HDR Asset
 
-The scene requires an HDR environment map from the sibling `suckless-ogl` repository. In CI, this is handled via sparse checkout:
-
-```yaml
-- uses: actions/checkout@v4
-  with:
-    repository: yoyonel/suckless-ogl
-    path: ../suckless-ogl
-    sparse-checkout: assets/textures/hdr/
-```
-
-Locally, the sibling repo must be checked out at `../suckless-ogl/`.
+The scene requires an HDR environment map (`assets/textures/hdr/cedar_bridge_2_4k.hdr`) which is tracked directly in this repository.
 
 ## Local CI
 

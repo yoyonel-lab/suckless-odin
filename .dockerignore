@@ -1,0 +1,10 @@
+# .dockerignore — keep CI Docker build context small and fast
+build/
+.git/
+.vscode/
+.idea/
+*.o
+imgui.ini
+session.json
+tests/references/failed_*.png
+tests/references/diff_*.png
