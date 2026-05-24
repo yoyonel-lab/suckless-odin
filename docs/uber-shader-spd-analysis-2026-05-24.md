@@ -92,3 +92,26 @@ Bien que NVIDIA n'ait pas de "nom commercial" public concurrent direct pour le S
 - Les présentations de NVIDIA de l'ère Maxwell/Pascal insistent particulièrement sur le transfert des effets de Post-Processing complexes (Mipmapping, DOF, Bloom) depuis des passes de *Fragment Shaders* vers des **Compute Shaders**.
 - **Référence d'Architecture NVIDIA :** Le blog post officiel [Advanced API Performance: Shaders](https://developer.nvidia.com/blog/advanced-api-performance-shaders/) détaille l'occupation des ondes (Warps) et la gestion matérielle des shaders.
 - **Le cœur mathématique du Downsample :** Pour comprendre comment la *Shared Memory* évite les allers-retours VRAM lors de la création de mipmaps, il faut se référer au papier fondateur de NVIDIA : [Optimizing Parallel Reduction in CUDA](https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf). Bien qu'écrit pour CUDA, ce document dicte la façon dont les *Compute Shaders* OpenGL doivent structurer leur `Local Shared Memory` pour maximiser la bande passante de l'architecture NVIDIA.
+
+---
+
+## 7. Post-Mortem : Expérimentation Naïve (Multi-Dispatch Compute)
+
+Dans le but de valider rapidement l'intégration de Compute Shaders pour le Bloom, un **Proof of Concept (POC) naïf** a été tenté :
+- Remplacement des Framebuffers (FBO) par des opérations `imageLoad` / `imageStore`.
+- Lancement de multiples passes de calcul successives (Multi-Dispatch) séparées par des `glMemoryBarrier()`.
+
+### Résultats du Benchmark
+
+- **API / CPU :** Succès total. L'overhead du pilote NVIDIA s'est effondré grâce à la suppression des `glBindFramebuffer` et des `quad_draw`.
+- **GPU (Frametime) :** **Échec (Régression de 20% à 25% du temps GPU de la passe Bloom).** Le Frame-rate global n'a pas bougé car l'application n'était pas *GPU Bound*, mais le coût pur du Bloom a augmenté.
+
+### Conclusions et Leçon Matérielle
+
+Cette expérience confirme pourquoi une implémentation rigoureuse du SPD (Single-Pass) est **obligatoire** pour battre la rastérisation traditionnelle :
+
+1. **La puissance matérielle des ROPs :** La technique classique (Ping-Pong FBO) exploite les unités matérielles de rastérisation (ROPs). Ces unités appliquent une compression de couleur transparente (DCC - *Delta Color Compression*) très agressive lors de l'écriture en VRAM.
+2. **L'asphyxie mémoire du Compute Naïf :** Notre POC contournait cette compression matérielle en utilisant `imageStore()`. De plus, chaque `glMemoryBarrier()` forçait le GPU à vider ses caches (L1/L2) vers la VRAM entre chaque niveau de Mipmap (10 fois par frame).
+3. **Validation de l'approche SPD :** L'approche FidelityFX SPD gagne en performance **uniquement** parce qu'elle réalise l'ensemble de la pyramide Mipmap en **1 seul Dispatch**. Les threads communiquent via la RAM interne de la puce GPU (*Local Shared Memory* - LDS) sans jamais toucher à la VRAM globale avant la fin du traitement.
+
+**Verdict :** Le remplacement du Bloom par des Compute Shaders est une fausse bonne idée si l'on n'est pas prêt à investir dans l'architecture complexe du *Single-Pass Downsampler* exploitant la mémoire partagée.
