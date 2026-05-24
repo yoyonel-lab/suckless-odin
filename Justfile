@@ -7,17 +7,24 @@ set dotenv-load
 build_base := "build"
 
 # --- Transparent Distrobox Execution Wrappers ---
+# Auto-detect: inside container, or distrobox available on host, or native (no distrobox)
 in_container := env_var_or_default("CONTAINER_ID", "")
 distrobox_container := "clang-dev"
-dbx := if in_container != "" { "" } else { "distrobox enter " + distrobox_container + " -- " }
+has_distrobox := `which distrobox >/dev/null 2>&1 && echo "yes" || echo ""`
+# "native" is non-empty when we should run tools directly (in container OR no distrobox)
+native := if in_container != "" { "yes" } else if has_distrobox == "" { "yes" } else { "" }
+dbx := if native != "" { "" } else { "distrobox enter " + distrobox_container + " -- " }
 
-odin := if in_container != "" { "odin" } else { "env ODIN_ROOT=/usr/lib/odin " + dbx + "odin" }
-python3 := if in_container != "" { "python3" } else { dbx + "python3" }
-cmake := if in_container != "" { "cmake" } else { dbx + "cmake" }
-bash := if in_container != "" { "bash" } else { dbx + "bash" }
-xvfb_run := if in_container != "" { "xvfb-run" } else { dbx + "xvfb-run" }
+odin := if native != "" { "odin" } else { "env ODIN_ROOT=/usr/lib/odin " + dbx + "odin" }
+# odin without dbx prefix (for use inside xvfb_run which already enters the container)
+odin_inner := if native != "" { "odin" } else { "env ODIN_ROOT=/usr/lib/odin odin" }
+python3 := if native != "" { "python3" } else { dbx + "python3" }
+cmake := if native != "" { "cmake" } else { dbx + "cmake" }
+bash := if native != "" { "bash" } else { dbx + "bash" }
+xvfb_run := if native != "" { "xvfb-run" } else { dbx + "xvfb-run" }
 
 # Extra linker flags (libc++ from linuxbrew, X11 for imgui_impl_glfw)
+# Inside container: libs already in default search path; native or distrobox host: need explicit -L
 extra_linker_flags := if in_container != "" { "-Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11" } else { "-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11" }
 
 # Tracy profiler extra linker flags (C++ runtime + libtracy.a deps)
@@ -169,14 +176,14 @@ build-tracy-server:
 
 # Launch Tracy profiler server (auto-connects to instrumented app)
 tracy-server:
-    distrobox enter clang-dev -- deps/tracy/profiler/build/tracy-profiler
+    {{ dbx }}deps/tracy/profiler/build/tracy-profiler
 
 # Full Tracy setup: build client lib + server
 build-tracy: build-tracy-lib build-tracy-server
 
 # Update Tracy submodule to latest tag and rebuild everything
 update-tracy:
-    {{ bash }} -c 'set -euo pipefail && cd deps/tracy && git fetch --tags && LATEST=$$(git tag --sort=-v:refname | head -1) && CURRENT=$$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD) && if [[ "$$LATEST" == "$$CURRENT" ]]; then echo "Tracy already at latest: $$CURRENT"; exit 0; fi && echo "Updating Tracy: $$CURRENT -> $$LATEST" && git checkout "$$LATEST" && cd ../.. && just build-tracy && echo "✓ Tracy updated to $$LATEST (lib + server rebuilt)"'
+    {{ bash }} -c 'set -euo pipefail && cd deps/tracy && git fetch --tags && LATEST=$(git tag --sort=-v:refname | head -1) && CURRENT=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD) && if [[ "$LATEST" == "$CURRENT" ]]; then echo "Tracy already at latest: $CURRENT"; exit 0; fi && echo "Updating Tracy: $CURRENT -> $LATEST" && git checkout "$LATEST" && cd ../.. && just build-tracy && echo "✓ Tracy updated to $LATEST (lib + server rebuilt)"'
 
 # --- CI (local) ---
 
@@ -191,17 +198,17 @@ ci: lint build test-unit test-cli test-shader test-gl-xvfb
 
 # GL tests under xvfb (headless, for CI or systems without display)
 test-gl-xvfb:
-    {{ xvfb_run }} -a -s "-screen 0 1024x768x24" env ODIN_ROOT=/usr/lib/odin odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{ extra_linker_flags }}"
+    {{ xvfb_run }} -a -s "-screen 0 1024x768x24" {{ odin_inner }} test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # Generate visual regression references (DESTRUCTIVE — overwrites refs, requires confirmation)
 [confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
 gen-refs:
-    GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{ extra_linker_flags }}"
+    GEN_REFS=1 {{ odin_inner }} test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # Generate refs under xvfb (DESTRUCTIVE — overwrites refs, requires confirmation)
 [confirm("⚠️  This will OVERWRITE all visual reference images. Continue?")]
 gen-refs-xvfb:
-    {{ xvfb_run }} -a -s "-screen 0 1024x768x24" env ODIN_ROOT=/usr/lib/odin GEN_REFS=1 odin test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{ extra_linker_flags }}"
+    {{ xvfb_run }} -a -s "-screen 0 1024x768x24" env GEN_REFS=1 {{ odin_inner }} test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:"{{ extra_linker_flags }}"
 
 # --- Benchmarks ---
 
@@ -223,7 +230,7 @@ bench-search:
 # Compare benchmark against baseline (run twice, report delta)
 bench-search-compare:
     @echo "── Baseline (current commit) ──"
-    @odin run benchmarks/search/ -o:speed -out:/tmp/odin-bench-search 2>/dev/null
+    @{{ odin }} run benchmarks/search/ -o:speed -out:/tmp/odin-bench-search 2>/dev/null
     @echo ""
     @echo "Tip: run 'just bench-search' before and after changes to compare ns/call"
 
