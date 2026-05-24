@@ -67,3 +67,12 @@ With the `.env` file correctly configured, you can invoke the maximum-performanc
 just br-ultra
 ```
 This single step compiles the optimized codebase inside the `clang-dev` container, offloads execution directly to the NVIDIA GPU, and displays MangoHud profiling metrics natively on the host.
+
+## 4. Graphical Profiling with Tracy
+
+The `suckless-odin` engine utilizes the **Tracy Profiler**. However, attempting to run the pre-compiled Tracy GUI via Homebrew (`linuxbrew`) directly on immutable systems (like Bazzite) will frequently result in Wayland/X11 Segfaults (`signal 11` during `xkbcommon` initialization).
+
+To resolve this, the `Justfile` is configured to compile and launch the Tracy Server GUI entirely from within the `clang-dev` Distrobox container:
+
+1. **Compilation**: Running `just build-tracy-server` fetches all complex UI dependencies (ImGui, Capstone, GLFW) and compiles the server using the container's stable library ecosystem.
+2. **Execution**: `just tracy-server` executes the binary from inside the container. Distrobox seamlessly forwards the graphical context to the host's Wayland display without native library conflicts.
