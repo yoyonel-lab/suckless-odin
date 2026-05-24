@@ -75,3 +75,20 @@ Si ce remaniement est entrepris dans le futur, voici l'évaluation formelle des 
 > [!WARNING]
 > **Complexité d'implémentation : Très Haute.** 
 > L'architecture SPD exige une maîtrise absolue des `Work Groups` GLSL, des `glMemoryBarrier` (pour éviter les conditions de course entre les cœurs du GPU), et nécessite que la carte graphique supporte les opérations atomiques avancées (généralement OpenGL 4.3+).
+
+---
+
+## 6. Références Officielles et Papiers Techniques
+
+Pour approfondir ces concepts ou préparer une future implémentation, voici les ressources techniques officielles recommandées :
+
+### AMD (FidelityFX SPD)
+AMD a été le premier à standardiser et open-sourcer cette technique de *Single-Pass Downsampling* sous la bannière FidelityFX, prouvant qu'elle était universellement applicable et performante sur toutes les architectures (y compris NVIDIA).
+- **Dépôt GitHub (Source & Implémentations) :** [GPUOpen-Effects / FidelityFX-SPD](https://github.com/GPUOpen-Effects/FidelityFX-SPD)
+- **Documentation et Page Officielle :** [GPUOpen - FidelityFX SPD](https://gpuopen.com/fidelityfx-spd/)
+
+### NVIDIA (Architecture Maxwell & Compute Shaders)
+Bien que NVIDIA n'ait pas de "nom commercial" public concurrent direct pour le SPD d'AMD, la fondation matérielle qui rend cette technique si performante (l'accès massif et ultrarapide à la *Local Shared Memory* - LDS) a été la pierre angulaire de l'architecture **Maxwell** (la génération de ta GTX 950M).
+- Les présentations de NVIDIA de l'ère Maxwell/Pascal insistent particulièrement sur le transfert des effets de Post-Processing complexes (Mipmapping, DOF, Bloom) depuis des passes de *Fragment Shaders* vers des **Compute Shaders**.
+- **Référence d'Architecture NVIDIA :** Le blog post officiel [Advanced API Performance: Shaders](https://developer.nvidia.com/blog/advanced-api-performance-shaders/) détaille l'occupation des ondes (Warps) et la gestion matérielle des shaders.
+- **Le cœur mathématique du Downsample :** Pour comprendre comment la *Shared Memory* évite les allers-retours VRAM lors de la création de mipmaps, il faut se référer au papier fondateur de NVIDIA : [Optimizing Parallel Reduction in CUDA](https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf). Bien qu'écrit pour CUDA, ce document dicte la façon dont les *Compute Shaders* OpenGL doivent structurer leur `Local Shared Memory` pour maximiser la bande passante de l'architecture NVIDIA.
