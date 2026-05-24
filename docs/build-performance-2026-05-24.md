@@ -70,12 +70,12 @@ trade-off.
 
 ## Build Tiers
 
-| Tier | Recipe | Time | Use case |
-|---|---|---|---|
-| Debug | `just build` | 3.0s | Development iteration |
-| Fast release | `just build-fast-release` | 3.0s | Quick release testing |
-| Release | `just build-release` | 10s | CI / shipping |
-| Ultra | `just build-ultra` | ~10s | Benchmarking |
+| Tier | Build | Run | Time | Use case |
+|---|---|---|---|---|
+| Debug | `just build` | `just br` | 3.0s | Development iteration |
+| Fast release | `just build-fast-release` | `just br-fr` | 3.0s | Quick release testing |
+| Release | `just build-release` | `just br-release` | 10s | CI / shipping |
+| Ultra | `just build-ultra` | `just br-ultra` | ~10s | Benchmarking |
 
 ## `-internal-cached` Flag (Undocumented)
 
