@@ -1,0 +1,58 @@
+# Dockerfile.ci — ISO reproduction of the GitHub Actions CI environment.
+# Mirrors ubuntu-latest + exact Odin/GLFW versions from ci.yml.
+#
+# Usage:
+#   docker build -f Dockerfile.ci -t suckless-odin-ci .
+#   docker run --rm -v $PWD:/workspace suckless-odin-ci [test-unit|test-gl|lint|build|all]
+#
+# The image caches Odin + GLFW + system deps so iterative runs are fast (~seconds).
+
+FROM ubuntu:24.04
+
+ARG ODIN_VERSION=dev-2026-05
+ARG ODIN_URL=https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz
+ARG GLFW_VERSION=3.4
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ODIN_ROOT=/opt/odin
+
+# System dependencies (same as ci.yml install steps)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates git make cmake gcc g++ pkg-config \
+    clang lld llvm \
+    libgl1-mesa-dev libc++-dev libx11-dev \
+    libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+    libwayland-dev libxkbcommon-dev \
+    xvfb mesa-utils libgl1-mesa-dri \
+    python3 python3-venv \
+    gdb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Odin compiler
+RUN mkdir -p /opt/odin && \
+    curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1 && \
+    make -C /opt/odin/vendor/stb/src
+ENV PATH="/opt/odin:${PATH}"
+
+# Build GLFW from source (shared library, same as CI)
+RUN git clone --depth 1 --branch ${GLFW_VERSION} https://github.com/glfw/glfw.git /tmp/glfw-src && \
+    cmake -S /tmp/glfw-src -B /tmp/glfw-build \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DBUILD_SHARED_LIBS=ON \
+      -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF && \
+    cmake --build /tmp/glfw-build -j$(nproc) && \
+    cmake --install /tmp/glfw-build && \
+    ldconfig && \
+    rm -rf /tmp/glfw-src /tmp/glfw-build
+
+# Enable core dumps for crash diagnostics
+RUN echo '/tmp/core.%e.%p' > /proc/sys/kernel/core_pattern 2>/dev/null || true
+
+WORKDIR /workspace
+
+# Entrypoint script handles the different CI modes
+COPY scripts/ci_docker_entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["all"]

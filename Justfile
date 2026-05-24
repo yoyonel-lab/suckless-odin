@@ -195,6 +195,37 @@ update-tracy:
 
 # --- CI (local) ---
 
+ci_image := "suckless-odin-ci"
+
+# Build the local CI Docker image (ISO reproduction of GitHub Actions ubuntu-latest)
+ci-docker-build:
+    docker build -f Dockerfile.ci -t {{ ci_image }} .
+
+# Run full CI pipeline inside Docker (ISO GitHub Actions environment)
+ci-docker mode="all": ci-docker-build
+    docker run --rm \
+        --ulimit core=-1 \
+        -v {{ justfile_directory() }}:/workspace \
+        -w /workspace \
+        {{ ci_image }} {{ mode }}
+
+# Run only test-unit inside Docker (for diagnosing CI segfaults)
+ci-docker-test-unit: ci-docker-build
+    docker run --rm \
+        --ulimit core=-1 \
+        -v {{ justfile_directory() }}:/workspace \
+        -w /workspace \
+        {{ ci_image }} test-unit
+
+# Interactive shell inside CI Docker (for manual debugging)
+ci-docker-shell: ci-docker-build
+    docker run --rm -it \
+        --ulimit core=-1 \
+        -v {{ justfile_directory() }}:/workspace \
+        -w /workspace \
+        --entrypoint /bin/bash \
+        {{ ci_image }}
+
 # Install git hooks via pre-commit framework (https://pre-commit.com)
 pre-commit-install:
     pre-commit install
