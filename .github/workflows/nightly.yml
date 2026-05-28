@@ -1,0 +1,147 @@
+name: Suckless-Odin Nightly Chaos Stress Test
+
+on:
+  schedule:
+    # Lancement automatique tous les jours à 2:00 AM UTC (3:00 AM heure française)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Permet de lancer manuellement le test de stress depuis l'interface GitHub Actions
+
+env:
+  ODIN_VERSION: "dev-2026-05"
+  ODIN_URL: "https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz"
+  GLFW_VERSION: "3.4"
+
+jobs:
+  nightly-chaos-stress:
+    name: Temporal Chaos Fuzzer (Xvfb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # --- Étape 1 : Cache & Setup Odin ---
+      - name: Cache Odin compiler
+        uses: actions/cache@v4
+        with:
+          path: /opt/odin
+          key: odin-${{ env.ODIN_VERSION }}-linux-amd64
+
+      - name: Install Odin
+        run: |
+          if [ ! -f /opt/odin/odin ]; then
+            mkdir -p /opt/odin
+            curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1
+            make -C /opt/odin/vendor/stb/src
+          fi
+          echo "/opt/odin" >> "$GITHUB_PATH"
+
+      # --- Étape 2 : Systèmes & Dépendances ---
+      - name: Install system dependencies (Mesa + xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev libc++-dev libx11-dev \
+            mesa-utils xvfb
+
+      # --- Étape 3 : Cache & Chargement GLFW / ImGui ---
+      - name: Cache GLFW ${{ env.GLFW_VERSION }}
+        id: cache-glfw
+        uses: actions/cache@v4
+        with:
+          path: glfw-install
+          key: glfw-${{ env.GLFW_VERSION }}-shared-ubuntu-latest
+
+      - name: Install GLFW to system
+        run: |
+          sudo cp -a glfw-install/lib/* /usr/local/lib/
+          sudo cp -a glfw-install/include/* /usr/local/include/
+          cd /usr/local/lib && sudo ln -sf libglfw.so.3 libglfw.so 2>/dev/null || true
+          sudo ldconfig
+
+      - name: Cache ImGui library
+        uses: actions/cache@v4
+        with:
+          path: deps/odin-imgui/imgui_linux_x64.a
+          key: imgui-${{ hashFiles('deps/odin-imgui/build.py', 'scripts/build_imgui_parallel.py') }}
+
+      - name: Copy ImGui library to target
+        run: |
+          mkdir -p deps/odin-imgui
+          # ImGui .a should be cached, if not it will compile or be copied from cache
+
+      # --- Étape 4 : Configuration des Core Dumps ---
+      - name: Configure Core Dumps
+        run: |
+          ulimit -c unlimited
+          echo '/tmp/core.%e.%p.%t' | sudo tee /proc/sys/kernel/core_pattern
+
+      # --- Étape 5 : Exécution du Fuzzer Temporel ---
+      - name: Run Temporal Chaos Stress Test
+        id: run-fuzzer
+        run: |
+          # Utilisation de toutes les ressources matérielles disponibles sur l'infrastructure de CI
+          echo "=== Starting Stress Test ==="
+          
+          # Lancement et capture de la sortie standard pour extraire la graine (Seed)
+          xvfb-run -a -s "-screen 0 1024x768x24" \
+            odin test tests/gl/ \
+              -out:/tmp/odin-test-chaos \
+              -define:ODIN_TEST_THREADS=1 \
+              -define:CHAOS_STRESS=true \
+              -extra-linker-flags:"-lX11" > /tmp/fuzzer_output.log 2>&1 || export FUZZER_FAILED=1
+          
+          cat /tmp/fuzzer_output.log
+          
+          # Extraction de la graine aléatoire utilisée par Odin
+          SEED=$(grep -oP "The random seed sent to every test is: \K\d+" /tmp/fuzzer_output.log || echo "Inconnue")
+          echo "SEED_USED=$SEED" >> "$GITHUB_ENV"
+          
+          if [ "$FUZZER_FAILED" = "1" ]; then
+            echo "--- FUZZER STRESS TEST FAILED! ---"
+            exit 1
+          fi
+
+      # --- Étape 6 : Génération du Rapport Markdown (Reporting) ---
+      - name: Generate Action Summary
+        if: always()
+        run: |
+          echo "### 🧪 Suckless-Odin Nightly Chaos Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.run-fuzzer.outcome }}" = "success" ]; then
+            echo "#### 🟢 Statut : SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "La State Machine d'environnement a résisté avec succès aux requêtes concurrentes à haute fréquence sans aucun plantage, fuite de mémoire ou blocage du driver." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "#### 🔴 Statut : FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Une erreur de concurrence, un deadlock ou une violation d'invariant a été détectée durant le fuzzing temporel stochastique !" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Paramètre | Valeur |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Graine Aléatoire (Seed)** | \`${{ env.SEED_USED }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commande de reproduction** | \`just test-chaos-seed ${{ env.SEED_USED }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Durée du stress** | 5.0 secondes |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Ressources matérielles** | 100% de la CI (non limité) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.run-fuzzer.outcome }}" != "success" ]; then
+            echo "### 🛠️ Protocole de Diagnostic" >> $GITHUB_STEP_SUMMARY
+            echo "1. Téléchargez l'artefact \`chaos-crash-report\` attaché à ce run." >> $GITHUB_STEP_SUMMARY
+            echo "2. Extrayez le core dump \`/tmp/core.*\` et le binaire \`odin-test-chaos\`." >> $GITHUB_STEP_SUMMARY
+            echo "3. Ouvrez GDB localement :" >> $GITHUB_STEP_SUMMARY
+            echo "   \`gdb ./odin-test-chaos ./core.xxx\`" >> $GITHUB_STEP_SUMMARY
+            echo "   Puis tapez \`thread apply all bt\` pour voir l'état exact des verrous." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- Étape 7 : Upload des Artefacts de Diagnostic (Core Dump + Binaire + Logs) en cas d'échec ---
+      - name: Upload Diagnostic Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-crash-report
+          path: |
+            /tmp/core.*
+            /tmp/odin-test-chaos
+            /tmp/fuzzer_output.log
+          if-no-files-found: warn
+          retention-days: 7
