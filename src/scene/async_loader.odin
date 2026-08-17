@@ -10,11 +10,12 @@ package scene
 // with async_loader_poll() each frame. When state reaches READY the
 // decoded float data is available for GPU upload.
 
-import "core:thread"
-import "core:sync"
 import "core:c"
 import "core:c/libc"
 import "core:fmt"
+import "core:os"
+import "core:sync"
+import "core:thread"
 
 import stbi "vendor:stb/image"
 
@@ -237,29 +238,78 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 		zone := tracy.zone_begin(&hdr_load_decode_loc)
 		tracy.message_c(fmt.tprintf("Loading HDR: %s", path_cstr), tracy.COLOR_IO_DECODE)
 
-		w, h, channels: c.int
-		stbi.set_flip_vertically_on_load(1)
-		data := stbi.loadf(path_cstr, &w, &h, &channels, 4) // force RGBA
+		path_str := string(path_cstr)
+		file_bytes, read_err := os.read_entire_file_from_path(path_str, context.allocator)
+
+		w, h: i32
+		half_data: [^]u16
+
+		if read_err == nil && len(file_bytes) > 0 {
+			if simd.fast_hdr_get_dimensions(raw_data(file_bytes), uint(len(file_bytes)), &w, &h) != 0 {
+				pixel_count := uint(w) * uint(h) * 4 // RGBA
+				alloc_size := (pixel_count * size_of(u16) + 63) & ~uint(63)
+				half_data = cast([^]u16)libc.aligned_alloc(64, alloc_size)
+				if half_data == nil {
+					half_data = cast([^]u16)libc.malloc(pixel_count * size_of(u16))
+				}
+				if half_data != nil {
+					if simd.fast_hdr_decode_fp16_threaded(raw_data(file_bytes), uint(len(file_bytes)), &w, &h, half_data, pixel_count, 1, 8) == 0 {
+						libc.free(half_data)
+						half_data = nil
+					}
+				}
+			}
+
+			// Fallback to STB image if fast direct decoder encounters an unsupported non-RLE format
+			if half_data == nil {
+				stbi.set_flip_vertically_on_load(1)
+				w_c, h_c, channels: c.int
+				data := stbi.loadf_from_memory(raw_data(file_bytes), c.int(len(file_bytes)), &w_c, &h_c, &channels, 4)
+				if data != nil {
+					w = i32(w_c)
+					h = i32(h_c)
+					pixel_count := uint(w) * uint(h) * 4
+					alloc_size := (pixel_count * size_of(u16) + 63) & ~uint(63)
+					half_data = cast([^]u16)libc.aligned_alloc(64, alloc_size)
+					if half_data == nil {
+						half_data = cast([^]u16)libc.malloc(pixel_count * size_of(u16))
+					}
+					if half_data != nil {
+						simd.convert_float_to_half_simd(data, half_data, pixel_count)
+					}
+					stbi.image_free(data)
+				}
+			}
+			delete(file_bytes)
+		} else {
+			// Direct file fallback if os.read_entire_file failed
+			stbi.set_flip_vertically_on_load(1)
+			w_c, h_c, channels: c.int
+			data := stbi.loadf(path_cstr, &w_c, &h_c, &channels, 4)
+			if data != nil {
+				w = i32(w_c)
+				h = i32(h_c)
+				pixel_count := uint(w) * uint(h) * 4
+				alloc_size := (pixel_count * size_of(u16) + 63) & ~uint(63)
+				half_data = cast([^]u16)libc.aligned_alloc(64, alloc_size)
+				if half_data == nil {
+					half_data = cast([^]u16)libc.malloc(pixel_count * size_of(u16))
+				}
+				if half_data != nil {
+					simd.convert_float_to_half_simd(data, half_data, pixel_count)
+				}
+				stbi.image_free(data)
+			}
+		}
 
 		tracy.zone_end(zone)
 
-		// FP32→FP16 SIMD conversion (ISO: async_loader.c async_perform_conversion)
-		// Runs on worker thread to avoid blocking the main thread.
-		half_data: [^]u16
-		if data != nil {
+		if half_data != nil {
 			tracy.async_status_transition(.Convert)
 			conv_zone := tracy.zone_begin(&float_half_convert_loc)
-
-			pixel_count := uint(w) * uint(h) * 4 // RGBA
-			half_data = cast([^]u16)libc.malloc(pixel_count * size_of(u16))
-			if half_data != nil {
-				simd.convert_float_to_half_simd(data, half_data, pixel_count)
-			}
-
-			// Free original FP32 data (no longer needed)
-			stbi.image_free(data)
+			pixel_count := uint(w) * uint(h) * 4
 			tracy.zone_end(conv_zone)
-			tracy.message_c(fmt.tprintf("Converted FP32→FP16: %dx%d (%d KB)",
+			tracy.message_c(fmt.tprintf("Direct Decoded HDR->FP16: %dx%d (%d KB)",
 				w, h, pixel_count * 2 / 1024), tracy.COLOR_IO_CONVERT)
 		}
 
@@ -270,16 +320,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			loader.request.state = .Failed
 			tracy.async_status_transition(.Failed)
 			tracy.message_c(fmt.tprintf("FAILED: %s", path_cstr), tracy.COLOR_IO_FAILED)
-			if data == nil {
-				reason := stbi.failure_reason()
-				reason_str := "Unknown STB reason"
-				if reason != nil {
-					reason_str = string(reason)
-				}
-				log.log_error("suckless-odin.async", "Failed to load: %s (stbi error: %s)", path_cstr, reason_str)
-			} else {
-				log.log_error("suckless-odin.async", "Failed to load: %s (conversion buffer allocation failed)", path_cstr)
-			}
+			log.log_error("suckless-odin.async", "Failed to load HDR image: %s", path_cstr)
 		} else {
 			loader.request.data = half_data
 			loader.request.width = i32(w)
