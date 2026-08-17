@@ -24,59 +24,7 @@ draw_split_indicator :: proc(p: ^postfx.Pipeline, effect: postfx.Post_Effect) {
 }
 
 @(private)
-draw_postfx_section :: proc(state: Scene_State) {
-	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Post-Processing")
-	imgui.Separator()
-
-	p := state.postfx
-	if p == nil {
-		imgui.TextColored(imgui.Vec4{1.0, 0.5, 0.5, 1.0}, "Pipeline not initialized")
-		imgui.Spacing()
-		return
-	}
-
-	// Master toggle
-	imgui.Checkbox("Enable Post-FX", &p.enabled)
-	if !p.enabled {
-		imgui.Spacing()
-		return
-	}
-
-	imgui.Spacing()
-
-	// --- Preset selector ---
-	@(static) current_preset: i32 = 0
-	preset_names := postfx.PRESET_NAMES
-	preset_wip := postfx.PRESET_WIP
-	preview := fmt.ctprintf("%s", preset_names[postfx.Preset_Id(current_preset)])
-	if imgui.BeginCombo("Preset", preview) {
-		for id in postfx.Preset_Id {
-			is_selected := i32(id) == current_preset
-			wip := preset_wip[id]
-			label: cstring
-			if wip {
-				label = fmt.ctprintf("%s (WIP)", preset_names[id])
-			} else {
-				label = fmt.ctprintf("%s", preset_names[id])
-			}
-			if wip { imgui.BeginDisabled() }
-			if imgui.Selectable(label, is_selected) {
-				current_preset = i32(id)
-				postfx.pipeline_apply_preset(p, id)
-			}
-			if wip { imgui.EndDisabled() }
-		}
-		imgui.EndCombo()
-	}
-	imgui.Spacing()
-
-	// --- Save / Load user presets ---
-	draw_postfx_save_load(p)
-
-	imgui.Separator()
-	imgui.Spacing()
-
-	// --- Exposure ---
+draw_postfx_exposure :: proc(p: ^postfx.Pipeline) {
 	exposure_on := postfx.Post_Effect.Exposure in p.active_effects
 	if imgui.Checkbox("Exposure", &exposure_on) {
 		postfx.pipeline_toggle(p, .Exposure)
@@ -104,8 +52,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Tonemapping ---
+@(private)
+draw_postfx_tonemapping :: proc(p: ^postfx.Pipeline) {
 	tonemap_on := postfx.Post_Effect.Tonemap in p.active_effects
 	if imgui.Checkbox("Tonemapping", &tonemap_on) {
 		postfx.pipeline_toggle(p, .Tonemap)
@@ -135,8 +85,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Vignette ---
+@(private)
+draw_postfx_vignette :: proc(p: ^postfx.Pipeline) {
 	vignette_on := postfx.Post_Effect.Vignette in p.active_effects
 	if imgui.Checkbox("Vignette", &vignette_on) {
 		postfx.pipeline_toggle(p, .Vignette)
@@ -164,8 +116,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Film Grain ---
+@(private)
+draw_postfx_grain :: proc(p: ^postfx.Pipeline) {
 	grain_on := postfx.Post_Effect.Grain in p.active_effects
 	if imgui.Checkbox("Film Grain", &grain_on) {
 		postfx.pipeline_toggle(p, .Grain)
@@ -192,8 +146,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Chromatic Aberration ---
+@(private)
+draw_postfx_ca :: proc(p: ^postfx.Pipeline) {
 	ca_on := postfx.Post_Effect.Chrom_Abbr in p.active_effects
 	if imgui.Checkbox("Chromatic Aberration", &ca_on) {
 		postfx.pipeline_toggle(p, .Chrom_Abbr)
@@ -219,8 +175,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Color Grading ---
+@(private)
+draw_postfx_color_grading :: proc(p: ^postfx.Pipeline) {
 	cg_on := postfx.Post_Effect.Color_Grading in p.active_effects
 	if imgui.Checkbox("Color Grading", &cg_on) {
 		postfx.pipeline_toggle(p, .Color_Grading)
@@ -250,8 +208,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Bloom (not yet multi-pass, toggle only) ---
+@(private)
+draw_postfx_bloom :: proc(p: ^postfx.Pipeline) {
 	bloom_on := postfx.Post_Effect.Bloom in p.active_effects
 	if imgui.Checkbox("Bloom", &bloom_on) {
 		postfx.pipeline_toggle(p, .Bloom)
@@ -289,8 +249,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- FXAA ---
+@(private)
+draw_postfx_fxaa :: proc(p: ^postfx.Pipeline) {
 	fxaa_on := postfx.Post_Effect.FXAA in p.active_effects
 	if imgui.Checkbox("FXAA", &fxaa_on) {
 		postfx.pipeline_toggle(p, .FXAA)
@@ -327,8 +289,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Auto-Exposure ---
+@(private)
+draw_postfx_auto_exposure :: proc(p: ^postfx.Pipeline) {
 	ae_on := postfx.Post_Effect.Auto_Exposure in p.active_effects
 	if imgui.Checkbox("Auto-Exposure", &ae_on) {
 		postfx.pipeline_toggle(p, .Auto_Exposure)
@@ -362,8 +326,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Depth of Field ---
+@(private)
+draw_postfx_dof :: proc(p: ^postfx.Pipeline) {
 	dof_on := postfx.Post_Effect.Dof in p.active_effects
 	if imgui.Checkbox("Depth of Field", &dof_on) {
 		postfx.pipeline_toggle(p, .Dof)
@@ -402,8 +368,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Motion Blur ---
+@(private)
+draw_postfx_motion_blur :: proc(p: ^postfx.Pipeline) {
 	mb_on := postfx.Post_Effect.Motion_Blur in p.active_effects
 	if imgui.Checkbox("Motion Blur", &mb_on) {
 		postfx.pipeline_toggle(p, .Motion_Blur)
@@ -441,8 +409,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Banding ---
+@(private)
+draw_postfx_banding :: proc(p: ^postfx.Pipeline) {
 	banding_on := postfx.Post_Effect.Banding in p.active_effects
 	if imgui.Checkbox("Banding", &banding_on) {
 		postfx.pipeline_toggle(p, .Banding)
@@ -499,8 +469,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- Fog ---
+@(private)
+draw_postfx_fog :: proc(p: ^postfx.Pipeline) {
 	fog_on := postfx.Post_Effect.Fog in p.active_effects
 	if imgui.Checkbox("Fog", &fog_on) {
 		postfx.pipeline_toggle(p, .Fog)
@@ -539,8 +511,10 @@ draw_postfx_section :: proc(state: Scene_State) {
 			imgui.TreePop()
 		}
 	}
+}
 
-	// --- LUT3D ---
+@(private)
+draw_postfx_lut3d :: proc(p: ^postfx.Pipeline) {
 	// The toggle is disabled until a .cube file is loaded (sampling texture 0
 	// returns black, causing unintended darkening at any intensity > 0).
 	// The Settings tree is always open so the file picker remains accessible.
@@ -603,17 +577,89 @@ draw_postfx_section :: proc(state: Scene_State) {
 		}
 		imgui.TreePop()
 	}
-	_ = mb_on
+}
 
-	// --- Luminance Stops (final visualization) ---
+@(private)
+draw_postfx_luminance_stops :: proc(p: ^postfx.Pipeline) {
 	imgui.Separator()
 	lum_on := postfx.Post_Effect.Luminance_Debug in p.active_effects
 	if imgui.Checkbox("Luminance Stops", &lum_on) {
 		postfx.pipeline_toggle(p, .Luminance_Debug)
 	}
 	if imgui.IsItemHovered() {
-		imgui.SetTooltip("Filament-style luminance visualization.\nColor-codes final pixel luminance by stops:\n  Cyan = middle gray (18%%)\n  Blue = darker stops\n  Green/Yellow/Red = brighter stops")
+		imgui.SetTooltip("Filament-style luminance visualization.\nColor-codes final pixel luminance by stops:\n  Cyan = middle gray (18%)\n  Blue = darker stops\n  Green/Yellow/Red = brighter stops")
 	}
+}
+
+@(private)
+draw_postfx_section :: proc(state: Scene_State) {
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Post-Processing")
+	imgui.Separator()
+
+	p := state.postfx
+	if p == nil {
+		imgui.TextColored(imgui.Vec4{1.0, 0.5, 0.5, 1.0}, "Pipeline not initialized")
+		imgui.Spacing()
+		return
+	}
+
+	// Master toggle
+	imgui.Checkbox("Enable Post-FX", &p.enabled)
+	if !p.enabled {
+		imgui.Spacing()
+		return
+	}
+
+	imgui.Spacing()
+
+	// --- Preset selector ---
+	@(static) current_preset: i32 = 0
+	preset_names := postfx.PRESET_NAMES
+	preset_wip := postfx.PRESET_WIP
+	preview := fmt.ctprintf("%s", preset_names[postfx.Preset_Id(current_preset)])
+	if imgui.BeginCombo("Preset", preview) {
+		for id in postfx.Preset_Id {
+			is_selected := i32(id) == current_preset
+			wip := preset_wip[id]
+			label: cstring
+			if wip {
+				label = fmt.ctprintf("%s (WIP)", preset_names[id])
+			} else {
+				label = fmt.ctprintf("%s", preset_names[id])
+			}
+			if wip { imgui.BeginDisabled() }
+			if imgui.Selectable(label, is_selected) {
+				current_preset = i32(id)
+				postfx.pipeline_apply_preset(p, id)
+			}
+			if wip { imgui.EndDisabled() }
+		}
+		imgui.EndCombo()
+	}
+	imgui.Spacing()
+
+	// --- Save / Load user presets ---
+	draw_postfx_save_load(p)
+
+	imgui.Separator()
+	imgui.Spacing()
+
+	// Call our individual decomposed helpers
+	draw_postfx_exposure(p)
+	draw_postfx_tonemapping(p)
+	draw_postfx_vignette(p)
+	draw_postfx_grain(p)
+	draw_postfx_ca(p)
+	draw_postfx_color_grading(p)
+	draw_postfx_bloom(p)
+	draw_postfx_fxaa(p)
+	draw_postfx_auto_exposure(p)
+	draw_postfx_dof(p)
+	draw_postfx_motion_blur(p)
+	draw_postfx_banding(p)
+	draw_postfx_fog(p)
+	draw_postfx_lut3d(p)
+	draw_postfx_luminance_stops(p)
 
 	imgui.Spacing()
 }
