@@ -4,6 +4,8 @@ package main
 import "core:testing"
 
 import postfx "rendering/postfx"
+import settings "core/settings"
+
 
 // --- CLI argument parsing ---
 // ISO port of test_cli.c from suckless-ogl
@@ -79,3 +81,27 @@ test_cli_postfx_preset_invalid :: proc(t: ^testing.T) {
 	_, action := cli_handle_args(args)
 	testing.expect_value(t, action, Cli_Action.Exit_Failure)
 }
+
+@(test)
+test_cli_compute_profile_legacy :: proc(t: ^testing.T) {
+	args := []string{"app", "--compute-profile=legacy"}
+	opts, action := cli_handle_args(args)
+	testing.expect_value(t, action, Cli_Action.Continue)
+	testing.expect_value(t, opts.compute_profile, settings.Compute_Shader_Profile.Legacy)
+}
+
+@(test)
+test_cli_compute_profile_optimized :: proc(t: ^testing.T) {
+	args := []string{"app", "--compute-profile=optimized"}
+	opts, action := cli_handle_args(args)
+	testing.expect_value(t, action, Cli_Action.Continue)
+	testing.expect_value(t, opts.compute_profile, settings.Compute_Shader_Profile.Optimized)
+}
+
+@(test)
+test_cli_compute_profile_invalid :: proc(t: ^testing.T) {
+	args := []string{"app", "--compute-profile=nonexist"}
+	_, action := cli_handle_args(args)
+	testing.expect_value(t, action, Cli_Action.Exit_Failure)
+}
+

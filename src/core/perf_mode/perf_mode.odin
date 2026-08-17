@@ -120,15 +120,16 @@ toggle :: proc(pm: ^Perf_Mode) -> bool {
 	return pm.active
 }
 
-// Cleans up resources (unloads gamemode library).
+// Cleans up resources (deactivates perf mode).
 cleanup :: proc(pm: ^Perf_Mode) {
 	if pm.active {
 		deactivate(pm)
 	}
-	if pm.gamemode_lib != nil {
-		dynlib.unload_library(pm.gamemode_lib)
-		pm.gamemode_lib = nil
-	}
+	// We intentionally do not call dynlib.unload_library(pm.gamemode_lib) here.
+	// Leaving the library mapped at exit is 100% safe as the OS reclaims all resources,
+	// but keeping it loaded preserves the virtual memory mapping and symbol tables so
+	// that Valgrind can resolve and suppress third-party system/D-Bus leaks.
+	pm.gamemode_lib = nil
 }
 
 // Returns a human-readable label for the current backend.

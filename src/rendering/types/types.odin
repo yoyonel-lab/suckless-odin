@@ -37,3 +37,15 @@ aa_mode_to_string :: proc(mode: AA_Mode) -> string {
 	}
 	return "Unknown"
 }
+
+Specular_AA_Mode :: enum {
+	Screen_Space = 0,
+	Curvature    = 1,
+}
+
+Specular_AA_Debug_Mode :: enum {
+	Off                = 0,
+	Grayscale_Variance = 1,
+	Color_Difference   = 2,
+}
+

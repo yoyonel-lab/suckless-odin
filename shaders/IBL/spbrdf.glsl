@@ -26,7 +26,9 @@ const float PI = 3.14159265359;
     1024 provides high-quality results suitable for offline or one-time runtime
     precomputation. Can be lowered for faster builds.
 */
-const uint SAMPLE_COUNT = 1024u;
+#ifndef SAMPLE_COUNT
+#define SAMPLE_COUNT 1024u
+#endif
 const float INV_SAMPLE_COUNT = 1.0 / float(SAMPLE_COUNT);
 
 /*
@@ -40,6 +42,11 @@ const float EPSILON = 1e-4;
     - 16-bit floats are sufficient and widely used in engines
 ==============================================================================*/
 layout(binding = 0, rg16f) restrict writeonly uniform image2D LUT;
+
+/*==============================================================================
+    Uniforms
+==============================================================================*/
+layout(location = 0) uniform int u_row_offset;
 
 /*==============================================================================
     Low-discrepancy sequence (Hammersley)
@@ -131,6 +138,7 @@ void main()
 {
 	ivec2 size = imageSize(LUT);
 	ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+	coord.y += u_row_offset;
 
 	// Prevent out-of-bounds writes for non-multiple work group sizes
 	if (coord.x >= size.x || coord.y >= size.y)

@@ -3,6 +3,8 @@ package scene
 import gl "vendor:OpenGL"
 import "core:math"
 import "core:os"
+import "core:slice"
+import "core:strings"
 
 import log "../core/log"
 import mt "../core/math_types"
@@ -10,6 +12,7 @@ import settings "../core/settings"
 import cam "../camera"
 import "../rendering"
 import postfx "../rendering/postfx"
+import types "../rendering/types"
 import dbg "../core/gl_debug"
 
 // Scene holds the camera, rendering resources, and all subsystems.
@@ -29,6 +32,9 @@ Scene :: struct {
 	// IBL resources (irradiance, prefilter, BRDF LUT)
 	ibl:         rendering.IBL_Resources,
 
+	// Environment manager (async loading + IBL transitions)
+	env_mgr:     Env_Manager,
+
 	// Post-processing pipeline
 	postfx_pipeline: postfx.Pipeline,
 
@@ -41,25 +47,41 @@ Scene :: struct {
 	loc_cam_pos:        i32,
 	loc_prev_view_proj: i32,
 	loc_screen_size:    i32,
-	loc_edge_aa_mode:   i32,
+	loc_edge_aa_mode:        i32,
+	loc_specular_aa_enabled: i32,
+	loc_specular_aa_mode:    i32,
+	loc_specular_aa_debug_mode: i32,
+	loc_specular_aa_split_enabled:  i32,
+	loc_specular_aa_split_position: i32,
 
 	// Previous frame view-projection matrix (for motion blur velocity)
 	prev_view_proj: mt.Mat4,
 	prev_vp_initialized: bool,
 
+	// HDR environment file list (for cycling)
+	hdr_files:         [dynamic]string,
+	current_hdr_index: i32,
+
 	// Runtime toggles
-	skybox_visible:    bool,
-	wireframe_enabled: bool,
-	exposure:          f32,
-	sort_mode:         rendering.Sort_Mode,
-	edge_aa_enabled:   bool,
-	edge_aa_debug:     bool,
+	skybox_visible:      bool,
+	wireframe_enabled:   bool,
+	exposure:            f32,
+	sort_mode:           rendering.Sort_Mode,
+	edge_aa_enabled:     bool,
+	edge_aa_debug:       bool,
+	specular_aa_enabled: bool,
+	specular_aa_mode:    types.Specular_AA_Mode,
+	specular_aa_debug_mode: types.Specular_AA_Debug_Mode,
+	specular_aa_split_enabled:  bool,
+	specular_aa_split_position: f32,
+	frame_count:         int,
 }
 
+HDR_DIR        :: "assets/textures/hdr"
 HDR_PATH       :: "assets/textures/hdr/cedar_bridge_2_4k.hdr"
 MATERIALS_PATH :: "assets/materials/pbr_materials.json"
 
-scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
+scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.DEFAULT_COMPUTE_TUNING) -> (ok: bool) {
 	defer if !ok { scene_destroy(s) }
 	// Camera (ISO: same defaults as C — distance=20, yaw=-90, pitch=0)
 	cam.init(
@@ -78,20 +100,29 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 	// Multi-sphere instances from material library (ISO: scene_init_instancing)
 	rendering.instanced_create(&s.spheres, &s.mat_lib)
 
-	// Load HDR environment
-	s.env_texture = rendering.texture_hdr_load(HDR_PATH) or_return
-
-	// Compute IBL textures from HDR
-	if !rendering.ibl_create(&s.ibl, s.env_texture.id) {
-		log.log_error("suckless-odin.scene", "Failed to create IBL resources")
+	// IBL programs + BRDF LUT (env-independent, computed once)
+	if !rendering.ibl_init(&s.ibl, compute_tuning) {
+		log.log_error("suckless-odin.scene", "Failed to initialize IBL resources")
 		return false
 	}
 
-	// Skybox
-	if !rendering.skybox_create(&s.skybox, s.env_texture.id, s.ibl.prefilter_map, "shaders/background.vert", "shaders/background.frag") {
+	// Skybox (created without env texture — cubemaps will be generated on first async load)
+	if !rendering.skybox_create(&s.skybox, 0, 0, "shaders/background.vert", "shaders/background.frag", compute_tuning) {
 		log.log_error("suckless-odin.scene", "Failed to create skybox")
 		return false
 	}
+
+	// Environment manager (async loading + progressive IBL + transitions)
+	if !env_manager_create(&s.env_mgr, compute_tuning) {
+		log.log_error("suckless-odin.scene", "Failed to create env manager")
+		return false
+	}
+
+	// Scan HDR directory for environment cycling (PAGE_UP/PAGE_DOWN)
+	scene_scan_hdr_files(s)
+
+	// Trigger initial environment load through the async pipeline
+	env_manager_trigger_initial(&s.env_mgr, HDR_PATH)
 
 	// PBR billboard shader
 	s.pbr_program = load_shader("shaders/pbr_billboard.vert", "shaders/pbr_billboard.frag") or_return
@@ -103,6 +134,11 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 	s.loc_prev_view_proj = gl.GetUniformLocation(s.pbr_program, "u_previousViewProj")
 	s.loc_screen_size = gl.GetUniformLocation(s.pbr_program, "u_screen_size")
 	s.loc_edge_aa_mode = gl.GetUniformLocation(s.pbr_program, "u_edge_aa_mode")
+	s.loc_specular_aa_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_enabled")
+	s.loc_specular_aa_mode = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_mode")
+	s.loc_specular_aa_debug_mode = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_debug_mode")
+	s.loc_specular_aa_split_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_enabled")
+	s.loc_specular_aa_split_position = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_position")
 
 	// Initialize previous view*proj to identity (avoids huge velocities on frame 1)
 	s.prev_view_proj = mt.MAT4_IDENTITY
@@ -112,6 +148,11 @@ scene_create :: proc(s: ^Scene, width, height: i32) -> (ok: bool) {
 	s.wireframe_enabled = false
 	s.exposure = settings.DEFAULT_EXPOSURE
 	s.edge_aa_enabled = true
+	s.specular_aa_enabled = false
+	s.specular_aa_mode = .Curvature
+	s.specular_aa_debug_mode = .Off
+	s.specular_aa_split_enabled = false
+	s.specular_aa_split_position = 0.5
 
 	// Post-processing pipeline
 	if !postfx.pipeline_create(&s.postfx_pipeline, width, height) {
@@ -147,7 +188,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// 1. Skybox (drawn first, depth <= 1.0)
 	if s.skybox_visible {
 		dbg.push_group("Skybox_Pass")
-		rendering.skybox_render(&s.skybox, view, proj)
+		rendering.skybox_render(&s.skybox, view, proj, s.specular_aa_split_enabled, s.specular_aa_split_position)
 		dbg.pop_group()
 	}
 
@@ -171,6 +212,20 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	if s.edge_aa_enabled { edge_mode = 1 }
 	if s.edge_aa_debug   { edge_mode = 2 }
 	gl.Uniform1i(s.loc_edge_aa_mode, edge_mode)
+
+	if s.frame_count < 5 {
+		log.log_info("suckless-odin.scene", "Uniform locations: enabled=%d, mode=%d, debug_mode=%d, split_enabled=%d, split_position=%d",
+			s.loc_specular_aa_enabled, s.loc_specular_aa_mode, s.loc_specular_aa_debug_mode, s.loc_specular_aa_split_enabled, s.loc_specular_aa_split_position)
+		log.log_info("suckless-odin.scene", "Uniform values: enabled=%v, mode=%v, debug_mode=%v, split_enabled=%v, split_position=%v",
+			s.specular_aa_enabled, s.specular_aa_mode, s.specular_aa_debug_mode, s.specular_aa_split_enabled, s.specular_aa_split_position)
+	}
+
+	spec_aa_val: i32 = 1 if s.specular_aa_enabled else 0
+	gl.Uniform1i(s.loc_specular_aa_enabled, spec_aa_val)
+	gl.Uniform1i(s.loc_specular_aa_mode, i32(s.specular_aa_mode))
+	gl.Uniform1i(s.loc_specular_aa_debug_mode, i32(s.specular_aa_debug_mode))
+	gl.Uniform1i(s.loc_specular_aa_split_enabled, 1 if s.specular_aa_split_enabled else 0)
+	gl.Uniform1f(s.loc_specular_aa_split_position, s.specular_aa_split_position)
 
 	// Enable per-buffer alpha blending on attachment 0 (color) for edge AA.
 	// Attachment 1 (velocity) explicitly disabled — ISO legacy scene_render.c:393-407.
@@ -213,6 +268,9 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	postfx.pipeline_set_camera(&s.postfx_pipeline, cam_pos_v4, inv_vp_flat)
 	postfx.pipeline_end(&s.postfx_pipeline)
 
+	// Render environment transition overlay on top of post-fx, but BEFORE text overlay
+	env_manager_render_overlay(&s.env_mgr, s)
+
 	// Store current view*proj as previous for next frame's motion blur
 	vp := proj * view
 	if !s.prev_vp_initialized {
@@ -246,8 +304,16 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 }
 
 scene_update :: proc(s: ^Scene, dt: f32) {
+	if s.frame_count >= 5 && !s.ibl.brdf_lut_computed {
+		rendering.ibl_update_brdf_lut(&s.ibl)
+	}
+	s.frame_count += 1
+
 	postfx.pipeline_update(&s.postfx_pipeline, dt)
 	rendering.overlay_update(&s.overlay, dt)
+
+	// Environment manager: poll async loader, advance IBL, update transitions
+	env_manager_update(&s.env_mgr, s, dt)
 
 	// Update prev_centers for motion blur (before camera/positions change)
 	rendering.instanced_update_prev_centers(&s.spheres)
@@ -306,7 +372,69 @@ scene_resize :: proc(s: ^Scene, width, height: i32) {
 	postfx.pipeline_resize(&s.postfx_pipeline, width, height)
 }
 
+// Trigger an asynchronous environment map change.
+// Path is relative to project root (e.g. "assets/textures/hdr/name.hdr").
+scene_change_env :: proc(s: ^Scene, path: string) -> bool {
+	return env_manager_trigger_transition(&s.env_mgr, path)
+}
+
+// Scan the HDR directory and populate the file list.
+// ISO: scene_scan_hdr_files from legacy C11.
+scene_scan_hdr_files :: proc(s: ^Scene) {
+	// Clean up previous list
+	for &path in s.hdr_files {
+		delete(path)
+	}
+	clear(&s.hdr_files)
+
+	entries, err := os.read_directory_by_path(HDR_DIR, -1, context.temp_allocator)
+	if err != nil {
+		log.log_warning("suckless-odin.scene", "Failed to scan HDR directory: %s", HDR_DIR)
+		return
+	}
+
+	for entry in entries {
+		if entry.type == .Directory { continue }
+		name := entry.name
+		if !strings.has_suffix(name, ".hdr") && !strings.has_suffix(name, ".exr") { continue }
+		full_path := strings.concatenate({HDR_DIR, "/", name})
+		append(&s.hdr_files, full_path)
+	}
+
+	slice.sort(s.hdr_files[:])
+
+	// Find current index matching the initial HDR
+	s.current_hdr_index = 0
+	for path, i in s.hdr_files {
+		if path == HDR_PATH {
+			s.current_hdr_index = i32(i)
+			break
+		}
+	}
+
+	log.log_info("suckless-odin.scene", "Found %d HDR files, current index=%d", len(s.hdr_files), s.current_hdr_index)
+}
+
+// Cycle to next/prev environment map (PAGE_UP/PAGE_DOWN).
+// ISO: scene_cycle_env from legacy C11.
+scene_cycle_env :: proc(s: ^Scene, direction: i32) {
+	count := i32(len(s.hdr_files))
+	if count == 0 { return }
+
+	s.current_hdr_index = (s.current_hdr_index + direction + count) %% count
+	path := s.hdr_files[s.current_hdr_index]
+	log.log_info("suckless-odin.scene", "Cycling env map [%d/%d]: %s", s.current_hdr_index + 1, count, path)
+	scene_change_env(s, path)
+}
+
 scene_destroy :: proc(s: ^Scene) {
+	// Free HDR file paths
+	for &path in s.hdr_files {
+		delete(path)
+	}
+	delete(s.hdr_files)
+
+	env_manager_destroy(&s.env_mgr)
 	postfx.pipeline_destroy(&s.postfx_pipeline)
 	rendering.overlay_destroy(&s.overlay)
 	if s.pbr_program != 0 {

@@ -5,6 +5,7 @@ layout(location = 0) in vec3 in_position;
 layout(location = 0) uniform mat4 m_inv_view_proj;
 
 layout(location = 0) out vec3 RayDir;
+layout(location = 1) out vec2 ScreenPos;
 
 void main()
 {
@@ -14,4 +15,5 @@ void main()
 	vec4 pos = m_inv_view_proj * vec4(in_position.xy, 1.0, 1.0);
 
 	RayDir = pos.xyz / pos.w;
+	ScreenPos = in_position.xy;
 }

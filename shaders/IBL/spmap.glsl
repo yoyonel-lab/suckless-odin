@@ -3,7 +3,9 @@
 const float PI = 3.14159265359;
 const float TwoPI = 2.0 * PI;
 const float Epsilon = 0.00001;
-const uint SAMPLE_COUNT = 1024;
+#ifndef SAMPLE_COUNT
+#define SAMPLE_COUNT 1024u
+#endif
 const float InvNumSamples = 1.0 / float(SAMPLE_COUNT);
 
 layout(binding = 0) uniform sampler2D envMap;  // Texture équirectangulaire HDR
@@ -128,6 +130,14 @@ void main(void)
 			float mipLevel = roughnessValue == 0.0
 			                     ? 0.0
 			                     : 0.5 * log2(saSample / saTexel);
+			float maxMip = max(log2(float(max(textureSize(envMap, 0).x, textureSize(envMap, 0).y))), 0.0);
+			if (mipLevel >= 0.0 && mipLevel <= maxMip) {
+				// Keep valid mipLevel
+			} else if (mipLevel < 0.0) {
+				mipLevel = 0.0;
+			} else {
+				mipLevel = maxMip;
+			}
 
 			vec3 envColor =
 			    textureLod(envMap, dirToUV(L), mipLevel).rgb;

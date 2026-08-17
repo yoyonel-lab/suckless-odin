@@ -2,9 +2,13 @@ package rendering
 
 import gl "vendor:OpenGL"
 import "core:os"
-import "core:time"
+import "core:strings"
+import "core:fmt"
 
+import dbg "../core/gl_debug"
 import log "../core/log"
+import settings "../core/settings"
+import tracy "../core/tracy"
 
 // IBL textures produced by compute shaders
 IBL_Resources :: struct {
@@ -16,28 +20,37 @@ IBL_Resources :: struct {
 	irmap_program:  u32,
 	spmap_program:  u32,
 	spbrdf_program: u32,
+
+	// Progressive/amortized startup state
+	brdf_lut_computed:   bool,
+	brdf_lut_row_offset: i32,
 }
+
+IBL_TRACY_COLOR :: 0x88C0D0
 
 // Sizes matching suckless-ogl
 IRRADIANCE_SIZE :: 64
 PREFILTER_SIZE  :: 1024
 BRDF_LUT_SIZE   :: 512
-PREFILTER_MIP_LEVELS :: 5
+PREFILTER_MIP_LEVELS :: 11  // ISO C11: floor(log2(PREFILTER_SIZE)) + 1 = full mip chain
 
 IBL_IRRADIANCE_UNIT :: 15
 IBL_PREFILTER_UNIT  :: 16
 IBL_BRDF_LUT_UNIT   :: 17
 
-// Create IBL resources: compute irradiance, prefilter, and BRDF LUT from an HDR env map
-ibl_create :: proc(ibl: ^IBL_Resources, env_tex: u32) -> bool {
+// Initialize IBL resources: compile compute programs + generate BRDF LUT.
+// Irradiance and prefilter maps are computed progressively by the env_manager.
+ibl_init :: proc(ibl: ^IBL_Resources, tuning: settings.Compute_Tuning_Params) -> bool {
+	spbrdf_defines := fmt.tprintf("#define SAMPLE_COUNT %du\n", tuning.spbrdf_sample_count)
+	spmap_defines  := fmt.tprintf("#define SAMPLE_COUNT %du\n", tuning.spmap_sample_count)
+	irmap_defines  := fmt.tprintf("#define SAMPLE_DELTA %f\n", tuning.irmap_sample_delta)
+
 	// Load compute shaders
-	ibl.irmap_program  = load_compute_shader("shaders/IBL/irmap.glsl") or_return
-	ibl.spmap_program  = load_compute_shader("shaders/IBL/spmap.glsl") or_return
-	ibl.spbrdf_program = load_compute_shader("shaders/IBL/spbrdf.glsl") or_return
+	ibl.irmap_program  = load_compute_shader("shaders/IBL/irmap.glsl", irmap_defines) or_return
+	ibl.spmap_program  = load_compute_shader("shaders/IBL/spmap.glsl", spmap_defines) or_return
+	ibl.spbrdf_program = load_compute_shader("shaders/IBL/spbrdf.glsl", spbrdf_defines) or_return
 
-	// --- BRDF LUT ---
-	t_start := time.now()
-
+	// --- BRDF LUT (view-independent, computed progressively) ---
 	gl.GenTextures(1, &ibl.brdf_lut)
 	gl.BindTexture(gl.TEXTURE_2D, ibl.brdf_lut)
 	gl.TexStorage2D(gl.TEXTURE_2D, 1, gl.RG16F, BRDF_LUT_SIZE, BRDF_LUT_SIZE)
@@ -45,81 +58,35 @@ ibl_create :: proc(ibl: ^IBL_Resources, env_tex: u32) -> bool {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	dbg.object_label(gl.TEXTURE, ibl.brdf_lut, "IBL_BRDF_LUT")
 
-	gl.UseProgram(ibl.spbrdf_program)
-	gl.BindImageTexture(0, ibl.brdf_lut, 0, false, 0, gl.WRITE_ONLY, gl.RG16F)
-	dispatch_compute(BRDF_LUT_SIZE, BRDF_LUT_SIZE)
-	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
-	gl.Finish()
+	ibl.brdf_lut_computed = false
+	ibl.brdf_lut_row_offset = 0
 
-	t_brdf := time.duration_milliseconds(time.diff(t_start, time.now()))
-	log.log_info("perf.ibl", "IBL: BRDF LUT (%dx%d): %.2f ms", BRDF_LUT_SIZE, BRDF_LUT_SIZE, t_brdf)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
 
-	// --- Irradiance Map ---
-	t_start = time.now()
+	// Placeholder black textures for irradiance and prefilter.
+	// These are bound during first-load while IBL is computing progressively.
+	// Without them, the PBR shader samples texture 0 (undefined GPU memory residues).
+	// Replaced by env_manager_swap_textures once IBL pipeline completes.
+	black_pixel := [4]f32{0.0, 0.0, 0.0, 1.0}
 
 	gl.GenTextures(1, &ibl.irradiance_map)
 	gl.BindTexture(gl.TEXTURE_2D, ibl.irradiance_map)
-	gl.TexStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, IRRADIANCE_SIZE * 2, IRRADIANCE_SIZE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 1, 1, 0, gl.RGBA, gl.FLOAT, &black_pixel[0])
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-
-	gl.UseProgram(ibl.irmap_program)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, env_tex)
-	gl.BindImageTexture(1, ibl.irradiance_map, 0, false, 0, gl.WRITE_ONLY, gl.RGBA16F)
-
-	// Set uniforms
-	gl.Uniform1f(gl.GetUniformLocation(ibl.irmap_program, "clamp_threshold"), 100.0)
-	gl.Uniform1i(gl.GetUniformLocation(ibl.irmap_program, "u_offset_y"), 0)
-	gl.Uniform1i(gl.GetUniformLocation(ibl.irmap_program, "u_max_y"), IRRADIANCE_SIZE)
-
-	dispatch_compute(IRRADIANCE_SIZE * 2, IRRADIANCE_SIZE)
-	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
-	gl.Finish()
-
-	t_irr := time.duration_milliseconds(time.diff(t_start, time.now()))
-	log.log_info("perf.ibl", "IBL: Irradiance (%dx%d): %.2f ms", IRRADIANCE_SIZE * 2, IRRADIANCE_SIZE, t_irr)
-
-	// --- Prefilter Map (with mipmaps) ---
-	t_start = time.now()
+	dbg.object_label(gl.TEXTURE, ibl.irradiance_map, "IBL_Irradiance_Placeholder")
 
 	gl.GenTextures(1, &ibl.prefilter_map)
 	gl.BindTexture(gl.TEXTURE_2D, ibl.prefilter_map)
-	gl.TexStorage2D(gl.TEXTURE_2D, PREFILTER_MIP_LEVELS, gl.RGBA16F, PREFILTER_SIZE * 2, PREFILTER_SIZE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 1, 1, 0, gl.RGBA, gl.FLOAT, &black_pixel[0])
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	dbg.object_label(gl.TEXTURE, ibl.prefilter_map, "IBL_Prefilter_Placeholder")
 
-	gl.UseProgram(ibl.spmap_program)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, env_tex)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
 
-	for mip in 0..<PREFILTER_MIP_LEVELS {
-		mip_w := max(i32(1), (PREFILTER_SIZE * 2) >> u32(mip))
-		mip_h := max(i32(1), PREFILTER_SIZE >> u32(mip))
-		roughness := f32(mip) / f32(PREFILTER_MIP_LEVELS - 1)
-
-		gl.BindImageTexture(1, ibl.prefilter_map, i32(mip), false, 0, gl.WRITE_ONLY, gl.RGBA16F)
-		gl.Uniform1f(gl.GetUniformLocation(ibl.spmap_program, "roughnessValue"), roughness)
-		gl.Uniform1i(gl.GetUniformLocation(ibl.spmap_program, "currentMipLevel"), i32(mip))
-		gl.Uniform1f(gl.GetUniformLocation(ibl.spmap_program, "clampThreshold"), 100.0)
-		gl.Uniform1i(gl.GetUniformLocation(ibl.spmap_program, "u_offset_y"), 0)
-		gl.Uniform1i(gl.GetUniformLocation(ibl.spmap_program, "u_max_y"), mip_h)
-
-		dispatch_compute(mip_w, mip_h)
-		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
-	}
-	gl.Finish()
-
-	t_pf := time.duration_milliseconds(time.diff(t_start, time.now()))
-	log.log_info("perf.ibl", "IBL: Prefilter (%dx%d, %d mips): %.2f ms",
-		PREFILTER_SIZE * 2, PREFILTER_SIZE, PREFILTER_MIP_LEVELS, t_pf)
-
-	gl.UseProgram(0)
 	return true
 }
 
@@ -133,6 +100,57 @@ ibl_bind :: proc(ibl: ^IBL_Resources) {
 
 	gl.ActiveTexture(gl.TEXTURE0 + IBL_BRDF_LUT_UNIT)
 	gl.BindTexture(gl.TEXTURE_2D, ibl.brdf_lut)
+}
+
+// Update BRDF LUT progressively over multiple frames (32 rows per frame).
+ibl_update_brdf_lut :: proc(ibl: ^IBL_Resources) {
+	if ibl == nil || ibl.brdf_lut_computed { return }
+
+	zone := tracy.hybrid_perf_zone_begin(&tracy.SRCLOC_HYBRID_BRDF)
+	defer tracy.hybrid_perf_zone_end(zone)
+
+	dbg.push_group("IBL: BRDF_LUT_Slice")
+	gl.UseProgram(ibl.spbrdf_program)
+	gl.Uniform1i(0, ibl.brdf_lut_row_offset)
+	gl.BindImageTexture(0, ibl.brdf_lut, 0, false, 0, gl.WRITE_ONLY, gl.RG16F)
+
+	// Dispatch 32 rows progressively (512x32)
+	// Local work group size in shader: local_size_x = 32, local_size_y = 32
+	// For width=512: gx = 512 / 32 = 16
+	// For height=32: gy = 32 / 32 = 1
+	gl.DispatchCompute(16, 1, 1)
+	gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT)
+	dbg.pop_group()
+
+	ibl.brdf_lut_row_offset += 32
+	if ibl.brdf_lut_row_offset >= BRDF_LUT_SIZE {
+		ibl.brdf_lut_computed = true
+		log.log_info("perf.ibl", "IBL: Progressive BRDF LUT precomputation completed successfully")
+	}
+}
+
+// Recompile IBL compute shaders with new preprocessor defines.
+// Safely deletes existing programs to prevent GPU resource leaks.
+ibl_recompile_shaders :: proc(ibl: ^IBL_Resources, tuning: settings.Compute_Tuning_Params) -> bool {
+	// Delete existing programs if they exist
+	if ibl.irmap_program  != 0 { gl.DeleteProgram(ibl.irmap_program); ibl.irmap_program = 0 }
+	if ibl.spmap_program  != 0 { gl.DeleteProgram(ibl.spmap_program); ibl.spmap_program = 0 }
+	if ibl.spbrdf_program != 0 { gl.DeleteProgram(ibl.spbrdf_program); ibl.spbrdf_program = 0 }
+
+	spbrdf_defines := fmt.tprintf("#define SAMPLE_COUNT %du\n", tuning.spbrdf_sample_count)
+	spmap_defines  := fmt.tprintf("#define SAMPLE_COUNT %du\n", tuning.spmap_sample_count)
+	irmap_defines  := fmt.tprintf("#define SAMPLE_DELTA %f\n", tuning.irmap_sample_delta)
+
+	// Compile and link programs
+	ibl.irmap_program  = load_compute_shader("shaders/IBL/irmap.glsl", irmap_defines) or_return
+	ibl.spmap_program  = load_compute_shader("shaders/IBL/spmap.glsl", spmap_defines) or_return
+	ibl.spbrdf_program = load_compute_shader("shaders/IBL/spbrdf.glsl", spbrdf_defines) or_return
+
+	// Reset BRDF LUT computation status to trigger progressive recalculation
+	ibl.brdf_lut_computed = false
+	ibl.brdf_lut_row_offset = 0
+
+	return true
 }
 
 ibl_destroy :: proc(ibl: ^IBL_Resources) {
@@ -155,7 +173,7 @@ dispatch_compute :: proc(width, height: i32) {
 }
 
 @(private)
-load_compute_shader :: proc(path: string) -> (u32, bool) {
+load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
 		log.log_error("suckless-odin.ibl", "Failed to read compute shader: %s", path)
@@ -164,10 +182,17 @@ load_compute_shader :: proc(path: string) -> (u32, bool) {
 	defer delete(data)
 	src := string(data)
 
+	src_to_compile := src
+	defer if len(defines) > 0 { delete(src_to_compile) }
+
+	if len(defines) > 0 {
+		src_to_compile = inject_defines(src, defines)
+	}
+
 	shader := gl.CreateShader(gl.COMPUTE_SHADER)
-	src_cstr := cstring(raw_data(src))
-	src_len  := i32(len(src))
-	gl.ShaderSource(shader, 1, &src_cstr, &src_len)
+	src_cstr := strings.clone_to_cstring(src_to_compile)
+	defer delete(src_cstr)
+	gl.ShaderSource(shader, 1, &src_cstr, nil)
 	gl.CompileShader(shader)
 
 	success: i32
@@ -199,4 +224,19 @@ load_compute_shader :: proc(path: string) -> (u32, bool) {
 	gl.DeleteShader(shader)
 	log.log_info("suckless-odin.ibl", "Compute shader loaded: %s (program=%d)", path, program)
 	return program, true
+}
+
+@(private)
+inject_defines :: proc(source: string, defines: string) -> string {
+	if len(defines) == 0 { return strings.clone(source) }
+
+	// Find end of #version line
+	version_end := strings.index(source, "\n")
+	if version_end < 0 {
+		// No newline, just prepend defines
+		return strings.concatenate({source, "\n", defines})
+	}
+
+	// Insert after #version line
+	return strings.concatenate({source[:version_end + 1], defines, source[version_end + 1:]})
 }
