@@ -102,7 +102,7 @@ camera := Camera{
 2. **Ownership transfer**: If the allocation is returned to the caller, the caller is responsible. Document this in a comment if non-obvious.
 3. **Struct-owned allocations**: Any allocation stored in a struct field MUST be freed in that struct's `destroy`/cleanup proc. The `destroy` proc MUST iterate dynamic arrays and free each element's owned allocations before deleting the array itself.
 4. **Review trigger**: When modifying or creating ANY proc that calls an allocating function, STOP and verify: "Where is this freed?" If the answer is not immediately obvious, add the `defer` or fix the `destroy`.
-5. **No silent leaks**: LeakSanitizer (ASAN) is the final arbiter. Run `just build-sanitize` + clean shutdown to validate 0 leaks after any memory-related change.
+5. **No silent leaks**: LeakSanitizer (ASAN) is the final arbiter. Run `task build-sanitize` + clean shutdown to validate 0 leaks after any memory-related change.
 
 ## GUI Search Synchronization
 

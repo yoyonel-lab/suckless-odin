@@ -94,7 +94,7 @@ test_shader_compiles :: proc(t: ^testing.T) {
 - `gl.ReadPixels()` → raw RGBA buffer
 - Compare against `tests/references/ref_*.png` baselines
 - RMSE threshold (e.g., < 0.02 per channel)
-- CI: `xvfb-run just test-gl`
+- CI: `xvfb-run task test-gl`
 
 ## Key Odin Advantages
 
@@ -107,10 +107,10 @@ test_shader_compiles :: proc(t: ^testing.T) {
 
 ```bash
 # Phase 1: always runs
-just test-unit
+task test-unit
 
 # Phase 2+3: requires GPU (xvfb on CI)
-xvfb-run just test-gl
+xvfb-run task test-gl
 ```
 
 ## Progress Log

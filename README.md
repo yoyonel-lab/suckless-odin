@@ -40,23 +40,24 @@ PBR physically-based rendering, IBL image-based lighting, uber-shader post-proce
 
 ## Build & Run
 
-Requires [Odin](https://odin-lang.org/) dev-2026-05+ and [Just](https://github.com/casey/just).
+Requires [Odin](https://odin-lang.org/) dev-2026-05+ and [Task](https://taskfile.dev) (go-task).
 
-> **Note:** For systems using isolated containers (Bazzite, Fedora Silverblue), see [Distrobox Environment & Native GPU Offloading](docs/distrobox-optimus-2026-05-24.md).
+> **Note:** For systems using isolated containers (Bazzite, Fedora Silverblue), see [Distrobox Environment & Native GPU Offloading](docs/distrobox-optimus-2026-05-24.md).  
+> **Toolchain Note:** If upgrading Odin and hitting `vendor:stb` compile-time panics, see [Odin vendor:stb Toolchain Setup](docs/toolchain-stb-vendor-setup-2026-08-17.md).
 
 ```bash
 # Debug build (default)
-just build
-just run
+task build
+task run
 
 # Build and run in one step
-just br            # debug
-just br-release    # optimized
-just br-ultra      # maximum perf
-just br-profile    # Tracy profiler
+task br            # debug
+task br-release    # optimized
+task br-ultra      # maximum perf
+task br-profile    # Tracy profiler
 
-# All available recipes
-just --list
+# All available tasks
+task --list
 ```
 
 ### Build Modes
@@ -70,24 +71,79 @@ just --list
 | `build-profile` | `-o:speed -define:TRACY_ENABLE=true` | Full | Tracy profiling |
 | `build-sanitize` | `-debug -sanitize:address` | Full + ASAN | Memory bug detection |
 
-## Testing
+## Command-Line Interface (CLI)
+
+The compiled engine supports a robust set of command-line arguments to customize rendering features, apply post-processing presets, execute benchmarks, or switch performance profiles:
 
 ```bash
-just test            # All tests (unit + CLI + shader + GL headless)
-just test-unit       # Unit tests only (63 tests)
-just test-gl-xvfb   # GL tests under xvfb (45 tests, headless)
-just ci              # Full CI pipeline (lint + build + all tests)
+# General Usage
+./build/release/suckless-odin [options]
 ```
+
+### Available Options
+
+| Option | Argument Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `-h`, `--help` | — | — | Displays the command-line help message and usage layout. |
+| `-v`, `--version` | — | — | Prints the version information. |
+| `--no-postfx` | — | — | Completely disables the post-processing uber-shader pipeline. |
+| `--postfx-preset=<name>` | `string` | — | Applies a post-processing aesthetic preset: `default`, `subtle`, `cinematic`, `vibrant`, `clean`. |
+| `--vsync` | — | `off` | Enables vertical synchronization. |
+| `--benchmark` | — | — | Executes a headless automated rendering benchmark, reports statistics, and exits. |
+| `--benchmark-frames=<N>`| `integer` | `300` | Overrides the number of frames evaluated during a benchmark run. |
+| `--compute-profile=<name>`| `string` | `legacy`| Configures compute shader integration details: `legacy` (default, high-fidelity) or `optimized` (fast, low-overhead). |
+
+For complete documentation regarding compute tuning parameters, dynamic macro generation, and preprocessor VRAM injection, see [Compute Shader Tuning & Dynamic Quality Profiles](docs/compute-shader-tuning-2026-05-27.md).
+
+## Testing & Memory Sanitization
+
+```bash
+task test            # All tests (unit + CLI + shader + GL headless)
+task test-unit       # Unit tests only (63 tests)
+task test-gl-xvfb   # GL tests under xvfb (45 tests, headless)
+task valgrind        # Run release build under Valgrind Memcheck with suppressions
+task valgrind-xvfb   # Run headless benchmark under Valgrind Memcheck
+task ci              # Full CI pipeline (lint + build + all tests)
+```
+
+For a comprehensive breakdown of memory leak prevention, compiler-optimization warning bypasses, and custom driver suppression architectures, see the [Memory Safety Audit & Valgrind Sanitization Guide](docs/valgrind-memory-sanitization-2026-05-27.md).
+
+## Profiling & Performance Analysis
+
+The project integrates advanced memory, CPU, cache, and frame-level profiling tools:
+
+```bash
+# Heap Memory Allocations (Heaptrack)
+task profile-heaptrack         # Run automated allocation analysis & CLI summary
+task profile-heaptrack-gui     # Open allocation trace in heaptrack_gui
+
+# Hardware Performance & Cache Misses (Intel VTune Profiler)
+task profile-vtune-hotspots    # CPU Hotspots & disassembly analysis
+task profile-vtune-memory      # L1/L2/L3 cache misses, DRAM bandwidth, latency
+task profile-vtune-threading   # Thread concurrency, lock contention, waits
+task profile-vtune-gui         # Open latest VTune report in GUI
+
+# CPU Instruction Call Tree (Valgrind Callgrind)
+task profile-callgrind         # Instruction count profiling & annotation
+task profile-callgrind-gui     # Open call graph in KCachegrind
+
+# Real-Time Frame Profiling (Tracy Profiler)
+task build-profile             # Build with Tracy instrumentation
+task profile                   # Automated Tracy capture run
+```
+
+For complete documentation, see the [Advanced Profiling Guide](docs/profiling_advanced.md).
+
 
 ### Docker Local CI
 
 ISO reproduction of GitHub Actions for debugging CI issues locally:
 
 ```bash
-just ci-docker-build       # Build the Docker image (ubuntu:24.04, Odin, Mesa)
-just ci-docker             # Run full CI inside Docker
-just ci-docker test-unit   # Run only unit tests
-just ci-docker-shell       # Interactive shell for debugging
+task ci-docker-build       # Build the Docker image (ubuntu:24.04, Odin, Mesa)
+task ci-docker             # Run full CI inside Docker
+task ci-docker test-unit   # Run only unit tests
+task ci-docker-shell       # Interactive shell for debugging
 ```
 
 ## Dependencies

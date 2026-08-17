@@ -18,21 +18,21 @@ unique à onglets.
 | Upstream | [steinarb1234/odin-imgui](https://github.com/steinarb1234/odin-imgui) |
 | Version ImGui | v1.92.4-docking |
 | Gestion | Git submodule (`deps/odin-imgui`) |
-| Binaire `.a` | Non versionné, construit localement (`just build-imgui`) |
-| Mise à jour | `just update-imgui` (pull latest + rebuild) |
+| Binaire `.a` | Non versionné, construit localement (`task build-imgui`) |
+| Mise à jour | `task update-imgui` (pull latest + rebuild) |
 
 ### Setup initial après clone
 
 ```bash
 git submodule update --init              # Récupérer le submodule
-just build-imgui                         # Compiler imgui_linux_x64.a (~90s)
-just build                               # Build du projet
+task build-imgui                         # Compiler imgui_linux_x64.a (~90s)
+task build                               # Build du projet
 ```
 
 ### Mise à jour de la dépendance
 
 ```bash
-just update-imgui                        # Pull latest upstream + rebuild
+task update-imgui                        # Pull latest upstream + rebuild
 # Vérifier que le build + tests passent, puis commit le nouveau pointeur
 git add deps/odin-imgui && git commit -m "deps: update odin-imgui to <commit>"
 ```
@@ -69,7 +69,7 @@ src/gui/gui.odin          ← Package GUI
 | Pas de raccourcis clavier pour les toggles | Tout passe par ImGui (sauf F2 toggle, WASD, Escape) |
 | `Scene_State` avec pointeurs | Évite l'import circulaire gui→scene |
 | Placeholders `BeginDisabled()` | Interface prête pour le futur, visuellement claire |
-| Extra linker flags dans Justfile | libc++ dans linuxbrew + X11 pour imgui_impl_glfw |
+| Extra linker flags dans Taskfile.yml | libc++ dans linuxbrew + X11 pour imgui_impl_glfw |
 
 ## Contrôles connectés (live)
 
@@ -139,16 +139,16 @@ Barre de recherche en haut de la fenêtre "Engine Controls" :
 ## Compilation
 
 ```bash
-just build-imgui    # (initial) Compile imgui_linux_x64.a depuis les sources
-just build          # Build debug (linke ImGui via extra-linker-flags)
-just update-imgui   # Met à jour le submodule + rebuild
-just lint           # odin check -vet -strict-style -warnings-as-errors
-just test           # 16 tests GL + 31 unit tests
+task build-imgui    # (initial) Compile imgui_linux_x64.a depuis les sources
+task build          # Build debug (linke ImGui via extra-linker-flags)
+task update-imgui   # Met à jour le submodule + rebuild
+task lint           # odin check -vet -strict-style -warnings-as-errors
+task test           # 16 tests GL + 31 unit tests
 ```
 
 ## Problèmes résolus
 
-1. **`-lc++` linker error** → `extra-linker-flags:"-L/home/linuxbrew/.linuxbrew/lib"` dans Justfile
+1. **`-lc++` linker error** → `extra-linker-flags:"-L/home/linuxbrew/.linuxbrew/lib"` dans Taskfile.yml
 2. **X11 undefined refs** → `-lX11` dans extra-linker-flags (imgui_impl_glfw v1.92+ appelle X11 directement)
 3. **Unused import `gl`** → Retiré du package gui
 4. **Tone mapping cassait le rendu ISO** → Retiré du shader, exposure grisée dans l'UI
