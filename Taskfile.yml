@@ -1,0 +1,710 @@
+version: '3'
+
+vars:
+  BUILD_BASE: build
+  DISTROBOX_CONTAINER: clang-dev
+  
+  # Auto-détection de l'environnement (distrobox vs hôte)
+  IN_CONTAINER: '{{default "" .CONTAINER_ID}}'
+  
+  HAS_DISTROBOX:
+    sh: which distrobox >/dev/null 2>&1 && echo "yes" || echo ""
+    
+  NATIVE:
+    sh: |
+      if [ -n "$CONTAINER_ID" ] || [ -z "{{.HAS_DISTROBOX}}" ]; then
+        echo "yes"
+      else
+        echo ""
+      fi
+
+  DBX:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo ""
+      else
+        echo "distrobox enter {{.DISTROBOX_CONTAINER}} -- "
+      fi
+
+  # Préfixes transparents de commandes
+  ODIN:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo "odin"
+      else
+        echo "env ODIN_ROOT=/usr/lib/odin {{.DBX}}odin"
+      fi
+
+  ODIN_INNER:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo "odin"
+      else
+        echo "env ODIN_ROOT=/usr/lib/odin odin"
+      fi
+
+  PYTHON3:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo "python3"
+      else
+        echo "{{.DBX}}python3"
+      fi
+
+  CMAKE:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo "cmake"
+      else
+        echo "{{.DBX}}cmake"
+      fi
+
+  BASH:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo "bash"
+      else
+        echo "{{.DBX}}bash"
+      fi
+
+  XVFB_RUN:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo "xvfb-run"
+      else
+        echo "{{.DBX}}xvfb-run"
+      fi
+
+  VALGRIND:
+    sh: |
+      if [ -n "{{.NATIVE}}" ]; then
+        echo "valgrind"
+      else
+        echo "{{.DBX}}valgrind"
+      fi
+
+  # Drapeaux d'édition de liens
+  EXTRA_LINKER_FLAGS:
+    sh: |
+      if [ -n "$CONTAINER_ID" ]; then
+        echo "-Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11"
+      else
+        echo "-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11"
+      fi
+
+  TRACY_LINKER_FLAGS: "{{.EXTRA_LINKER_FLAGS}} -lstdc++"
+
+  RUNNER:
+    sh: |
+      if [ "$USE_MANGOHUD" = "1" ]; then
+        echo "mangohud "
+      else
+        echo ""
+      fi
+
+  # Parallélisme calculé
+  NPROCS:
+    sh: echo $(( $(nproc) - 2 ))
+
+  TEST_THREADS:
+    sh: echo $(( $(nproc) / 2 ))
+
+  TRACY_LEGACY:
+    sh: |
+      if [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+        echo "OFF"
+      else
+        echo "ON"
+      fi
+
+  OPT_FLAG: speed
+  CI_IMAGE: suckless-odin-ci
+
+tasks:
+  default:
+    desc: Build and run the engine in debug mode
+    deps: [build]
+    cmds:
+      - task: run
+
+  # ─── COMPILATION (BUILD) ───────────────────────────────────────────────────
+
+  build:
+    desc: Build in debug mode
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/debug
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/debug/suckless-odin -debug -use-separate-modules -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  build-fast-release:
+    desc: Build with minimal release optimization (fast compile)
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/release
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/release/suckless-odin -o:minimal -use-separate-modules -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  build-release:
+    desc: Build optimized release mode
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/release
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/release/suckless-odin -o:{{.OPT_FLAG}} -use-separate-modules -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  build-ultra:
+    desc: Build with maximum optimization, native microarch, and safety checks disabled
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/ultra
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/ultra/suckless-odin -o:aggressive -microarch:native -no-bounds-check -no-type-assert -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  build-profile:
+    desc: Build with Tracy Profiler active
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/profile
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/profile/suckless-odin -o:{{.OPT_FLAG}} -define:TRACY_ENABLE=true -extra-linker-flags:\"{{.TRACY_LINKER_FLAGS}}\""
+
+  build-strict:
+    desc: Build with all vet checks and strict style (lint warnings as errors)
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/debug
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/debug/suckless-odin -debug -use-separate-modules -vet -strict-style -warnings-as-errors -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  build-sanitize:
+    desc: Build with address and UB sanitizers active
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/sanitize
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/sanitize/suckless-odin -debug -use-separate-modules -sanitize:address -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  build-relwithdebinfo:
+    desc: Build optimized with debug symbols for profiling (Heaptrack, Callgrind, VTune)
+    cmds:
+      - mkdir -p {{.BUILD_BASE}}/relwithdebinfo
+      - "{{.ODIN}} build src/ -out:{{.BUILD_BASE}}/relwithdebinfo/suckless-odin -o:speed -debug -use-separate-modules -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  # ─── EXÉCUTION (RUN) ────────────────────────────────────────────────────────
+
+  run:
+    desc: Run the debug executable
+    cmds:
+      - "{{.RUNNER}}./{{.BUILD_BASE}}/debug/suckless-odin"
+
+  run-release:
+    desc: Run the optimized release executable
+    cmds:
+      - "{{.RUNNER}}./{{.BUILD_BASE}}/release/suckless-odin"
+
+  run-ultra:
+    desc: Run the ultra-release executable
+    cmds:
+      - "{{.RUNNER}}./{{.BUILD_BASE}}/ultra/suckless-odin"
+
+  run-profile:
+    desc: Run the profile executable (Tracy active)
+    cmds:
+      - "{{.RUNNER}}./{{.BUILD_BASE}}/profile/suckless-odin"
+
+  profile:
+    desc: Run automated profiling with physical GPU (CSV output)
+    deps: [build-profile]
+    cmds:
+      - chmod +x scripts/profile_run.sh
+      - ./scripts/profile_run.sh
+
+  profile-headless:
+    desc: Run automated profiling in headless mode (virtual framebuffer)
+    deps: [build-profile]
+    cmds:
+      - chmod +x scripts/profile_run.sh
+      - ./scripts/profile_run.sh --headless
+
+  br:
+    desc: Build and Run debug mode
+    cmds:
+      - task: build
+      - task: run
+
+  br-fr:
+    desc: Build and Run fast-release mode
+    cmds:
+      - task: build-fast-release
+      - task: run-release
+
+  br-release:
+    desc: Build and Run release mode
+    cmds:
+      - task: build-release
+      - task: run-release
+
+  br-ultra:
+    desc: Build and Run ultra mode
+    cmds:
+      - task: build-ultra
+      - task: run-ultra
+
+  br-profile:
+    desc: Build and Run profile mode
+    cmds:
+      - task: build-profile
+      - task: run-profile
+
+  # ─── TESTS (TEST) ──────────────────────────────────────────────────────────
+
+  test:
+    desc: Run all tests (unit, cli, shader, gl)
+    cmds:
+      - task: test-unit
+      - task: test-cli
+      - task: test-shader
+      - task: test-gl
+
+  test-unit:
+    desc: Run unit tests
+    cmds:
+      - "{{.ODIN}} test tests/ -out:/tmp/odin-test-unit -define:ODIN_TEST_THREADS={{.TEST_THREADS}}"
+
+  test-cli:
+    desc: Run CLI tests in main package
+    cmds:
+      - "{{.ODIN}} test src/ -out:/tmp/odin-test-cli -define:ODIN_TEST_THREADS={{.TEST_THREADS}}"
+
+  test-shader:
+    desc: Run shader compilation CPU tests
+    cmds:
+      - "{{.ODIN}} test src/rendering/shader/ -out:/tmp/odin-test-shader -define:ODIN_TEST_THREADS={{.TEST_THREADS}}"
+
+  test-gl:
+    desc: Run OpenGL headless GPU tests on local display
+    cmds:
+      - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-test-gl -debug -thread-count:{{.TEST_THREADS}} -define:ODIN_TEST_THREADS=1 -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  test-chaos:
+    desc: Run temporal chaos fuzzer on active display (5 seconds)
+    cmds:
+      - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-test-chaos -debug -thread-count:{{.TEST_THREADS}} -define:ODIN_TEST_THREADS=1 -define:CHAOS_STRESS=true -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  test-chaos-xvfb:
+    desc: Run temporal chaos fuzzer in headless environment via Xvfb
+    cmds:
+      - "{{.XVFB_RUN}} -a -s \"-screen 0 1024x768x24\" {{.ODIN_INNER}} test tests/gl/ -out:/tmp/odin-test-chaos -debug -thread-count:{{.TEST_THREADS}} -define:ODIN_TEST_THREADS=1 -define:CHAOS_STRESS=true -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  test-chaos-seed:
+    desc: Replay the temporal chaos fuzzer with a specific random seed
+    cmds:
+      - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-test-chaos -debug -thread-count:{{.TEST_THREADS}} -define:ODIN_TEST_THREADS=1 -define:CHAOS_STRESS=true -define:ODIN_TEST_RANDOM_SEED={{.seed}} -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+    vars:
+      seed: '{{default "" .seed}}'
+
+  test-integration:
+    desc: Run end-to-end integration test scenario (15s timebox, HDR cycling, frame count validation)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_integration_e2e.sh
+      - ./scripts/test_integration_e2e.sh ./{{.BUILD_BASE}}/release/suckless-odin
+
+  test-integration-xvfb:
+    desc: Run end-to-end integration test scenario headless under Xvfb
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_integration_e2e.sh
+      - ./scripts/test_integration_e2e.sh ./{{.BUILD_BASE}}/release/suckless-odin --headless
+
+  # ─── LINT & VET ────────────────────────────────────────────────────────────
+
+  lint:
+    desc: Full syntax and style lint (strict mode)
+    cmds:
+      - "{{.ODIN}} check src/ -vet -strict-style -warnings-as-errors"
+
+  vet:
+    desc: Semantic and type checking (vet checks)
+    cmds:
+      - "{{.ODIN}} check src/ -vet"
+
+  style:
+    desc: Syntax style check (strict-style)
+    cmds:
+      - "{{.ODIN}} check src/ -strict-style"
+
+  strip-semicolons:
+    desc: Automatically strip unneeded semicolons from codebase
+    cmds:
+      - "{{.ODIN}} strip-semicolon src/"
+
+  clean:
+    desc: Clean all build artifacts
+    cmds:
+      - rm -rf {{.BUILD_BASE}}
+      - rm -f *.o
+      - rm -f /tmp/odin-test-*
+
+  # ─── DÉPENDANCES ET COMPILATION TIERS (DEPS) ───────────────────────────────
+
+  build-imgui:
+    desc: Rebuild Dear ImGui shared library
+    cmds:
+      - "{{.BASH}} -c 'cd deps/odin-imgui && rm -rf .venv && python3 -m venv .venv && . .venv/bin/activate && pip install -q ply && python ../../scripts/build_imgui_parallel.py'"
+    sources:
+      - deps/odin-imgui/imgui_impl_glfw.cpp
+      - scripts/build_imgui_parallel.py
+    generates:
+      - deps/odin-imgui/imgui_linux_x64.a
+
+  update-imgui:
+    desc: Update Dear ImGui submodule to latest commit and rebuild
+    cmds:
+      - "{{.BASH}} -c 'git submodule update --remote deps/odin-imgui'"
+      - task: build-imgui
+      - echo "Updated odin-imgui to latest submodule state"
+
+  build-tracy-lib:
+    desc: Build Tracy client library from source
+    cmds:
+      - "{{.BASH}} scripts/build_tracy_lib.sh"
+    sources:
+      - deps/tracy/public/tracy/TracyClient.cpp
+    generates:
+      - deps/libtracy.a
+
+  build-tracy-server:
+    desc: Build Tracy profiler server GUI
+    cmds:
+      - "{{.CMAKE}} -B deps/tracy/profiler/build -S deps/tracy/profiler -DCMAKE_BUILD_TYPE=Release -DLEGACY={{.TRACY_LEGACY}} -Wno-dev"
+      - "{{.CMAKE}} --build deps/tracy/profiler/build --parallel {{.NPROCS}}"
+    sources:
+      - deps/tracy/profiler/CMakeLists.txt
+    generates:
+      - deps/tracy/profiler/build/tracy-profiler
+
+  tracy-server:
+    desc: Launch Tracy profiler server
+    cmds:
+      - "{{.DBX}}deps/tracy/profiler/build/tracy-profiler"
+
+  build-tracy:
+    desc: Full tracy setup (lib + server)
+    cmds:
+      - task: build-tracy-lib
+      - task: build-tracy-server
+
+  update-tracy:
+    desc: Update Tracy submodule to latest stable tag and rebuild
+    cmds:
+      - "{{.BASH}} -c 'set -euo pipefail && cd deps/tracy && git fetch --tags && LATEST=$(git tag --sort=-v:refname | head -1) && CURRENT=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD) && if [[ \"$LATEST\" == \"$CURRENT\" ]]; then echo \"Tracy already at latest: $CURRENT\"; exit 0; fi && echo \"Updating Tracy: $CURRENT -> $LATEST\" && git checkout \"$LATEST\" && cd ../.. && task build-tracy && echo \"✓ Tracy updated to $LATEST (lib + server rebuilt)\"'"
+
+  # ─── CI DOCKER (CI) ────────────────────────────────────────────────────────
+
+  ci-docker-build:
+    desc: Build the local CI Docker image
+    cmds:
+      - docker build -f Dockerfile.ci -t {{.CI_IMAGE}} .
+
+  ci-docker:
+    desc: Run full CI pipeline inside local Docker image
+    deps: [ci-docker-build]
+    cmds:
+      - |
+        docker run --rm \
+            --ulimit core=-1 \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            {{.CI_IMAGE}} {{.mode}}
+    vars:
+      mode: '{{default "all" .mode}}'
+
+  ci-docker-test-unit:
+    desc: Run unit tests inside CI Docker container for debugging
+    deps: [ci-docker-build]
+    cmds:
+      - |
+        docker run --rm \
+            --ulimit core=-1 \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            {{.CI_IMAGE}} test-unit
+
+  ci-docker-shell:
+    desc: Open interactive shell inside CI Docker container
+    deps: [ci-docker-build]
+    cmds:
+      - |
+        docker run --rm -it \
+            --ulimit core=-1 \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            --entrypoint /bin/bash \
+            {{.CI_IMAGE}}
+
+  pre-commit-install:
+    desc: Install local pre-commit and pre-push hooks
+    cmds:
+      - pre-commit install
+      - pre-commit install --hook-type pre-push
+      - echo "✅ Git hooks installed (pre-commit lint, pre-push lint+build+tests)"
+
+  ci:
+    desc: Run full local CI verification pipeline
+    cmds:
+      - task: lint
+      - task: build
+      - task: test-unit
+      - task: test-cli
+      - task: test-shader
+      - task: test-gl-xvfb
+
+  push:
+    desc: Run full test suite locally before pushing (avoids SSH timeout)
+    cmds:
+      - task: test
+      - "git push --no-verify {{.CLI_ARGS}}"
+
+  test-gl-xvfb:
+    desc: Run OpenGL tests under xvfb headless environment
+    cmds:
+      - "{{.XVFB_RUN}} -a -s \"-screen 0 1024x768x24\" {{.ODIN_INNER}} test tests/gl/ -out:/tmp/odin-test-gl -debug -define:ODIN_TEST_THREADS=1 -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  valgrind:
+    desc: Run release build under Valgrind Memcheck
+    deps: [build-release]
+    cmds:
+      - "{{.VALGRIND}} --error-exitcode=1 --leak-check=full --suppressions=valgrind.supp ./{{.BUILD_BASE}}/release/suckless-odin {{.CLI_ARGS}}"
+
+  valgrind-xvfb:
+    desc: Run release build under Valgrind Memcheck in headless xvfb environment
+    deps: [build-release]
+    cmds:
+      - "{{.XVFB_RUN}} -a {{.VALGRIND}} --error-exitcode=1 --leak-check=full --suppressions=valgrind.supp ./{{.BUILD_BASE}}/release/suckless-odin --benchmark --benchmark-frames=1 {{.CLI_ARGS}}"
+
+  gen-refs:
+    desc: Generate visual regression reference images (DESTRUCTIVE - local physical GPU)
+    prompt: "⚠️ This will OVERWRITE all visual reference images. Continue?"
+    cmds:
+      - "GEN_REFS=1 {{.ODIN_INNER}} test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  gen-refs-xvfb:
+    desc: Generate visual regression reference images under Xvfb (DESTRUCTIVE)
+    prompt: "⚠️ This will OVERWRITE all visual reference images. Continue?"
+    cmds:
+      - "{{.XVFB_RUN}} -a -s \"-screen 0 1024x768x24\" env GEN_REFS=1 {{.ODIN_INNER}} test tests/gl/ -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_visual_scene_multi_view -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  # ─── BENCHMARKS ─────────────────────────────────────────────────────────────
+
+  bench:
+    desc: Run all benchmarks (search, render)
+    cmds:
+      - task: bench-search
+      - task: bench-render
+
+  bench-render:
+    desc: Run GPU render benchmark
+    deps: [build-release]
+    cmds:
+      - "{{.RUNNER}}env vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{.BUILD_BASE}}/release/suckless-odin --benchmark --benchmark-frames=200"
+
+  bench-render-debug:
+    desc: Run GPU render benchmark in debug mode
+    deps: [build]
+    cmds:
+      - "{{.RUNNER}}env vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{.BUILD_BASE}}/debug/suckless-odin --benchmark --benchmark-frames=200"
+
+  bench-search:
+    desc: Run fuzzy search algorithm benchmarks
+    cmds:
+      - "{{.ODIN}} run benchmarks/search/ -o:speed -out:/tmp/odin-bench-search"
+
+  bench-search-compare:
+    desc: Compare current fuzzy search performance to baseline
+    cmds:
+      - echo "── Baseline (current commit) ──"
+      - "{{.ODIN}} run benchmarks/search/ -o:speed -out:/tmp/odin-bench-search 2>/dev/null"
+      - echo ""
+      - echo "Tip run task bench-search before and after changes to compare ns/call"
+
+  bench-compare:
+    desc: Run A/B commit benchmarking comparison
+    cmds:
+      - "{{.BASH}} ./scripts/bench_compare.sh {{.CLI_ARGS}}"
+
+  bench-early-exit:
+    desc: Measure startup and clean early exit time via Escape keystroke simulation
+    deps: [build-release]
+    cmds:
+      - |
+        time (
+          {{.RUNNER}}./{{.BUILD_BASE}}/release/suckless-odin &
+          APP_PID=$!
+          xdotool search --sync --name "suckless-odin — Icosphere Phong" key --window %1 Escape 2>/dev/null
+          wait $APP_PID
+        )
+
+  # ─── ADVANCED PROFILING (TRACY, HEAPTRACK, CALLGRIND, VTUNE) ───────────────
+
+  profile-tracy:
+    desc: Automated Tracy Profiler capture and programmatic trace verification
+    deps: [build-profile]
+    cmds:
+      - chmod +x scripts/benchmark_tracy.sh scripts/verify_tracy_trace.py
+      - ./scripts/benchmark_tracy.sh
+
+  profile-tracy-gui:
+    desc: Open the latest Tracy trace in Tracy Profiler GUI
+    deps: [build-tracy-server]
+    vars:
+      TRACE_FILE:
+        sh: ls -t build/profiling/tracy/*.tracy 2>/dev/null | head -n1 || echo ""
+    cmds:
+      - |
+        if [ -z "{{.TRACE_FILE}}" ] || [ ! -f "{{.TRACE_FILE}}" ]; then
+          echo "Erreur: Aucune trace Tracy trouvée. Lancez d'abord 'task profile-tracy'."
+          exit 1
+        fi
+        ./build/bin/tracy-profiler "{{.TRACE_FILE}}" &
+
+  profile-heaptrack:
+    desc: Profile heap memory allocations with Heaptrack (CLI summary)
+    deps: [build-relwithdebinfo]
+    cmds:
+      - chmod +x scripts/benchmark_heaptrack.sh
+      - ./scripts/benchmark_heaptrack.sh
+
+  profile-heaptrack-gui:
+    desc: Open Heaptrack profiling results in heaptrack_gui
+    vars:
+      DUMP_FILE:
+        sh: ls -t build/profiling/heaptrack/heaptrack.*.zst 2>/dev/null | head -n1 || echo ""
+    cmds:
+      - |
+        if [ -z "{{.DUMP_FILE}}" ] || [ ! -f "{{.DUMP_FILE}}" ]; then
+          echo "Erreur: Aucun dump Heaptrack trouvé. Lancez d'abord 'task profile-heaptrack'."
+          exit 1
+        fi
+        heaptrack_gui "{{.DUMP_FILE}}"
+
+  profile-callgrind:
+    desc: Profile CPU instruction count and call tree with Valgrind Callgrind
+    deps: [build-relwithdebinfo]
+    cmds:
+      - chmod +x scripts/benchmark_callgrind.sh
+      - ./scripts/benchmark_callgrind.sh
+
+  profile-callgrind-gui:
+    desc: Open Callgrind call graph in kcachegrind
+    cmds:
+      - |
+        if [ ! -f "build/profiling/callgrind/callgrind.out" ]; then
+          echo "Erreur: build/profiling/callgrind/callgrind.out introuvable. Lancez d'abord 'task profile-callgrind'."
+          exit 1
+        fi
+        kcachegrind build/profiling/callgrind/callgrind.out
+
+  profile-vtune-hotspots:
+    desc: Profile CPU Hotspots using Intel VTune Profiler
+    deps: [build-relwithdebinfo]
+    cmds:
+      - chmod +x scripts/benchmark_vtune_hotspots.sh
+      - ./scripts/benchmark_vtune_hotspots.sh
+
+  profile-vtune-memory:
+    desc: Profile memory access, cache misses, and DRAM bandwidth using Intel VTune Profiler
+    deps: [build-relwithdebinfo]
+    cmds:
+      - chmod +x scripts/benchmark_vtune_memory.sh
+      - ./scripts/benchmark_vtune_memory.sh
+
+  profile-vtune-threading:
+    desc: Profile thread concurrency, locks, and mutex waits using Intel VTune Profiler
+    deps: [build-relwithdebinfo]
+    cmds:
+      - chmod +x scripts/benchmark_vtune_threading.sh
+      - ./scripts/benchmark_vtune_threading.sh
+
+  profile-vtune-gui:
+    desc: Open the latest VTune profiling result in vtune-gui
+    vars:
+      VTUNE_RES:
+        sh: ls -td /tmp/vtune_results_* 2>/dev/null | head -n1 || echo ""
+    cmds:
+      - |
+        if [ -z "{{.VTUNE_RES}}" ] || [ ! -d "{{.VTUNE_RES}}" ]; then
+          echo "Erreur: Aucun résultat VTune trouvé dans /tmp. Lancez d'abord un profilage VTune."
+          exit 1
+        fi
+        vtune-gui "{{.VTUNE_RES}}"
+
+  profile-all:
+    desc: Run the complete profiling suite (Heaptrack + VTune Hotspots + VTune Memory)
+    cmds:
+      - task: profile-heaptrack
+      - task: profile-vtune-hotspots
+      - task: profile-vtune-memory
+
+  # ─── RENDERDOC ──────────────────────────────────────────────────────────────
+
+  renderdoc:
+    desc: Launch RenderDoc GUI with debug build loaded
+    deps: [build]
+    vars:
+      RENDERDOC_DIR: '{{default "/usr/bin" .RENDERDOC_DIR}}'
+    cmds:
+      - "{{.RENDERDOC_DIR}}/qrenderdoc --working-dir . ./{{.BUILD_BASE}}/debug/suckless-odin"
+
+  renderdoc-capture:
+    desc: Headless frame capture via RenderDoc CLI (outputs .rdc file)
+    deps: [build]
+    vars:
+      RENDERDOC_DIR: '{{default "/usr/bin" .RENDERDOC_DIR}}'
+    cmds:
+      - "{{.RENDERDOC_DIR}}/renderdoccmd capture --working-dir . ./{{.BUILD_BASE}}/debug/suckless-odin"
+
+  # ─── CODEGEN / VERIFICATION (TLA+) ──────────────────────────────────────────
+
+  build-codegen:
+    desc: Build the state machine codegen compiler (cached via sources/generates)
+    cmds:
+      - mkdir -p build/bin
+      - "{{.ODIN}} build tools/codegen -out:build/bin/generate_states"
+    sources:
+      - tools/codegen/generate_states.odin
+    generates:
+      - build/bin/generate_states
+
+  codegen-states:
+    desc: Generate state machine code (Odin) from EnvManagerVerification.tla
+    deps: [build-codegen]
+    cmds:
+      - ./build/bin/generate_states verification/EnvManagerVerification.tla
+
+  codegen-check:
+    desc: Verify that generated state files are in sync with EnvManagerVerification.tla (for CI)
+    deps: [codegen-states]
+    cmds:
+      - git diff --exit-code src/scene/env_manager_states.gen.odin
+
+  formal-verify:
+    desc: Run TLC Model Checker on Env_Manager TLA+ specification
+    cmds:
+      - mkdir -p .tla-cache
+      - |
+        if [ ! -f .tla-cache/tla2tools.jar ]; then
+          echo "Downloading tla2tools.jar..."
+          wget -q https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar -O .tla-cache/tla2tools.jar
+        fi
+      - |
+        docker run --rm -v $(pwd):/workspace -w /workspace/verification alpine:latest sh -c \
+          "apk add --no-cache openjdk17-jre && java -cp /workspace/.tla-cache/tla2tools.jar tlc2.TLC EnvManagerVerification.tla"
+
+  formal-visualize:
+    desc: Generate state space transition graph (DOT, PNG, SVG) for the Env_Manager automaton
+    cmds:
+      - mkdir -p .tla-cache
+      - |
+        if [ ! -f .tla-cache/tla2tools.jar ]; then
+          echo "Downloading tla2tools.jar..."
+          wget -q https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar -O .tla-cache/tla2tools.jar
+        fi
+      - |
+        docker run --rm -v $(pwd):/workspace -w /workspace/verification alpine:latest sh -c \
+          "apk add --no-cache openjdk17-jre && java -cp /workspace/.tla-cache/tla2tools.jar tlc2.TLC -dump dot EnvManagerVerification.dot EnvManagerVerification.tla"
+      - |
+        if which dot >/dev/null 2>&1; then
+          dot -Tpng verification/EnvManagerVerification.dot -o verification/EnvManagerVerification.png && \
+          dot -Tsvg verification/EnvManagerVerification.dot -o verification/EnvManagerVerification.svg && \
+          echo "✓ State space graph generated: verification/EnvManagerVerification.png and .svg"
+        else
+          echo "⚠️ Graphviz (dot) not found on host. Generated DOT file: verification/EnvManagerVerification.dot"
+        fi

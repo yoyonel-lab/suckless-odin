@@ -1,0 +1,17 @@
+{
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD033": false
+  },
+  "ignores": [
+    "**/node_modules/**",
+    "**/deps/**",
+    "**/build/**",
+    "**/.tla-cache/**",
+    "docs/**",
+    "README.md",
+    "UBIQUITOUS_LANGUAGE.md",
+    ".github/**"
+  ]
+}

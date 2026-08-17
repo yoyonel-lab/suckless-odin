@@ -1,6 +1,27 @@
 repos:
   - repo: local
     hooks:
+      # Pre-commit: state machine codegen check
+      - id: codegen-check
+        name: State Machine Codegen Parity Check
+        entry: task codegen-check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Pre-commit: python lint & format (Ruff)
+      - id: ruff-lint
+        name: Ruff Lint
+        entry: ruff check --fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: Ruff Format
+        entry: ruff format
+        language: system
+        types: [python]
+
       # Pre-commit: fast lint gate
       - id: odin-lint
         name: odin check (vet + strict-style)
@@ -42,10 +63,11 @@ repos:
         always_run: true
         stages: [pre-push]
 
-      - id: odin-test-gl
-        name: odin test (GL headless)
-        entry: bash -c 'xvfb-run -a -s "-screen 0 1024x768x24" odin test tests/gl/ -out:/tmp/odin-test-gl -define:ODIN_TEST_THREADS=1 -extra-linker-flags:"-L/home/linuxbrew/.linuxbrew/lib -Wl,-rpath,/home/linuxbrew/.linuxbrew/lib -lX11"'
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]
+      # NOTE: GL headless tests removed from pre-push hook — they take ~60s and
+      # cause SSH timeout (GitHub closes idle connections during hook execution).
+      # GL tests run in CI (GitHub Actions) and via `task push` locally.
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.22.1
+    hooks:
+      - id: markdownlint-cli2
