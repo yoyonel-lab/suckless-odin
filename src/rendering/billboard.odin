@@ -2,6 +2,7 @@ package rendering
 
 import gl "vendor:OpenGL"
 
+import gl_state "../core/gl_state"
 import log "../core/log"
 import dbg "../core/gl_debug"
 
@@ -27,7 +28,7 @@ billboard_create :: proc(bb: ^Billboard) {
 	gl.GenVertexArrays(1, &bb.vao)
 	gl.GenBuffers(1, &bb.quad_vbo)
 
-	gl.BindVertexArray(bb.vao)
+	gl_state.bind_vertex_array(bb.vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, bb.quad_vbo)
 	gl.BufferData(
 		gl.ARRAY_BUFFER,
@@ -41,6 +42,7 @@ billboard_create :: proc(bb: ^Billboard) {
 	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3 * size_of(f32), 0)
 
 	gl.BindVertexArray(0)
+	gl_state.reset()
 
 	dbg.object_label(gl.VERTEX_ARRAY, bb.vao, "Billboard_VAO")
 	dbg.object_label(gl.BUFFER, bb.quad_vbo, "Billboard_QuadVBO")
@@ -52,16 +54,10 @@ billboard_create :: proc(bb: ^Billboard) {
 billboard_draw :: proc(bb: ^Billboard) {
 	if bb.vao == 0 { return }
 
-	// Disable face culling for billboards (both sides visible)
-	culling_enabled := gl.IsEnabled(gl.CULL_FACE)
-	gl.Disable(gl.CULL_FACE)
-
-	gl.BindVertexArray(bb.vao)
+	// Disable face culling for billboards (filtered via state cache, no driver stall)
+	gl_state.disable(gl.CULL_FACE)
+	gl_state.bind_vertex_array(bb.vao)
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
-
-	if culling_enabled {
-		gl.Enable(gl.CULL_FACE)
-	}
 }
 
 // Cleans up billboard GPU resources.
