@@ -25,6 +25,12 @@ jobs:
         with:
           submodules: true
 
+      - name: Lint and Format Python code (Ruff)
+        run: |
+          pip install ruff
+          ruff check scripts/
+          ruff format --check scripts/
+
       - name: Cache Odin compiler
         uses: actions/cache@v4
         with:
@@ -40,8 +46,20 @@ jobs:
           fi
           echo "/opt/odin" >> "$GITHUB_PATH"
 
+      - name: Verify State Machine Parity (Codegen Check)
+        run: |
+          mkdir -p build/bin
+          odin build tools/codegen -out:build/bin/generate_states -o:speed
+          ./build/bin/generate_states verification/EnvManagerVerification.tla
+          git diff --exit-code src/scene/env_manager_states.gen.odin
+
       - name: Vet & Strict Style Check
         run: odin check src/ -vet -strict-style -warnings-as-errors
+
+      - name: Markdown Lint Check
+        uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: '**/*.md'
 
   # ─── JOB 2: BUILD DEPENDENCIES (GLFW + ImGui) — shared via artifacts ──────────
   deps:
@@ -108,7 +126,7 @@ jobs:
         if: steps.cache-imgui.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libc++-dev libgl1-mesa-dev
+          sudo apt-get install -y libc++-dev libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev
           cd deps/odin-imgui
           python3 -m venv .venv
           . .venv/bin/activate
@@ -122,7 +140,7 @@ jobs:
           path: deps/odin-imgui/imgui_linux_x64.a
           retention-days: 1
 
-  # ─── JOB 3: BUILD (all Justfile targets matrix) ─────────────────────────────────
+  # ─── JOB 3: BUILD (all Taskfile targets matrix) ─────────────────────────────────
   build:
     needs: [lint, deps]
     runs-on: ubuntu-latest
@@ -141,7 +159,7 @@ jobs:
           - mode: sanitize
             flags: "-debug -use-separate-modules -sanitize:address"
           - mode: strict
-            flags: "-debug -use-separate-modules -vet -strict-style -warnings-as-errors"
+            flags: "-debug -vet -strict-style -warnings-as-errors"
     steps:
       - uses: actions/checkout@v4
         with:

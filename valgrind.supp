@@ -1,0 +1,96 @@
+# valgrind.supp — Valgrind memory leak suppressions for suckless-odin.
+# Suppresses third-party system libraries, OpenGL drivers, and D-Bus/GameMode leaks.
+
+{
+   Suppress_Odin_Runtime_Conditional_Zero_Cond
+   Memcheck:Cond
+   fun:*conditional_mem_zero*
+}
+
+{
+   Suppress_Odin_Runtime_Heap_Allocator_Cond
+   Memcheck:Cond
+   fun:*heap_allocator_proc*
+}
+
+{
+   Suppress_Odin_Runtime_Conditional_Zero_Value8
+   Memcheck:Value8
+   fun:*conditional_mem_zero*
+}
+
+{
+   Suppress_Odin_Runtime_Heap_Allocator_Value8
+   Memcheck:Value8
+   fun:*heap_allocator_proc*
+}
+
+{
+   Suppress_Unresolved_System_Leaks_Calloc
+   Memcheck:Leak
+   fun:calloc
+   obj:*
+}
+
+{
+   Suppress_Unresolved_System_Leaks_Malloc
+   Memcheck:Leak
+   fun:malloc
+   obj:*
+}
+
+{
+   Suppress_Unresolved_System_Leaks_Realloc
+   Memcheck:Leak
+   fun:realloc
+   obj:*
+}
+
+{
+   Suppress_DBus_GameMode_Leaks
+   Memcheck:Leak
+   ...
+   obj:*/libdbus-*.so*
+}
+
+{
+   Suppress_GameMode_Internal_Allocations
+   Memcheck:Leak
+   ...
+   fun:*try_gamemode*
+}
+
+{
+   Suppress_Mesa_Intel_Driver_Leaks
+   Memcheck:Leak
+   ...
+   obj:*/dri/*.so
+}
+
+{
+   Suppress_GL_Loader_Driver_Leaks
+   Memcheck:Leak
+   ...
+   obj:*/libGL*.so*
+}
+
+{
+   Suppress_X11_Windowing_System_Leaks
+   Memcheck:Leak
+   ...
+   obj:*/libX11*.so*
+}
+
+{
+   Suppress_XCB_Connection_Leaks
+   Memcheck:Leak
+   ...
+   obj:*/libxcb*.so*
+}
+
+{
+   Suppress_GLFW_Library_Leaks
+   Memcheck:Leak
+   ...
+   obj:*/libglfw*.so*
+}

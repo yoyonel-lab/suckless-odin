@@ -27,3 +27,19 @@ session.json
 
 # Local environment
 .env
+
+# TLA+ Formal Verification Cache and Generated Assets
+.tla-cache/
+verification/*.dot
+verification/*.png
+verification/*.svg
+
+# Local scratch directory
+scratch/
+
+# Profiling dumps
+*.zst
+callgrind.out*
+
+
+

@@ -83,16 +83,14 @@ jobs:
         run: |
           # Utilisation de toutes les ressources matérielles disponibles sur l'infrastructure de CI
           echo "=== Starting Stress Test ==="
-          
-          # Lancement et capture de la sortie standard pour extraire la graine (Seed)
+          # Lancement et capture en temps réel avec tee pour extraire la graine (Seed)
+          set -o pipefail
           xvfb-run -a -s "-screen 0 1024x768x24" \
             odin test tests/gl/ \
               -out:/tmp/odin-test-chaos \
               -define:ODIN_TEST_THREADS=1 \
               -define:CHAOS_STRESS=true \
-              -extra-linker-flags:"-lX11" > /tmp/fuzzer_output.log 2>&1 || export FUZZER_FAILED=1
-          
-          cat /tmp/fuzzer_output.log
+              -extra-linker-flags:"-lX11" 2>&1 | tee /tmp/fuzzer_output.log || export FUZZER_FAILED=1
           
           # Extraction de la graine aléatoire utilisée par Odin
           SEED=$(grep -oP "The random seed sent to every test is: \K\d+" /tmp/fuzzer_output.log || echo "Inconnue")
@@ -120,7 +118,7 @@ jobs:
           echo "| Paramètre | Valeur |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
           echo "| **Graine Aléatoire (Seed)** | \`${{ env.SEED_USED }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Commande de reproduction** | \`just test-chaos-seed ${{ env.SEED_USED }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commande de reproduction** | \`task test-chaos-seed seed=${{ env.SEED_USED }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Durée du stress** | 5.0 secondes |" >> $GITHUB_STEP_SUMMARY
           echo "| **Ressources matérielles** | 100% de la CI (non limité) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
