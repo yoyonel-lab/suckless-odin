@@ -60,7 +60,8 @@ process_includes :: proc(source: string, file_path: string, depth: int) -> (resu
 	// Get directory of current file
 	dir := directory_of(file_path)
 
-	builder := strings.builder_make()
+	builder := strings.builder_make(0, len(source) * 2)
+	defer strings.builder_destroy(&builder)
 	lines := strings.split(source, "\n")
 	defer delete(lines)
 
@@ -100,7 +101,7 @@ process_includes :: proc(source: string, file_path: string, depth: int) -> (resu
 		}
 	}
 
-	return strings.to_string(builder), true
+	return strings.clone(strings.to_string(builder)), true
 }
 
 // Compile a single shader stage from source

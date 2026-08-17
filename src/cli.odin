@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 
 import postfx "rendering/postfx"
+import settings "core/settings"
 
 // CLI action results
 Cli_Action :: enum {
@@ -19,6 +20,7 @@ Cli_Options :: struct {
 	benchmark:        bool,
 	benchmark_frames: i32,
 	vsync:            bool,
+	compute_profile:  settings.Compute_Shader_Profile,
 }
 
 BENCHMARK_DEFAULT_FRAMES :: 300
@@ -30,7 +32,9 @@ DEFAULT_CLI_OPTIONS :: Cli_Options{
 	benchmark        = false,
 	benchmark_frames = BENCHMARK_DEFAULT_FRAMES,
 	vsync            = false,
+	compute_profile  = .Legacy,
 }
+
 
 cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
 	opts := DEFAULT_CLI_OPTIONS
@@ -71,6 +75,17 @@ cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
 				return opts, .Exit_Failure
 			}
 			opts.postfx_preset = preset_id
+		case strings.has_prefix(arg, "--compute-profile="):
+			value := arg[len("--compute-profile="):]
+			if value == "legacy" {
+				opts.compute_profile = .Legacy
+			} else if value == "optimized" {
+				opts.compute_profile = .Optimized
+			} else {
+				fmt.eprintfln("Unknown compute profile: '%s'", value)
+				fmt.eprintln("Available profiles: legacy, optimized")
+				return opts, .Exit_Failure
+			}
 		case:
 			fmt.eprintfln("Unknown argument: %s", arg)
 			print_usage(args[0])
@@ -104,7 +119,9 @@ print_usage :: proc(program_name: string) {
 	fmt.println("  --vsync                     Enable vertical sync (default: off)")
 	fmt.println("  --benchmark                 Run benchmark (all effects, print stats, exit)")
 	fmt.println("  --benchmark-frames=<N>      Benchmark frame count (default: 300)")
+	fmt.println("  --compute-profile=<name>    Compute shader tuning profile (legacy, optimized. default: legacy)")
 }
+
 
 @(private)
 parse_int :: proc(s: string) -> int {

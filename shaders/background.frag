@@ -1,11 +1,14 @@
 #version 450 core
 
 layout(location = 0) in vec3 RayDir;
+layout(location = 1) in vec2 ScreenPos;
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out vec2 VelocityOut;
 
 layout(binding = 0) uniform sampler2D environmentMap;
 layout(location = 4) uniform float blur_lod;
+layout(location = 10) uniform bool u_specular_aa_split_enabled;
+layout(location = 11) uniform float u_specular_aa_split_position;
 
 const vec2 invAtan = vec2(0.1591, 0.3183);
 
@@ -81,4 +84,12 @@ void main()
 	float luma = dot(sqrt(envColor), vec3(0.299, 0.587, 0.114));
 	FragColor = vec4(envColor, luma);
 	VelocityOut = vec2(0.0); // Skybox has no velocity
+
+	if (u_specular_aa_split_enabled) {
+		float uvX = ScreenPos.x * 0.5 + 0.5;
+		float distPixels = abs(uvX - u_specular_aa_split_position) / max(1e-5, fwidth(uvX));
+		if (distPixels < 1.5) {
+			FragColor = vec4(0.9, 0.4, 0.0, 1.0);
+		}
+	}
 }

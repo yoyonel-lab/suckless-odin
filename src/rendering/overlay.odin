@@ -283,3 +283,81 @@ ortho_matrix :: proc(left, right, bottom, top, near, far: f32) -> mt.Mat4 {
 	m[3][2] = -(far + near) / (far - near)
 	return m
 }
+
+// Measure exact text width using baked character metrics
+overlay_text_width :: proc(overlay: ^Text_Overlay, text: string) -> f32 {
+	xpos: f32 = 0.0
+	ypos: f32 = 0.0
+	for ch in text {
+		if ch < FONT_FIRST_CHAR || ch >= FONT_FIRST_CHAR + FONT_CHAR_COUNT {
+			continue
+		}
+		q: stbtt.aligned_quad
+		stbtt.GetBakedQuad(
+			&overlay.chardata[0],
+			FONT_ATLAS_SIZE, FONT_ATLAS_SIZE,
+			c.int(ch) - FONT_FIRST_CHAR,
+			&xpos, &ypos,
+			&q,
+			true,
+		)
+	}
+	return xpos
+}
+
+// Render a gorgeous centered loading splash screen during initial loads
+overlay_render_splash :: proc(overlay: ^Text_Overlay, width, height: i32, title: string, status: string) {
+	if overlay.program == 0 || overlay.texture == 0 { return }
+
+	title_w := overlay_text_width(overlay, title)
+	status_w := overlay_text_width(overlay, status)
+
+	title_x := (f32(width) - title_w) * 0.5
+	title_y := f32(height) * 0.45
+
+	status_x := (f32(width) - status_w) * 0.5
+	status_y := f32(height) * 0.55
+
+	verts: [MAX_VERTICES * FLOATS_PER_VERTEX]f32
+	vert_count := 0
+
+	title_color := [4]f32{0.53, 0.75, 0.82, 1.0}  // Nord frost cyan/teal: #88C0D0
+	status_color := [4]f32{0.86, 0.88, 0.91, 0.8} // Nord snow storm: #ECEFF4 with 80% opacity
+
+	vert_count = append_text_vertices(overlay, &verts, vert_count, title, title_x, title_y, title_color)
+	vert_count = append_text_vertices(overlay, &verts, vert_count, status, status_x, status_y, status_color)
+
+	if vert_count == 0 { return }
+
+	// Upload vertex data (orphan previous backing store)
+	gl.BindBuffer(gl.ARRAY_BUFFER, overlay.vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, MAX_VERTICES * FLOATS_PER_VERTEX * size_of(f32), nil, gl.DYNAMIC_DRAW)
+	gl.BufferSubData(gl.ARRAY_BUFFER, 0, vert_count * FLOATS_PER_VERTEX * size_of(f32), &verts[0])
+
+	// Setup orthographic projection
+	ortho := ortho_matrix(0, f32(width), f32(height), 0, -1, 1)
+
+	// Render with blending, no depth test
+	gl.Disable(gl.DEPTH_TEST)
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+	gl.UseProgram(overlay.program)
+	loc_proj := gl.GetUniformLocation(overlay.program, "u_projection")
+	gl.UniformMatrix4fv(loc_proj, 1, false, &ortho[0][0])
+
+	// Bind font atlas
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, overlay.texture)
+	loc_atlas := gl.GetUniformLocation(overlay.program, "u_atlas")
+	gl.Uniform1i(loc_atlas, 0)
+
+	gl.BindVertexArray(overlay.vao)
+	gl.DrawArrays(gl.TRIANGLES, 0, i32(vert_count))
+	gl.BindVertexArray(0)
+
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	gl.UseProgram(0)
+	gl.Disable(gl.BLEND)
+	gl.Enable(gl.DEPTH_TEST)
+}

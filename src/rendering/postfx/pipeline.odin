@@ -145,6 +145,12 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 	// GPU timers for profiling
 	gpu_timers_create(&p.timers)
 
+	// Eagerly precompile the default active shader variant to avoid a first-frame compilation stall
+	if p.shader_cache.enabled {
+		log.log_info("suckless-odin.postfx", "Eagerly precompiling default active shader variant...")
+		pipeline_compile_variant(p)
+	}
+
 	log.log_info("suckless-odin.postfx", "Pipeline created (%dx%d)", width, height)
 	return true
 }
@@ -183,17 +189,8 @@ pipeline_begin :: proc(p: ^Pipeline) {
 
 // End post-processing: run all effects and composite to the previously bound framebuffer.
 // Call this AFTER rendering the scene.
-pipeline_end :: proc(p: ^Pipeline) {
-	if !p.enabled {
-		return
-	}
-
-	dbg.push_group("Post_Processing")
-	defer dbg.pop_group()
-
-	// Collect previous frame's timer results (non-blocking)
-	gpu_timers_collect(&p.timers, p.dt)
-
+@(private)
+pipeline_run_passes :: proc(p: ^Pipeline) {
 	// Upload UBO early so sub-passes (bloom prefilter) can read fog/effect state.
 	upload_ubo(p)
 
@@ -235,11 +232,10 @@ pipeline_end :: proc(p: ^Pipeline) {
 		dbg.pop_group()
 	}
 	gpu_timer_end(&p.timers, .Motion_Blur)
+}
 
-	// --- FXAA Pre-pass (when both FXAA + Motion Blur are active) ---
-	// FXAA must run BEFORE motion blur to avoid detecting MB gradients as edges.
-	// Renders the anti-aliased scene into fxaa_tex, which MB then samples from.
-	fxaa_prepass_ran := false
+@(private)
+pipeline_run_fxaa_prepass :: proc(p: ^Pipeline) -> bool {
 	if .FXAA in p.active_effects && .Motion_Blur in p.active_effects && p.fxaa_program != 0 {
 		dbg.push_group("PostFX_FXAA_Prepass")
 
@@ -254,60 +250,13 @@ pipeline_end :: proc(p: ^Pipeline) {
 		gl.UseProgram(0)
 
 		dbg.pop_group()
-		fxaa_prepass_ran = true
+		return true
 	}
+	return false
+}
 
-	// Choose which texture the composite pass reads as "scene":
-	// If FXAA pre-pass ran, use the anti-aliased result; otherwise raw scene.
-	composite_source_tex := fxaa_prepass_ran ? p.fxaa_tex : p.scene_color_tex
-
-	// Restore the framebuffer that was active before begin
-	dbg.push_group("PostFX_Composite_Setup")
-
-	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
-	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
-	gl.Clear(gl.COLOR_BUFFER_BIT)
-	gl.Disable(gl.DEPTH_TEST)
-
-	// Generate mipmaps on the composite source for motion blur LOD sampling.
-	// This pre-filters thin features so the MB gather loop can't miss them.
-	// Temporarily switch min filter to mipmap mode (reverted after composite).
-	if .Motion_Blur in p.active_effects {
-		gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-		gl.GenerateMipmap(gl.TEXTURE_2D)
-	}
-
-	// Upload UBO — if FXAA pre-pass ran, temporarily clear the FXAA bit so the
-	// uber-shader doesn't run FXAA again (it already ran in the pre-pass).
-	if fxaa_prepass_ran {
-		p.active_effects -= {.FXAA}
-	}
-	upload_ubo(p)
-	if fxaa_prepass_ran {
-		p.active_effects += {.FXAA}
-	}
-
-	dbg.pop_group()
-
-	// Composite pass (uber-shader)
-	gpu_timer_begin(&p.timers, .Composite)
-	dbg.push_group("PostFX_Final_Composite")
-
-	// Use cached optimized variant if available, otherwise fallback to dynamic
-	active_program := shader_cache_find(&p.shader_cache, p.active_effects)
-	if active_program == 0 && p.shader_cache.enabled {
-		// Cache miss: automatically compile and cache the optimized variant!
-		pipeline_compile_variant(p)
-		active_program = shader_cache_find(&p.shader_cache, p.active_effects)
-	}
-	if active_program == 0 {
-		active_program = p.composite_program
-	}
-
-	// Bind composite shader
-	gl.UseProgram(active_program)
-
+@(private)
+pipeline_bind_composite_textures :: proc(p: ^Pipeline, composite_source_tex: u32) {
 	// Bind scene color texture (FXAA'd if pre-pass ran, raw otherwise)
 	gl.ActiveTexture(gl.TEXTURE0 + TEX_UNIT_SCENE)
 	gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
@@ -342,12 +291,89 @@ pipeline_end :: proc(p: ^Pipeline) {
 
 	// Bind 3D LUT texture (unit 8, or 0 if not loaded)
 	lut3d_bind(&p.lut3d_fx)
+}
+
+@(private)
+pipeline_composite :: proc(p: ^Pipeline, composite_source_tex: u32, fxaa_prepass_ran: bool) {
+	// Composite pass (uber-shader)
+	gpu_timer_begin(&p.timers, .Composite)
+	dbg.push_group("PostFX_Final_Composite")
+
+	// Use cached optimized variant if available, otherwise fallback to dynamic
+	active_program := shader_cache_find(&p.shader_cache, p.active_effects)
+	if active_program == 0 && p.shader_cache.enabled {
+		// Cache miss: automatically compile and cache the optimized variant!
+		pipeline_compile_variant(p)
+		active_program = shader_cache_find(&p.shader_cache, p.active_effects)
+	}
+	if active_program == 0 {
+		active_program = p.composite_program
+	}
+
+	// Bind composite shader
+	gl.UseProgram(active_program)
+
+	// Bind all effect textures
+	pipeline_bind_composite_textures(p, composite_source_tex)
 
 	// Draw fullscreen quad (final composite)
 	quad_draw(&p.quad)
 
 	dbg.pop_group()
 	gpu_timer_end(&p.timers, .Composite)
+}
+
+// End post-processing: run all effects and composite to the previously bound framebuffer.
+// Call this AFTER rendering the scene.
+pipeline_end :: proc(p: ^Pipeline) {
+	if !p.enabled {
+		return
+	}
+
+	dbg.push_group("Post_Processing")
+	defer dbg.pop_group()
+
+	// Collect previous frame's timer results (non-blocking)
+	gpu_timers_collect(&p.timers, p.dt)
+
+	// Run passes (Bloom, DoF, Auto-Exposure, Motion Blur)
+	pipeline_run_passes(p)
+
+	// --- FXAA Pre-pass (when both FXAA + Motion Blur are active) ---
+	fxaa_prepass_ran := pipeline_run_fxaa_prepass(p)
+
+	// Choose which texture the composite pass reads as "scene"
+	composite_source_tex := fxaa_prepass_ran ? p.fxaa_tex : p.scene_color_tex
+
+	// Restore the framebuffer that was active before begin
+	dbg.push_group("PostFX_Composite_Setup")
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
+	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
+	gl.Clear(gl.COLOR_BUFFER_BIT)
+	gl.Disable(gl.DEPTH_TEST)
+
+	// Generate mipmaps on the composite source for motion blur LOD sampling.
+	if .Motion_Blur in p.active_effects {
+		gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+		gl.GenerateMipmap(gl.TEXTURE_2D)
+	}
+
+	// Upload UBO — if FXAA pre-pass ran, temporarily clear the FXAA bit so the
+	// uber-shader doesn't run FXAA again.
+	if fxaa_prepass_ran {
+		p.active_effects -= {.FXAA}
+	}
+	upload_ubo(p)
+	if fxaa_prepass_ran {
+		p.active_effects += {.FXAA}
+	}
+
+	dbg.pop_group()
+
+	// Final composite pass (uber-shader)
+	pipeline_composite(p, composite_source_tex, fxaa_prepass_ran)
 
 	// Restore mipmap filter to LINEAR after composite (texture completeness)
 	if .Motion_Blur in p.active_effects {

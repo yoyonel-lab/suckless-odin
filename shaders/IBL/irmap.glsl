@@ -70,7 +70,10 @@ void main(void)
 	vec3 up, right;
 	OrthonormalBasis(N, right, up);
 
-	float sampleDelta = 0.025;
+#ifndef SAMPLE_DELTA
+#define SAMPLE_DELTA 0.025
+#endif
+	float sampleDelta = SAMPLE_DELTA;
 	float nrSamples = 0.0;
 
 	for (float phi = 0.0; phi < TWO_PI; phi += sampleDelta) {
