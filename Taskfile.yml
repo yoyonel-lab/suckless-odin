@@ -353,13 +353,18 @@ tasks:
       - echo "Updated odin-imgui to latest submodule state"
 
   build-tracy-lib:
-    desc: Build Tracy client library from source
+    desc: Build Tracy client and SIMD libraries from source
     cmds:
       - "{{.BASH}} scripts/build_tracy_lib.sh"
     sources:
       - deps/tracy/public/tracy/TracyClient.cpp
+      - deps/tracy_gpu.cpp
+      - deps/glad/src/glad.c
+      - deps/simd_utils.c
+      - deps/simd_utils.h
     generates:
       - deps/libtracy.a
+      - deps/libsimd.a
 
   build-tracy-server:
     desc: Build Tracy profiler server GUI
