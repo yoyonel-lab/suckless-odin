@@ -14,6 +14,7 @@ package scene
 import "core:fmt"
 import "core:c/libc"
 import "core:mem"
+import "core:time"
 
 import gl "vendor:OpenGL"
 
@@ -76,6 +77,7 @@ Env_Manager :: struct {
 	pending_spec_tex: u32,
 	pending_irr_tex:  u32,
 	luminance_pbo:    u32,
+	upload_pbo:       u32,
 
 	// Overlay and Transition resources
 	debug_program:           u32,
@@ -91,6 +93,7 @@ Env_Manager :: struct {
 	transition_elapsed:      f32,
 	ibl_prev_state:          IBL_State,
 	ibl_elapsed:             f32,
+	load_start_tick:         time.Tick,
 }
 
 // --- Public API ---
@@ -137,6 +140,7 @@ env_manager_create :: proc(mgr: ^Env_Manager, tuning := settings.DEFAULT_COMPUTE
 	mgr.ibl_state = .Idle
 	mgr.ibl_prev_state = .Idle
 	mgr.ibl_elapsed = 0.0
+	mgr.load_start_tick = time.tick_now()
 
 	mgr.debug_program = 0
 	mgr.overlay_vao = 0
@@ -176,6 +180,14 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 	if mgr.overlay_vao != 0 { gl.DeleteVertexArrays(1, &mgr.overlay_vao) }
 	if mgr.transition_snapshot_tex != 0 { gl.DeleteTextures(1, &mgr.transition_snapshot_tex) }
 	if mgr.recycled_hdr_tex != 0 { gl.DeleteTextures(1, &mgr.recycled_hdr_tex) }
+	if mgr.luminance_pbo != 0 {
+		gl.DeleteBuffers(1, &mgr.luminance_pbo)
+		mgr.luminance_pbo = 0
+	}
+	if mgr.upload_pbo != 0 {
+		gl.DeleteBuffers(1, &mgr.upload_pbo)
+		mgr.upload_pbo = 0
+	}
 
 	// Free any unconsumed progressive upload data
 	if mgr.async_result.data != nil {
@@ -198,6 +210,7 @@ env_manager_trigger_transition :: proc(mgr: ^Env_Manager, path: string) -> bool 
 		return false
 	}
 
+	mgr.load_start_tick = time.tick_now()
 	env_manager_set_transition_state(mgr, .Loading)
 	mgr.transition_alpha = 0.0
 
@@ -214,6 +227,7 @@ env_manager_trigger_transition :: proc(mgr: ^Env_Manager, path: string) -> bool 
 // The env_manager starts in Wait_IBL state, which swaps textures on completion.
 env_manager_trigger_initial :: proc(mgr: ^Env_Manager, path: string) {
 	// transition_state is already .Wait_IBL from env_manager_create
+	mgr.load_start_tick = time.tick_now()
 	async_loader_request(&mgr.loader, path)
 	log.log_info("suckless-odin.env", "Initial env load triggered: %s", path)
 }
@@ -374,9 +388,20 @@ env_manager_ibl_upload_texture :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	UPLOAD_ROWS_PER_FRAME :: 256
 	mgr.ibl_current_slice = 0
 	mgr.ibl_total_slices = (h + UPLOAD_ROWS_PER_FRAME - 1) / UPLOAD_ROWS_PER_FRAME
+
+	// Create PBO for asynchronous DMA texture upload
+	if mgr.upload_pbo == 0 {
+		gl.GenBuffers(1, &mgr.upload_pbo)
+		dbg.object_label(gl.BUFFER, mgr.upload_pbo, "IBL_Upload_PBO")
+	}
+	slice_bytes := int(UPLOAD_ROWS_PER_FRAME) * int(w) * 4 * size_of(u16)
+	gl.BindBuffer(gl.PIXEL_UNPACK_BUFFER, mgr.upload_pbo)
+	gl.BufferData(gl.PIXEL_UNPACK_BUFFER, slice_bytes, nil, gl.STREAM_DRAW)
+	gl.BindBuffer(gl.PIXEL_UNPACK_BUFFER, 0)
+
 	env_manager_set_ibl_state(mgr, .Upload_Progressive)
 
-	log.log_info("suckless-odin.env", "IBL: Texture progressive upload started (%dx%d)", w, h)
+	log.log_info("suckless-odin.env", "IBL: Texture progressive upload started (%dx%d, PBO DMA active)", w, h)
 }
 
 @(private)
@@ -398,23 +423,45 @@ env_manager_ibl_upload_progressive :: proc(mgr: ^Env_Manager) {
 
 	tracy.message_c(fmt.tprintf("IBL: Upload slice %d/%d (rows %d-%d)", mgr.ibl_current_slice + 1, mgr.ibl_total_slices, y_offset, y_offset + slice_h), IBL_TRACY_COLOR)
 
-	gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
-
-	// Upload the slice from the CPU memory data directly
-	// Offset: y_offset * width * 4 channels (RGBA)
+	// Upload the slice asynchronously via DMA through PBO
 	data_offset := int(y_offset) * int(w) * 4
 	slice_data := &mgr.async_result.data[data_offset]
+	slice_bytes := int(slice_h) * int(w) * 4 * size_of(u16)
 
-	gl.TexSubImage2D(
-		gl.TEXTURE_2D, 0, 0, y_offset,
-		w, slice_h,
-		gl.RGBA, gl.HALF_FLOAT, slice_data,
-	)
+	gl.BindBuffer(gl.PIXEL_UNPACK_BUFFER, mgr.upload_pbo)
+	// Buffer orphaning for non-blocking asynchronous driver staging
+	gl.BufferData(gl.PIXEL_UNPACK_BUFFER, slice_bytes, nil, gl.STREAM_DRAW)
+	ptr := gl.MapBufferRange(gl.PIXEL_UNPACK_BUFFER, 0, slice_bytes, gl.MAP_WRITE_BIT | gl.MAP_INVALIDATE_BUFFER_BIT | gl.MAP_UNSYNCHRONIZED_BIT)
+	if ptr != nil {
+		mem.copy(ptr, slice_data, slice_bytes)
+		gl.UnmapBuffer(gl.PIXEL_UNPACK_BUFFER)
 
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+		gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
+		gl.TexSubImage2D(
+			gl.TEXTURE_2D, 0, 0, y_offset,
+			w, slice_h,
+			gl.RGBA, gl.HALF_FLOAT, nil,
+		)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+	} else {
+		// Fallback path
+		gl.BindBuffer(gl.PIXEL_UNPACK_BUFFER, 0)
+		gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
+		gl.TexSubImage2D(
+			gl.TEXTURE_2D, 0, 0, y_offset,
+			w, slice_h,
+			gl.RGBA, gl.HALF_FLOAT, slice_data,
+		)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+	}
+	gl.BindBuffer(gl.PIXEL_UNPACK_BUFFER, 0)
 
 	mgr.ibl_current_slice += 1
 	if mgr.ibl_current_slice >= mgr.ibl_total_slices {
+		if mgr.upload_pbo != 0 {
+			gl.DeleteBuffers(1, &mgr.upload_pbo)
+			mgr.upload_pbo = 0
+		}
 		// Free CPU data (FP16 buffer allocated via libc.malloc on worker thread)
 		libc.free(mgr.async_result.data)
 		mgr.async_result.data = nil
@@ -998,6 +1045,8 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	rendering.skybox_update_env(&scene.skybox, scene.env_texture.id, scene.ibl.prefilter_map)
 
 	log.log_info("suckless-odin.env", "Environment textures swapped simultaneously")
+	elapsed_ms := time.duration_milliseconds(time.tick_since(mgr.load_start_tick))
+	log.log_info("suckless-odin.ibl", "IBL environment ready in %.2f ms, descriptor set updated.", elapsed_ms)
 }
 
 
