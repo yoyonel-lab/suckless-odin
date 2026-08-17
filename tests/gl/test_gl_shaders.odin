@@ -11,6 +11,7 @@ import "vendor:glfw"
 import gl "vendor:OpenGL"
 
 import shader "../../src/rendering/shader"
+import gl_state "../../src/core/gl_state"
 
 // --- Headless GL context (shared, single-threaded) ---
 
@@ -52,6 +53,7 @@ ensure_gl_context :: proc(t: ^testing.T) -> bool {
 
 	glfw.MakeContextCurrent(gl_window)
 	gl.load_up_to(GL_MAJOR, GL_MINOR, gl_set_proc_address)
+	gl_state.reset()
 	return true
 }
 

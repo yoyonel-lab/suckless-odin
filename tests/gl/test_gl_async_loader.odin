@@ -970,6 +970,11 @@ test_env_manager_upload_texture_nil_data :: proc(t: ^testing.T) {
 	}
 	defer sc.scene_destroy(&s)
 
+	// Drain/reset background loader to avoid race with the ultra-fast multi-threaded decoder
+	sc.async_loader_destroy(&s.env_mgr.loader)
+	sc.async_loader_create(&s.env_mgr.loader)
+	s.env_mgr.has_result = false
+
 	// Manually force the IBL state machine into Upload_Texture with nil data
 	s.env_mgr.ibl_state = .Upload_Texture
 	s.env_mgr.async_result.data = nil
@@ -998,6 +1003,11 @@ test_env_manager_done_wait_ibl :: proc(t: ^testing.T) {
 		return
 	}
 	defer sc.scene_destroy(&s)
+
+	// Drain/reset background loader to avoid race
+	sc.async_loader_destroy(&s.env_mgr.loader)
+	sc.async_loader_create(&s.env_mgr.loader)
+	s.env_mgr.has_result = false
 
 	// Setup: simulate the state as if first async load just finished IBL
 	// Allocate dummy pending textures (IBL would have generated these)
@@ -1050,6 +1060,11 @@ test_env_manager_done_fallback_states :: proc(t: ^testing.T) {
 		return
 	}
 	defer sc.scene_destroy(&s)
+
+	// Drain/reset background loader to avoid race
+	sc.async_loader_destroy(&s.env_mgr.loader)
+	sc.async_loader_create(&s.env_mgr.loader)
+	s.env_mgr.has_result = false
 
 	// Test with .Fade_In as the transition_state when .Done fires
 	gl.GenTextures(1, &s.env_mgr.pending_hdr_tex)
