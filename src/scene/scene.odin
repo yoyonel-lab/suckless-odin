@@ -14,6 +14,7 @@ import "../rendering"
 import postfx "../rendering/postfx"
 import types "../rendering/types"
 import dbg "../core/gl_debug"
+import gl_state "../core/gl_state"
 
 // Scene holds the camera, rendering resources, and all subsystems.
 Scene :: struct {
@@ -53,6 +54,16 @@ Scene :: struct {
 	loc_specular_aa_debug_mode: i32,
 	loc_specular_aa_split_enabled:  i32,
 	loc_specular_aa_split_position: i32,
+
+	// Cached uniform values to filter redundant driver uploads
+	cached_screen_w:             i32,
+	cached_screen_h:             i32,
+	cached_edge_mode:            i32,
+	cached_specular_aa_enabled:  i32,
+	cached_specular_aa_mode:     i32,
+	cached_specular_aa_debug_mode: i32,
+	cached_specular_aa_split_enabled:  i32,
+	cached_specular_aa_split_position: f32,
 
 	// Previous frame view-projection matrix (for motion blur velocity)
 	prev_view_proj: mt.Mat4,
@@ -140,6 +151,15 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_specular_aa_split_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_enabled")
 	s.loc_specular_aa_split_position = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_position")
 
+	s.cached_screen_w = -1
+	s.cached_screen_h = -1
+	s.cached_edge_mode = -1
+	s.cached_specular_aa_enabled = -1
+	s.cached_specular_aa_mode = -1
+	s.cached_specular_aa_debug_mode = -1
+	s.cached_specular_aa_split_enabled = -1
+	s.cached_specular_aa_split_position = -1.0
+
 	// Initialize previous view*proj to identity (avoids huge velocities on frame 1)
 	s.prev_view_proj = mt.MAT4_IDENTITY
 
@@ -170,6 +190,7 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 }
 
 scene_render :: proc(s: ^Scene, width, height: i32) {
+	gl_state.reset()
 	dbg.push_group("Scene_Render")
 	defer dbg.pop_group()
 
@@ -199,33 +220,52 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 	}
 
-	gl.UseProgram(s.pbr_program)
+	gl_state.use_program(s.pbr_program)
 
 	gl.UniformMatrix4fv(s.loc_view, 1, false, &view[0][0])
 	gl.UniformMatrix4fv(s.loc_projection, 1, false, &proj[0][0])
 	gl.Uniform3fv(s.loc_cam_pos, 1, &s.camera.position[0])
 	gl.UniformMatrix4fv(s.loc_prev_view_proj, 1, false, &s.prev_view_proj[0][0])
-	gl.Uniform2f(s.loc_screen_size, f32(width), f32(height))
+
+	if s.cached_screen_w != width || s.cached_screen_h != height {
+		gl.Uniform2f(s.loc_screen_size, f32(width), f32(height))
+		s.cached_screen_w = width
+		s.cached_screen_h = height
+	}
 
 	// Edge AA mode: 0=off, 1=on, 2=debug visualization
 	edge_mode: i32 = 0
 	if s.edge_aa_enabled { edge_mode = 1 }
 	if s.edge_aa_debug   { edge_mode = 2 }
-	gl.Uniform1i(s.loc_edge_aa_mode, edge_mode)
-
-	if s.frame_count < 5 {
-		log.log_info("suckless-odin.scene", "Uniform locations: enabled=%d, mode=%d, debug_mode=%d, split_enabled=%d, split_position=%d",
-			s.loc_specular_aa_enabled, s.loc_specular_aa_mode, s.loc_specular_aa_debug_mode, s.loc_specular_aa_split_enabled, s.loc_specular_aa_split_position)
-		log.log_info("suckless-odin.scene", "Uniform values: enabled=%v, mode=%v, debug_mode=%v, split_enabled=%v, split_position=%v",
-			s.specular_aa_enabled, s.specular_aa_mode, s.specular_aa_debug_mode, s.specular_aa_split_enabled, s.specular_aa_split_position)
+	if s.cached_edge_mode != edge_mode {
+		gl.Uniform1i(s.loc_edge_aa_mode, edge_mode)
+		s.cached_edge_mode = edge_mode
 	}
 
 	spec_aa_val: i32 = 1 if s.specular_aa_enabled else 0
-	gl.Uniform1i(s.loc_specular_aa_enabled, spec_aa_val)
-	gl.Uniform1i(s.loc_specular_aa_mode, i32(s.specular_aa_mode))
-	gl.Uniform1i(s.loc_specular_aa_debug_mode, i32(s.specular_aa_debug_mode))
-	gl.Uniform1i(s.loc_specular_aa_split_enabled, 1 if s.specular_aa_split_enabled else 0)
-	gl.Uniform1f(s.loc_specular_aa_split_position, s.specular_aa_split_position)
+	if s.cached_specular_aa_enabled != spec_aa_val {
+		gl.Uniform1i(s.loc_specular_aa_enabled, spec_aa_val)
+		s.cached_specular_aa_enabled = spec_aa_val
+	}
+	spec_mode_val := i32(s.specular_aa_mode)
+	if s.cached_specular_aa_mode != spec_mode_val {
+		gl.Uniform1i(s.loc_specular_aa_mode, spec_mode_val)
+		s.cached_specular_aa_mode = spec_mode_val
+	}
+	debug_mode_val := i32(s.specular_aa_debug_mode)
+	if s.cached_specular_aa_debug_mode != debug_mode_val {
+		gl.Uniform1i(s.loc_specular_aa_debug_mode, debug_mode_val)
+		s.cached_specular_aa_debug_mode = debug_mode_val
+	}
+	split_en_val: i32 = 1 if s.specular_aa_split_enabled else 0
+	if s.cached_specular_aa_split_enabled != split_en_val {
+		gl.Uniform1i(s.loc_specular_aa_split_enabled, split_en_val)
+		s.cached_specular_aa_split_enabled = split_en_val
+	}
+	if s.cached_specular_aa_split_position != s.specular_aa_split_position {
+		gl.Uniform1f(s.loc_specular_aa_split_position, s.specular_aa_split_position)
+		s.cached_specular_aa_split_position = s.specular_aa_split_position
+	}
 
 	// Enable per-buffer alpha blending on attachment 0 (color) for edge AA.
 	// Attachment 1 (velocity) explicitly disabled — ISO legacy scene_render.c:393-407.
@@ -246,8 +286,6 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	if edge_mode > 0 {
 		gl.Disablei(gl.BLEND, 0)
 	}
-
-	gl.UseProgram(0)
 
 	if s.wireframe_enabled {
 		gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)

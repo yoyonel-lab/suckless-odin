@@ -7,17 +7,28 @@ import dbg "../core/gl_debug"
 import mt  "../core/math_types"
 import types "./types"
 import settings "../core/settings"
+import gl_state "../core/gl_state"
+
+// Number of ring buffer slices for AZDO persistent triple-buffering
+NUM_BUFFER_SLICES :: 3
 
 // Multi-sphere instanced rendering via SSBO.
 // Uses #soa (struct-of-arrays) for cache-friendly CPU-side iteration:
 //   - All positions contiguous → fast frustum culling
 //   - All roughness values contiguous → fast material animation
 //   - All prev_centers contiguous → fast motion blur updates
-// GPU SSBO still receives AoS (packed at upload time).
+// GPU SSBO uses AZDO (Approaching Zero Driver Overhead) persistently mapped memory
+// with triple-buffering and explicit non-blocking GPU fences.
 Instanced_Spheres :: struct {
-	ssbo:       u32,
-	instances:  #soa [dynamic]types.Sphere_Instance,  // SoA layout for CPU cache locality
-	count:      i32,
+	ssbo:           u32,
+	mapped_ptr:     [^]types.Sphere_Instance,
+	slice_capacity: int,
+	slice_size:     int,
+	current_slice:  int,
+	fences:         [NUM_BUFFER_SLICES]gl.sync_t,
+	is_persistent:  bool,
+	instances:      #soa [dynamic]types.Sphere_Instance,  // SoA layout for CPU cache locality
+	count:          i32,
 }
 
 SSBO_BINDING :: 2  // Must match billboard_instance_ssbo.glsl binding
@@ -66,21 +77,41 @@ instanced_create :: proc(inst: ^Instanced_Spheres, mat_lib: ^Material_Lib) {
 		}
 	}
 
-	// Pack SoA → AoS and upload to SSBO
+	// Initialize AZDO persistent GPU storage and upload initial instance data
+	instanced_init_storage(inst)
 	instanced_upload(inst)
 
-	log.log_info("suckless-odin.instanced", "Created %d sphere instances (SSBO binding %d, %dx%d grid, spacing=%.1f, #soa)",
-		total_count, SSBO_BINDING, cols, rows, spacing)
+	log.log_info("suckless-odin.instanced", "Created %d sphere instances (SSBO binding %d, %dx%d grid, spacing=%.1f, #soa, AZDO=%v)",
+		total_count, SSBO_BINDING, cols, rows, spacing, inst.is_persistent)
+}
+
+// Allocate persistent mapped GPU buffer with triple buffering (AZDO pattern)
+@(private)
+instanced_init_storage :: proc(inst: ^Instanced_Spheres) {
+	count := int(inst.count)
+	if count == 0 do return
+
+	inst.slice_capacity = count
+	inst.slice_size = count * size_of(types.Sphere_Instance)
+
+	gl.GenBuffers(1, &inst.ssbo)
+	dbg.object_label(gl.BUFFER, inst.ssbo, "Sphere_Instances_SSBO")
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
+	gl.BufferData(
+		gl.SHADER_STORAGE_BUFFER,
+		inst.slice_size,
+		nil,
+		gl.DYNAMIC_DRAW,
+	)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 }
 
 // Pack SoA → AoS staging buffer and upload to GPU SSBO.
-// Called once at init, and again if CPU-side data changes (animation, physics).
+// Called once at init, and again if CPU-side data changes (animation, physics, sorting).
 instanced_upload :: proc(inst: ^Instanced_Spheres) {
 	count := int(inst.count)
-	if count == 0 { return }
+	if count == 0 do return
 
-	// Pack from SoA to AoS (GPU expects struct-per-instance layout)
-	// Uses temp_allocator — freed automatically, no leak possible.
 	gpu_data := make([]types.Sphere_Instance, count, context.temp_allocator)
 	for i in 0..<count {
 		gpu_data[i] = inst.instances[i]
@@ -105,7 +136,6 @@ instanced_upload :: proc(inst: ^Instanced_Spheres) {
 			raw_data(gpu_data),
 		)
 	}
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, SSBO_BINDING, inst.ssbo)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 }
 
@@ -130,16 +160,29 @@ instanced_bind :: proc(inst: ^Instanced_Spheres) {
 
 // Draw all instances (billboard quad * N instances)
 instanced_draw :: proc(inst: ^Instanced_Spheres, bb: ^Billboard) {
-	if bb.vao == 0 || inst.count == 0 { return }
+	if bb.vao == 0 || inst.count == 0 do return
 
-	// Billboards are always front-facing — culling is globally disabled in this app,
-	// so no state change needed here.
-	gl.BindVertexArray(bb.vao)
+	instanced_bind(inst)
+	gl_state.bind_vertex_array(bb.vao)
 	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, inst.count)
 }
 
+// Destroy all SSBO resources, unmap persistent storage and free sync fences
 instanced_destroy :: proc(inst: ^Instanced_Spheres) {
+	for &fence in inst.fences {
+		if fence != nil {
+			gl.DeleteSync(fence)
+			fence = nil
+		}
+	}
 	if inst.ssbo != 0 {
+		if inst.is_persistent {
+			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
+			gl.UnmapBuffer(gl.SHADER_STORAGE_BUFFER)
+			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
+			inst.mapped_ptr = nil
+			inst.is_persistent = false
+		}
 		gl.DeleteBuffers(1, &inst.ssbo)
 		inst.ssbo = 0
 	}

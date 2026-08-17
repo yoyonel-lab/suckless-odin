@@ -15,6 +15,7 @@ import gui "../gui"
 import postfx "../rendering/postfx"
 import rendering "../rendering"
 import dbg "../core/gl_debug"
+import gl_state "../core/gl_state"
 
 @(private)
 frame_zone_loc := tracy.Source_Location_Data{
@@ -364,6 +365,7 @@ run :: proc(application: ^App) {
 				scene_ptr           = &application.scene,
 			})
 			gui.render(&application.imgui)
+			gl_state.reset()
 			dbg.pop_group()
 		}
 

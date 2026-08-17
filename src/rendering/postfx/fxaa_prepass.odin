@@ -32,7 +32,7 @@ fxaa_prepass_create :: proc(p: ^Pipeline) -> (ok: bool) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, p.fxaa_fbo)
 
 	// RGBA16F texture — matches scene_color_tex format for seamless substitution
-	p.fxaa_tex = create_texture_2d(p.width, p.height, gl.RGBA16F)
+	p.fxaa_tex = create_texture_2d(p.width, p.height, gl.RGBA16F, gl.RGBA)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, p.fxaa_tex, 0)
 
 	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
@@ -77,7 +77,7 @@ fxaa_prepass_resize :: proc(p: ^Pipeline) {
 
 		gl.GenFramebuffers(1, &p.fxaa_fbo)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, p.fxaa_fbo)
-		p.fxaa_tex = create_texture_2d(p.width, p.height, gl.RGBA16F)
+		p.fxaa_tex = create_texture_2d(p.width, p.height, gl.RGBA16F, gl.RGBA)
 		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, p.fxaa_tex, 0)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 

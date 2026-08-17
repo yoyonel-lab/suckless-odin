@@ -9,6 +9,7 @@ import log "../core/log"
 import mt  "../core/math_types"
 import tracy "../core/tracy"
 import settings "../core/settings"
+import gl_state "../core/gl_state"
 
 Skybox_Mode :: enum i32 {
 	Equirectangular = 0,
@@ -177,11 +178,9 @@ skybox_render :: proc(sky: ^Skybox, view, proj: mt.Mat4, split_enabled: bool = f
 	inv_vp := mt.mat4_inverse(vp)
 
 	// Draw skybox at far depth (lequal)
-	prev_depth_func: i32
-	gl.GetIntegerv(gl.DEPTH_FUNC, &prev_depth_func)
 	gl.DepthFunc(gl.LEQUAL)
 
-	gl.UseProgram(program)
+	gl_state.use_program(program)
 
 	// uniform layout(location = 0) m_inv_view_proj
 	gl.UniformMatrix4fv(0, 1, false, &inv_vp[0][0])
@@ -197,11 +196,11 @@ skybox_render :: proc(sky: ^Skybox, view, proj: mt.Mat4, split_enabled: bool = f
 	case sky.show_diff:
 		// Diff mode: compare standard mip blur vs IBL prefilter
 		// Bind standard source (equirect env) on unit 0
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, sky.env_tex)
+		gl_state.active_texture(gl.TEXTURE0)
+		gl_state.bind_texture(gl.TEXTURE_2D, sky.env_tex)
 		// Bind IBL prefilter on unit 1
-		gl.ActiveTexture(gl.TEXTURE1)
-		gl.BindTexture(gl.TEXTURE_2D, sky.ibl_prefilter_tex)
+		gl_state.active_texture(gl.TEXTURE1)
+		gl_state.bind_texture(gl.TEXTURE_2D, sky.ibl_prefilter_tex)
 		// blur_lod for standard, prefilter_lod for IBL
 		gl.Uniform1f(4, sky.blur_lod)
 		prefilter_lod := sky.blur_lod * (f32(PREFILTER_MIP_LEVELS - 1) / 8.0)
@@ -212,23 +211,22 @@ skybox_render :: proc(sky: ^Skybox, view, proj: mt.Mat4, split_enabled: bool = f
 		// Map blur_lod [0..8] → prefilter mip [0..4]
 		prefilter_lod := sky.blur_lod * (f32(PREFILTER_MIP_LEVELS - 1) / 8.0)
 		gl.Uniform1f(4, prefilter_lod)
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, sky.ibl_prefilter_tex)
+		gl_state.active_texture(gl.TEXTURE0)
+		gl_state.bind_texture(gl.TEXTURE_2D, sky.ibl_prefilter_tex)
 	case sky.mode == .Cubemap && sky.cubemap_tex != 0:
 		gl.Uniform1f(4, sky.blur_lod)
-		gl.ActiveTexture(gl.TEXTURE1)
-		gl.BindTexture(gl.TEXTURE_CUBE_MAP, sky.cubemap_tex)
+		gl_state.active_texture(gl.TEXTURE1)
+		gl_state.bind_texture(gl.TEXTURE_CUBE_MAP, sky.cubemap_tex)
 	case:
 		gl.Uniform1f(4, sky.blur_lod)
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, sky.env_tex)
+		gl_state.active_texture(gl.TEXTURE0)
+		gl_state.bind_texture(gl.TEXTURE_2D, sky.env_tex)
 	}
 
-	gl.BindVertexArray(sky.fullscr_vao)
+	gl_state.bind_vertex_array(sky.fullscr_vao)
 	gl.DrawArrays(gl.TRIANGLES, 0, 3)
 
-	gl.DepthFunc(u32(prev_depth_func))
-	gl.UseProgram(0)
+	gl.DepthFunc(gl.LESS)
 }
 
 skybox_destroy :: proc(sky: ^Skybox) {

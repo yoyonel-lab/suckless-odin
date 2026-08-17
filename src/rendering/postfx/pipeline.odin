@@ -6,6 +6,7 @@ import log "../../core/log"
 import dbg "../../core/gl_debug"
 import settings "../../core/settings"
 import shader "../shader"
+import gl_state "../../core/gl_state"
 
 // Post-processing pipeline state — owns FBO, textures, UBO, and shader.
 Pipeline :: struct {
@@ -311,7 +312,7 @@ pipeline_composite :: proc(p: ^Pipeline, composite_source_tex: u32, fxaa_prepass
 	}
 
 	// Bind composite shader
-	gl.UseProgram(active_program)
+	gl_state.use_program(active_program)
 
 	// Bind all effect textures
 	pipeline_bind_composite_textures(p, composite_source_tex)
@@ -348,14 +349,14 @@ pipeline_end :: proc(p: ^Pipeline) {
 	// Restore the framebuffer that was active before begin
 	dbg.push_group("PostFX_Composite_Setup")
 
-	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
-	gl.Viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
+	gl_state.bind_framebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
+	gl_state.set_viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
 	gl.Clear(gl.COLOR_BUFFER_BIT)
-	gl.Disable(gl.DEPTH_TEST)
+	gl_state.disable(gl.DEPTH_TEST)
 
 	// Generate mipmaps on the composite source for motion blur LOD sampling.
 	if .Motion_Blur in p.active_effects {
-		gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
+		gl_state.bind_texture(gl.TEXTURE_2D, composite_source_tex)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
 		gl.GenerateMipmap(gl.TEXTURE_2D)
 	}
@@ -377,13 +378,12 @@ pipeline_end :: proc(p: ^Pipeline) {
 
 	// Restore mipmap filter to LINEAR after composite (texture completeness)
 	if .Motion_Blur in p.active_effects {
-		gl.BindTexture(gl.TEXTURE_2D, composite_source_tex)
+		gl_state.bind_texture(gl.TEXTURE_2D, composite_source_tex)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	}
 
 	// Restore state
-	gl.Enable(gl.DEPTH_TEST)
-	gl.UseProgram(0)
+	gl_state.enable(gl.DEPTH_TEST)
 }
 
 // Resize pipeline resources (call on window resize).
@@ -606,7 +606,7 @@ create_framebuffer :: proc(p: ^Pipeline) -> (ok: bool) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, p.scene_fbo)
 
 	// HDR color texture (RGBA16F)
-	p.scene_color_tex = create_texture_2d(p.width, p.height, gl.RGBA16F)
+	p.scene_color_tex = create_texture_2d(p.width, p.height, gl.RGBA16F, gl.RGBA)
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, p.scene_color_tex, 0)
 
 	// Velocity buffer (RG16F) — MRT attachment 1 for motion blur
