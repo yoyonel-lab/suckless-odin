@@ -1,0 +1,30 @@
+{
+  "profiles": {
+    "legacy": {
+      "spbrdf_sample_count": 1024,
+      "spmap_sample_count": 1024,
+      "irmap_sample_delta": 0.025,
+      "slicing": {
+        "specular_mip0_slices": 24,
+        "specular_mip1_slices": 8,
+        "specular_mip2_slices": 4,
+        "irdiff_slices": 12,
+        "specular_mip_grouping_start_mip": 3,
+        "seamless_downsample_progressive_mip_threshold": 2
+      }
+    },
+    "optimized": {
+      "spbrdf_sample_count": 256,
+      "spmap_sample_count": 512,
+      "irmap_sample_delta": 0.05,
+      "slicing": {
+        "specular_mip0_slices": 12,
+        "specular_mip1_slices": 6,
+        "specular_mip2_slices": 4,
+        "irdiff_slices": 8,
+        "specular_mip_grouping_start_mip": 3,
+        "seamless_downsample_progressive_mip_threshold": 2
+      }
+    }
+  }
+}
