@@ -1,5 +1,6 @@
 package gui
 
+import "core:math"
 import "vendor:glfw"
 import gl "vendor:OpenGL"
 
@@ -9,9 +10,11 @@ import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
 import "../core/search"
+import settings "../core/settings"
 import perf_mode "../core/perf_mode"
 import postfx "../rendering/postfx"
 import rendering "../rendering"
+import types "../rendering/types"
 
 // Forward-declare scene data needed by GUI panels.
 // Avoids circular import by accepting raw pointers from app.
@@ -30,6 +33,11 @@ Scene_State :: struct {
 	sort_mode:         ^rendering.Sort_Mode,
 	edge_aa_enabled:   ^bool,
 	edge_aa_debug:     ^bool,
+	specular_aa_enabled: ^bool,
+	specular_aa_mode:    ^types.Specular_AA_Mode,
+	specular_aa_debug_mode: ^types.Specular_AA_Debug_Mode,
+	specular_aa_split_enabled:  ^bool,
+	specular_aa_split_position: ^f32,
 
 	// Post-processing pipeline (live controls)
 	postfx: ^postfx.Pipeline,
@@ -47,6 +55,11 @@ Scene_State :: struct {
 	env_texture_id:     u32,
 	env_texture_width:  i32,
 	env_texture_height: i32,
+
+	// Compute tuning callback & live reference
+	live_compute_tuning:  ^settings.Compute_Tuning_Params,
+	apply_compute_tuning: proc(scene_ptr: rawptr, params: settings.Compute_Tuning_Params) -> bool,
+	scene_ptr:            rawptr,
 }
 
 IBL_Scroll_Target :: enum {
@@ -73,6 +86,7 @@ Gui :: struct {
 	ibl_preview_size: f32,
 	ibl_mip_level:    i32,
 	ibl_prefilter_id: u32, // Tracked for LOD restore after render
+	ibl_debug_exposure: f32, // EV stops for debug preview tint (0 = neutral)
 	inspector_fbo:    u32, // Reusable FBO for pixel readback
 
 	// Pixel inspector state (click-to-lock)
@@ -83,6 +97,17 @@ Gui :: struct {
 	inspect_tex_h:    i32,
 	inspect_mip:      i32,
 	inspect_pixel:    [4]f32, // Last read pixel value
+
+	// Compute Tuning interface state
+	compute_tuning_loaded:       bool,
+	compute_tuning_config:       settings.Compute_Tuning_Config,
+	compute_tuning_selected_idx: i32,
+	compute_tuning_draft:        settings.Compute_Tuning_Params,
+	compute_tuning_save_name:    [64]u8,
+	compute_tuning_status_msg:   cstring,
+	compute_tuning_status_timer: f32,
+	compute_tuning_error_msg:    cstring,
+	compute_tuning_error_timer:  f32,
 }
 
 GLSL_VERSION :: "#version 440 core"
@@ -210,6 +235,11 @@ update :: proc(g: ^Gui, state: Scene_State) {
 				} else {
 					g.ibl_debug_open = false
 				}
+				if imgui.BeginTabItem("Compute Tuning", flags = tab_flags(g, 8)) {
+					if !restoring { g.active_tab = 8 }
+					draw_tab_compute_tuning(g, state)
+					imgui.EndTabItem()
+				}
 				if g.restore_tab > 0 {
 					g.restore_tab -= 1
 				}
@@ -244,6 +274,10 @@ destroy :: proc(g: ^Gui) {
 	if g.inspector_fbo != 0 {
 		gl.DeleteFramebuffers(1, &g.inspector_fbo)
 		g.inspector_fbo = 0
+	}
+	if g.compute_tuning_loaded {
+		settings.destroy_compute_tuning_config(&g.compute_tuning_config)
+		g.compute_tuning_loaded = false
 	}
 	imgui_impl_opengl3.Shutdown()
 	imgui_impl_glfw.Shutdown()
@@ -372,6 +406,10 @@ draw_tab_scene :: proc(state: Scene_State) {
 		mode_val := i32(state.skybox_mode^)
 		if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
 			state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
+			// Trigger lazy cubemap generation when switching to Cubemap mode
+			if state.skybox_mode^ == .Cubemap && state.cubemap_dirty != nil {
+				state.cubemap_dirty^ = true
+			}
 		}
 		imgui.SameLine()
 		imgui.TextDisabled("(?)")
@@ -454,7 +492,8 @@ INSPECTOR_RECT_COLOR :: 0xFF_00_FF_FF // Yellow (ABGR)
 // Display a texture with click-to-inspect pixel inspector shown inline to the right.
 @(private)
 draw_image_with_inspector :: proc(g: ^Gui, tex_id: u32, display_size: imgui.Vec2, tex_w, tex_h: i32, mip_level: i32 = 0) {
-	imgui.Image(gl_tex_ref(tex_id), display_size, {0, 1}, {1, 0})
+	tint := math.pow(f32(2.0), g.ibl_debug_exposure)
+	imgui.ImageWithBg(gl_tex_ref(tex_id), display_size, {0, 1}, {1, 0}, {0, 0, 0, 0}, {tint, tint, tint, 1})
 
 	item_min := imgui.GetItemRectMin()
 	item_max := imgui.GetItemRectMax()
@@ -593,15 +632,7 @@ read_texture_pixel :: proc(g: ^Gui, tex_id: u32, x, y: i32, mip_level: i32 = 0) 
 }
 
 @(private)
-draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
-	imgui.SliderFloat("Preview Size", &g.ibl_preview_size, 64.0, 512.0)
-	imgui.Separator()
-
-	preview_w := g.ibl_preview_size
-	// Equirectangular maps are 2:1 aspect ratio
-	preview_h := preview_w * 0.5
-
-	// --- Environment Source Map ---
+draw_ibl_debug_env_map :: proc(g: ^Gui, state: Scene_State, preview_w, preview_h: f32) {
 	if state.env_texture_id != 0 {
 		if g.ibl_scroll_target == .Env_Map {
 			imgui.SetScrollHereY(0.0)
@@ -616,8 +647,10 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Spacing()
 		}
 	}
+}
 
-	// --- Irradiance Map (diffuse IBL) ---
+@(private)
+draw_ibl_debug_irradiance :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 	if state.ibl_irradiance_map != 0 {
 		if g.ibl_scroll_target == .Irradiance {
 			imgui.SetScrollHereY(0.0)
@@ -625,15 +658,17 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 		}
 		if imgui.CollapsingHeader("Irradiance Map (Diffuse IBL)", {.DefaultOpen}) {
 			imgui.Text("ID: %d  Size: %dx%d  Format: RGBA16F",
-				state.ibl_irradiance_map, IBL_IRRADIANCE_SIZE * 2, IBL_IRRADIANCE_SIZE)
+				state.ibl_irradiance_map, IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
 			draw_image_with_inspector(g, state.ibl_irradiance_map,
-				imgui.Vec2{preview_w, preview_h},
-				IBL_IRRADIANCE_SIZE * 2, IBL_IRRADIANCE_SIZE)
+				imgui.Vec2{preview_w, preview_w},
+				IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
 			imgui.Spacing()
 		}
 	}
+}
 
-	// --- Prefilter Map (specular IBL) with mip level selector ---
+@(private)
+draw_ibl_debug_prefilter :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 	if state.ibl_prefilter_map != 0 {
 		if g.ibl_scroll_target == .Prefilter {
 			imgui.SetScrollHereY(0.0)
@@ -641,7 +676,7 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 		}
 		if imgui.CollapsingHeader("Prefilter Map (Specular IBL)", {.DefaultOpen}) {
 			imgui.Text("ID: %d  Size: %dx%d  Mips: %d  Format: RGBA16F",
-				state.ibl_prefilter_map, IBL_PREFILTER_SIZE * 2, IBL_PREFILTER_SIZE,
+				state.ibl_prefilter_map, IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE,
 				IBL_PREFILTER_MIP_LEVELS)
 
 			imgui.SliderInt("Mip Level (Roughness)", &g.ibl_mip_level, 0, IBL_PREFILTER_MIP_LEVELS - 1)
@@ -649,7 +684,6 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Text("Roughness: %.2f", roughness)
 
 			// Clamp LOD to force the selected mip level display.
-			// LOD is restored after RenderDrawData() in render().
 			mip_f := f32(g.ibl_mip_level)
 			gl.BindTexture(gl.TEXTURE_2D, state.ibl_prefilter_map)
 			gl.TexParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_LOD, mip_f)
@@ -658,14 +692,16 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 			g.ibl_prefilter_id = state.ibl_prefilter_map
 
 			draw_image_with_inspector(g, state.ibl_prefilter_map,
-				imgui.Vec2{preview_w, preview_h},
-				IBL_PREFILTER_SIZE * 2, IBL_PREFILTER_SIZE, g.ibl_mip_level)
+				imgui.Vec2{preview_w, preview_w},
+				IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, g.ibl_mip_level)
 
 			imgui.Spacing()
 		}
 	}
+}
 
-	// --- BRDF LUT ---
+@(private)
+draw_ibl_debug_brdf_lut :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 	if state.ibl_brdf_lut != 0 {
 		if g.ibl_scroll_target == .BRDF_LUT {
 			imgui.SetScrollHereY(0.0)
@@ -675,26 +711,24 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Text("ID: %d  Size: %dx%d  Format: RG16F",
 				state.ibl_brdf_lut, IBL_BRDF_LUT_SIZE, IBL_BRDF_LUT_SIZE)
 			imgui.Text("X-axis: NdotV | Y-axis: Roughness")
-			// Square aspect for LUT
 			draw_image_with_inspector(g, state.ibl_brdf_lut,
 				imgui.Vec2{preview_w, preview_w},
 				IBL_BRDF_LUT_SIZE, IBL_BRDF_LUT_SIZE)
 			imgui.Spacing()
 		}
 	}
+}
 
-	// --- Summary ---
+@(private)
+draw_ibl_debug_memory_estimate :: proc(state: Scene_State) {
 	imgui.Separator()
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "GPU Memory Estimate")
-	// Env HDR: width*height * RGBA16F(8B) + mipmaps (~1.33x)
 	env_kb := (state.env_texture_width * state.env_texture_height * 8 * 4 / 3) / 1024
-	// Irradiance: 128x64 * RGBA16F(8B) = 64KB
-	irr_kb := i32((IBL_IRRADIANCE_SIZE * 2 * IBL_IRRADIANCE_SIZE * 8) / 1024)
+	irr_kb := i32((IBL_IRRADIANCE_SIZE * IBL_IRRADIANCE_SIZE * 8) / 1024)
 	brdf_kb := i32((IBL_BRDF_LUT_SIZE * IBL_BRDF_LUT_SIZE * 4) / 1024)
-	// Prefilter with mip chain: sum of mip areas * 8 bytes
 	pf_bytes: i32 = 0
 	for mip in 0 ..< IBL_PREFILTER_MIP_LEVELS {
-		mip_w := max(i32(1), (IBL_PREFILTER_SIZE * 2) >> u32(mip))
+		mip_w := max(i32(1), IBL_PREFILTER_SIZE >> u32(mip))
 		mip_h := max(i32(1), IBL_PREFILTER_SIZE >> u32(mip))
 		pf_bytes += mip_w * mip_h * 8
 	}
@@ -707,11 +741,27 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 	imgui.Text("  Total:      %.1f MB", f32(total_kb) / 1024.0)
 }
 
-// ─── Tab: Rendering (all debug views & post-FX, greyed until implemented) ────
+@(private)
+draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
+	imgui.SliderFloat("Preview Size", &g.ibl_preview_size, 64.0, 512.0)
+	imgui.SliderFloat("Preview Exposure (EV)", &g.ibl_debug_exposure, -6.0, 6.0)
+	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemClicked(.Right) {
+		g.ibl_debug_exposure = 0.0
+	}
+	imgui.Separator()
+
+	preview_w := g.ibl_preview_size
+	preview_h := preview_w * 0.5
+
+	draw_ibl_debug_env_map(g, state, preview_w, preview_h)
+	draw_ibl_debug_irradiance(g, state, preview_w)
+	draw_ibl_debug_prefilter(g, state, preview_w)
+	draw_ibl_debug_brdf_lut(g, state, preview_w)
+	draw_ibl_debug_memory_estimate(state)
+}
 
 @(private)
-draw_tab_rendering :: proc(state: Scene_State) {
-	// --- Edge Anti-Aliasing (Billboard) ---
+draw_rendering_edge_aa :: proc(state: Scene_State) {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Edge Anti-Aliasing")
 	imgui.Separator()
 	if state.edge_aa_enabled != nil {
@@ -730,69 +780,109 @@ draw_tab_rendering :: proc(state: Scene_State) {
 			}
 		}
 	}
-	imgui.Spacing()
+}
 
-	// --- PBR Debug Modes ---
+@(private)
+draw_rendering_pbr_debug :: proc(state: Scene_State) {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "PBR Debug Modes")
 	imgui.Separator()
-	imgui.BeginDisabled()
 
+	imgui.BeginDisabled()
 	pbr_debug_mode: i32 = 0
 	imgui.Combo("Debug Mode", &pbr_debug_mode,
 		"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance (Diff)\x00Prefilter (Spec)\x00BRDF LUT\x00GI Probes\x00")
-
-	specular_aa := false
-	imgui.Checkbox("Specular Anti-Aliasing", &specular_aa)
-
 	imgui.EndDisabled()
-	imgui.Spacing()
 
-	// --- Debug Views ---
-	// Note: per-FX debug toggles (Bloom/DoF/FXAA) now live in the Post-FX tab,
-	// Motion Blur debug lives in the dedicated MBlur tab.
+	if state.specular_aa_enabled != nil {
+		imgui.Checkbox("Specular Anti-Aliasing", state.specular_aa_enabled)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Screen-space roughness clamping to mitigate specular aliasing\nusing variance-based (Varef) microfacet distribution filtering")
+		}
+
+		if state.specular_aa_enabled^ && state.specular_aa_mode != nil {
+			mode_val := i32(state.specular_aa_mode^)
+			if imgui.Combo("Specular AA Mode", &mode_val, "Screen-Space\x00Curvature\x00") {
+				state.specular_aa_mode^ = types.Specular_AA_Mode(mode_val)
+			}
+			imgui.SameLine()
+			imgui.TextDisabled("(?)")
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Screen-Space: GPU derivatives based on normal maps/geometry\nCurvature: Analytic pixel-to-sphere radius ratio")
+			}
+
+			if state.specular_aa_debug_mode != nil {
+				debug_val := i32(state.specular_aa_debug_mode^)
+				if imgui.Combo("Debug View##spec_dbg", &debug_val, "Off\x00Grayscale Variance\x00Amplified Difference\x00") {
+					state.specular_aa_debug_mode^ = types.Specular_AA_Debug_Mode(debug_val)
+				}
+				imgui.SameLine()
+				imgui.TextDisabled("(?)")
+				if imgui.IsItemHovered() {
+					imgui.SetTooltip("Debug views for Specular AA:\n- Off: Normal rendering\n- Grayscale Variance: Heatmap of added variance (white = max variance/clamping)\n- Amplified Difference: Absolute difference between rendering with vs without Specular AA (amplified 10x)")
+				}
+			}
+
+			if state.specular_aa_split_enabled != nil {
+				imgui.Checkbox("A/B Split##specular", state.specular_aa_split_enabled)
+				imgui.SameLine()
+				imgui.TextDisabled("(?)")
+				if imgui.IsItemHovered() {
+					imgui.SetTooltip("Compare Specular AA on the left vs bypassed on the right")
+				}
+				if state.specular_aa_split_enabled^ && state.specular_aa_split_position != nil {
+					pos_pct := state.specular_aa_split_position^ * 100.0
+					if imgui.SliderFloat("##split_pos_specular", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+						state.specular_aa_split_position^ = pos_pct / 100.0
+					}
+				}
+			}
+		}
+	}
+}
+
+@(private)
+draw_rendering_debug_views :: proc() {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Debug Views")
 	imgui.Separator()
-
 	placeholder := false
-
 	imgui.BeginDisabled()
 	imgui.Checkbox("Fog Debug", &placeholder)
 	imgui.Checkbox("Exposure Histogram", &placeholder)
 	imgui.Checkbox("Stencil Debug", &placeholder)
 	imgui.EndDisabled()
-	imgui.Spacing()
+}
 
-	// --- GPU Profiling ---
+@(private)
+draw_rendering_profiling :: proc() {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Profiling")
 	imgui.Separator()
+	placeholder := false
 	imgui.BeginDisabled()
-
 	imgui.Checkbox("GPU Timeline", &placeholder)
 	imgui.Checkbox("GPU Metrics Log", &placeholder)
 	imgui.Checkbox("Perf Mode", &placeholder)
 	imgui.Checkbox("Effect Benchmark", &placeholder)
-
 	imgui.EndDisabled()
-	imgui.Spacing()
+}
 
-	// --- Scene Debug ---
+@(private)
+draw_rendering_scene_debug :: proc(state: Scene_State) {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Scene Debug")
 	imgui.Separator()
 	imgui.BeginDisabled()
-
+	placeholder := false
 	placeholder_f: f32 = 0.0
 	imgui.Checkbox("Light Probes Debug", &placeholder)
 	imgui.Checkbox("N-Body Simulation", &placeholder)
 	imgui.SliderFloat("Sim Speed", &placeholder_f, 0.0, 5.0)
 	imgui.SliderFloat("Gravity", &placeholder_f, 0.0, 10.0)
 	imgui.Checkbox("Time Reversal", &placeholder)
-
 	gi_mode: i32 = 0
 	imgui.Combo("GI Mode", &gi_mode, "OFF\x00Volume 3D Tex\x00SSBO\x00")
-
 	imgui.EndDisabled()
 
-	// Sort Mode — functional (CPU variants)
 	if state.sort_mode != nil {
 		sort_val := i32(state.sort_mode^)
 		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
@@ -804,340 +894,391 @@ draw_tab_rendering :: proc(state: Scene_State) {
 			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
 		}
 	}
+}
 
-	imgui.Spacing()
-
-	// --- Environment ---
+@(private)
+draw_rendering_env :: proc() {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Environment")
 	imgui.Separator()
 	imgui.BeginDisabled()
-
+	placeholder := false
+	placeholder_f: f32 = 0.0
 	env_idx: i32 = 0
 	imgui.SliderInt("HDR Env Index", &env_idx, 0, 5)
 	imgui.SliderFloat("Env LOD Blur", &placeholder_f, 0.0, 8.0)
 	imgui.Checkbox("Screenshot", &placeholder)
 	imgui.Checkbox("Hot-Reload Shaders", &placeholder)
-
 	imgui.EndDisabled()
 }
 
-// ─── Fuzzy Search ──────────────────────────────────────────────────────────────
+@(private)
+draw_tab_rendering :: proc(state: Scene_State) {
+	draw_rendering_edge_aa(state)
+	imgui.Spacing()
+	draw_rendering_pbr_debug(state)
+	imgui.Spacing()
+	draw_rendering_debug_views()
+	imgui.Spacing()
+	draw_rendering_profiling()
+	imgui.Spacing()
+	draw_rendering_scene_debug(state)
+	imgui.Spacing()
+	draw_rendering_env()
+}
 
-// Delegates to the independent search package, converting cstring → string.
 @(private)
 fuzzy_match :: proc(filter: cstring, label: string, keywords: string) -> bool {
 	return search.fuzzy_match(string(filter), label, keywords)
 }
 
-// Filtered view: draws all parameters that match, grouped by category.
+@(private)
+draw_filtered_camera :: proc(c: ^cam.Camera, filter: cstring) -> int {
+	match_count := 0
+	if c != nil {
+		if fuzzy_match(filter, "Speed", "camera movement velocity") {
+			imgui.SliderFloat("Speed", &c.velocity, 1.0, 100.0)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Acceleration", "camera movement accel") {
+			imgui.SliderFloat("Acceleration", &c.acceleration, 1.0, 50.0)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Friction", "camera movement decel damping") {
+			imgui.SliderFloat("Friction", &c.friction, 0.5, 0.99)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Sensitivity", "camera mouse rotation") {
+			imgui.SliderFloat("Sensitivity", &c.sensitivity, 0.01, 1.0)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Rotation Smoothing", "camera interpolation lerp") {
+			imgui.SliderFloat("Rotation Smoothing", &c.rotation_smoothing, 0.0, 0.5)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Mouse Smoothing", "camera input filter") {
+			imgui.SliderFloat("Mouse Smoothing", &c.mouse_smoothing_factor, 0.0, 0.5)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "FOV", "camera field of view zoom projection") {
+			imgui.SliderFloat("FOV", &c.zoom, 10.0, 120.0)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Head Bobbing", "camera walk bob oscillation") {
+			imgui.Checkbox("Head Bobbing", &c.bobbing_enabled)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Bobbing Frequency", "camera walk bob speed") {
+			imgui.SliderFloat("Bobbing Freq", &c.bobbing_frequency, 0.5, 10.0)
+			match_count += 1
+		}
+		if fuzzy_match(filter, "Bobbing Amplitude", "camera walk bob height") {
+			imgui.SliderFloat("Bobbing Amp", &c.bobbing_amplitude, 0.0, 0.01)
+			match_count += 1
+		}
+	}
+	return match_count
+}
+
+@(private)
+draw_filtered_scene :: proc(state: Scene_State, filter: cstring) -> int {
+	match_count := 0
+	if fuzzy_match(filter, "Skybox", "environment background visible toggle") {
+		imgui.Checkbox("Skybox", state.skybox_visible)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Skybox Blur", "environment lod mip") {
+		imgui.SliderFloat("Skybox Blur", state.skybox_blur_lod, 0.0, 8.0)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Blur Source", "ibl prefilter mipmap lod") {
+		if state.blur_source != nil {
+			src_val := i32(state.blur_source^)
+			if imgui.Combo("Blur Source", &src_val, "Mipmap LOD\x00IBL Prefilter\x00") {
+				state.blur_source^ = rendering.Blur_Source(src_val)
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Skybox Mode", "equirectangular cubemap projection") {
+		if state.skybox_mode != nil {
+			mode_val := i32(state.skybox_mode^)
+			if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
+				state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
+				if state.skybox_mode^ == .Cubemap && state.cubemap_dirty != nil {
+					state.cubemap_dirty^ = true
+				}
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Cubemap Mipmaps", "seamless cross-face mipmap generation") {
+		if state.mipmap_mode != nil {
+			mip_val := i32(state.mipmap_mode^)
+			if imgui.Combo("Cubemap Mipmaps", &mip_val, "glGenerateMipmap\x00Seamless (cross-face)\x00") {
+				state.mipmap_mode^ = rendering.Mipmap_Mode(mip_val)
+				if state.cubemap_dirty != nil {
+					state.cubemap_dirty^ = true
+				}
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Exposure", "tone mapping hdr brightness") {
+		imgui.BeginDisabled()
+		imgui.SliderFloat("Exposure", state.exposure, 0.1, 10.0)
+		imgui.EndDisabled()
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Wireframe", "debug mesh polygon lines") {
+		imgui.Checkbox("Wireframe", state.wireframe_enabled)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Sort Mode", "sorting back-to-front radix qsort depth order") {
+		if state.sort_mode != nil {
+			sort_val := i32(state.sort_mode^)
+			if imgui.Combo("Sort Mode##filt", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
+				state.sort_mode^ = rendering.Sort_Mode(sort_val)
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Specular Anti-Aliasing", "specular aa roughness clamping varef") {
+		if state.specular_aa_enabled != nil {
+			imgui.Checkbox("Specular Anti-Aliasing", state.specular_aa_enabled)
+			if state.specular_aa_enabled^ && state.specular_aa_mode != nil {
+				mode_val := i32(state.specular_aa_mode^)
+				if imgui.Combo("Specular AA Mode##filt", &mode_val, "Screen-Space\x00Curvature\x00") {
+					state.specular_aa_mode^ = types.Specular_AA_Mode(mode_val)
+				}
+				if state.specular_aa_debug_mode != nil {
+					debug_val := i32(state.specular_aa_debug_mode^)
+					if imgui.Combo("Debug View##spec_dbg_filt", &debug_val, "Off\x00Grayscale Variance\x00Amplified Difference\x00") {
+						state.specular_aa_debug_mode^ = types.Specular_AA_Debug_Mode(debug_val)
+					}
+				}
+				if state.specular_aa_split_enabled != nil {
+					imgui.Checkbox("A/B Split##specular_filt", state.specular_aa_split_enabled)
+					if state.specular_aa_split_enabled^ && state.specular_aa_split_position != nil {
+						pos_pct := state.specular_aa_split_position^ * 100.0
+						if imgui.SliderFloat("##split_pos_specular_filt", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+							state.specular_aa_split_position^ = pos_pct / 100.0
+						}
+					}
+				}
+			}
+		}
+		match_count += 1
+	}
+	return match_count
+}
+
+@(private)
+draw_filtered_debug :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> int {
+	match_count := 0
+	placeholder := false
+
+	if fuzzy_match(filter, "Bloom Debug", "glow visualization") {
+		imgui.Checkbox("Bloom Debug", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "DoF Debug", "depth focus visualization") {
+		imgui.Checkbox("DoF Debug", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Exposure Histogram", "luminance distribution") {
+		imgui.Checkbox("Exposure Histogram", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Motion Blur Debug", "velocity visualization vector field") {
+		if state.postfx != nil {
+			p := state.postfx
+			mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
+			vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
+			current_dbg: i32 = 0
+			if mb_dbg { current_dbg = 1 }
+			if vf_dbg { current_dbg = 2 }
+			debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
+			if imgui.BeginCombo("MB Debug##filt", debug_modes[current_dbg]) {
+				for i in i32(0) ..< 3 {
+					if imgui.Selectable(debug_modes[i], i == current_dbg) {
+						if .Motion_Blur_Debug in p.active_effects {
+							postfx.pipeline_toggle(p, .Motion_Blur_Debug)
+						}
+						if .Vector_Field_Debug in p.active_effects {
+							postfx.pipeline_toggle(p, .Vector_Field_Debug)
+						}
+						if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
+						if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
+					}
+				}
+				imgui.EndCombo()
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "FXAA Debug", "edge detection visualization") {
+		imgui.Checkbox("FXAA Debug", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Stencil Debug", "mask buffer") {
+		imgui.Checkbox("Stencil Debug", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "GPU Timeline", "profiling performance timing") {
+		imgui.Checkbox("GPU Timeline", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "GPU Metrics Log", "profiling performance stats") {
+		imgui.Checkbox("GPU Metrics Log", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Perf Mode", "performance gamemode sched nice cpu gpu boost priority") {
+		draw_perf_mode_widget(state)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Light Probes Debug", "gi global illumination") {
+		imgui.Checkbox("Light Probes Debug", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "N-Body Simulation", "physics particles gravity") {
+		imgui.Checkbox("N-Body Simulation", &placeholder)
+		match_count += 1
+	}
+	return match_count
+}
+
+@(private)
+draw_filtered_env :: proc(filter: cstring) -> int {
+	match_count := 0
+	placeholder := false
+	placeholder_f: f32 = 0.5
+	env_idx: i32 = 0
+
+	if fuzzy_match(filter, "HDR Env Index", "environment map cycling skybox") {
+		imgui.SliderInt("HDR Env Index", &env_idx, 0, 5)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Env LOD Blur", "environment mip background") {
+		imgui.SliderFloat("Env LOD Blur", &placeholder_f, 0.0, 8.0)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Screenshot", "capture image save") {
+		imgui.Checkbox("Screenshot", &placeholder)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Hot-Reload Shaders", "reload recompile glsl") {
+		imgui.Checkbox("Hot-Reload Shaders", &placeholder)
+		match_count += 1
+	}
+	return match_count
+}
+
+@(private)
+draw_filtered_ibl :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> int {
+	match_count := 0
+	if fuzzy_match(filter, "Preview Size", "ibl debug texture preview zoom size") {
+		imgui.SliderFloat("Preview Size", &g.ibl_preview_size, 64.0, 512.0)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Mip Level (Roughness)", "ibl prefilter specular mip roughness level") {
+		imgui.SliderInt("Mip Level (Roughness)", &g.ibl_mip_level, 0, IBL_PREFILTER_MIP_LEVELS - 1)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Environment Map", "ibl hdr source environment map texture gpu") {
+		ibl_goto_button(g, .Env_Map)
+		imgui.Text("Env HDR: ID=%d (%dx%d)",
+			state.env_texture_id, state.env_texture_width, state.env_texture_height)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Irradiance Map", "ibl diffuse irradiance convolution texture gpu") {
+		ibl_goto_button(g, .Irradiance)
+		imgui.Text("Irradiance: ID=%d (%dx%d)",
+			state.ibl_irradiance_map, IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Prefilter Map", "ibl specular prefilter ggx split sum texture gpu") {
+		ibl_goto_button(g, .Prefilter)
+		imgui.Text("Prefilter: ID=%d (%dx%d, %d mips)",
+			state.ibl_prefilter_map, IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, IBL_PREFILTER_MIP_LEVELS)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "BRDF LUT", "ibl split sum brdf lookup table texture gpu") {
+		ibl_goto_button(g, .BRDF_LUT)
+		imgui.Text("BRDF LUT: ID=%d (%dx%d)",
+			state.ibl_brdf_lut, IBL_BRDF_LUT_SIZE, IBL_BRDF_LUT_SIZE)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "GPU Memory Estimate", "gpu vram memory estimation usage size textures") {
+		imgui.PushIDInt(99)
+		if imgui.SmallButton("Go To") {
+			g.ibl_debug_open = true
+			g.search_buf = {}
+		}
+		imgui.PopID()
+		imgui.Text("GPU Memory: see IBL Debug tab")
+		match_count += 1
+	}
+	return match_count
+}
+
 @(private)
 draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 	match_count := 0
 
-	c := state.camera
-
-	// ── Camera params ──
 	if section_has_matches(filter, CAMERA_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Camera")
 		imgui.Separator()
-
-		if c != nil {
-			if fuzzy_match(filter, "Speed", "camera movement velocity") {
-				imgui.SliderFloat("Speed", &c.velocity, 1.0, 100.0)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Acceleration", "camera movement accel") {
-				imgui.SliderFloat("Acceleration", &c.acceleration, 1.0, 50.0)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Friction", "camera movement decel damping") {
-				imgui.SliderFloat("Friction", &c.friction, 0.5, 0.99)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Sensitivity", "camera mouse rotation") {
-				imgui.SliderFloat("Sensitivity", &c.sensitivity, 0.01, 1.0)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Rotation Smoothing", "camera interpolation lerp") {
-				imgui.SliderFloat("Rotation Smoothing", &c.rotation_smoothing, 0.0, 0.5)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Mouse Smoothing", "camera input filter") {
-				imgui.SliderFloat("Mouse Smoothing", &c.mouse_smoothing_factor, 0.0, 0.5)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "FOV", "camera field of view zoom projection") {
-				imgui.SliderFloat("FOV", &c.zoom, 10.0, 120.0)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Head Bobbing", "camera walk bob oscillation") {
-				imgui.Checkbox("Head Bobbing", &c.bobbing_enabled)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Bobbing Frequency", "camera walk bob speed") {
-				imgui.SliderFloat("Bobbing Freq", &c.bobbing_frequency, 0.5, 10.0)
-				match_count += 1
-			}
-			if fuzzy_match(filter, "Bobbing Amplitude", "camera walk bob height") {
-				imgui.SliderFloat("Bobbing Amp", &c.bobbing_amplitude, 0.0, 0.01)
-				match_count += 1
-			}
-		}
+		match_count += draw_filtered_camera(state.camera, filter)
 		imgui.Spacing()
 	}
 
-	// ── Scene params ──
 	if section_has_matches(filter, SCENE_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Scene")
 		imgui.Separator()
-
-		if fuzzy_match(filter, "Skybox", "environment background visible toggle") {
-			imgui.Checkbox("Skybox", state.skybox_visible)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Skybox Blur", "environment lod mip") {
-			imgui.SliderFloat("Skybox Blur", state.skybox_blur_lod, 0.0, 8.0)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Blur Source", "ibl prefilter mipmap lod") {
-			if state.blur_source != nil {
-				src_val := i32(state.blur_source^)
-				if imgui.Combo("Blur Source", &src_val, "Mipmap LOD\x00IBL Prefilter\x00") {
-					state.blur_source^ = rendering.Blur_Source(src_val)
-				}
-			}
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Skybox Mode", "equirectangular cubemap projection") {
-			if state.skybox_mode != nil {
-				mode_val := i32(state.skybox_mode^)
-				if imgui.Combo("Skybox Mode", &mode_val, "Equirectangular\x00Cubemap\x00") {
-					state.skybox_mode^ = rendering.Skybox_Mode(mode_val)
-				}
-			}
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Cubemap Mipmaps", "seamless cross-face mipmap generation") {
-			if state.mipmap_mode != nil {
-				mip_val := i32(state.mipmap_mode^)
-				if imgui.Combo("Cubemap Mipmaps", &mip_val, "glGenerateMipmap\x00Seamless (cross-face)\x00") {
-					state.mipmap_mode^ = rendering.Mipmap_Mode(mip_val)
-					if state.cubemap_dirty != nil {
-						state.cubemap_dirty^ = true
-					}
-				}
-			}
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Exposure", "tone mapping hdr brightness") {
-			imgui.BeginDisabled()
-			imgui.SliderFloat("Exposure", state.exposure, 0.1, 10.0)
-			imgui.EndDisabled()
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Wireframe", "debug mesh polygon lines") {
-			imgui.Checkbox("Wireframe", state.wireframe_enabled)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Sort Mode", "sorting back-to-front radix qsort depth order") {
-			if state.sort_mode != nil {
-				sort_val := i32(state.sort_mode^)
-				if imgui.Combo("Sort Mode##filt", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
-					state.sort_mode^ = rendering.Sort_Mode(sort_val)
-				}
-			}
-			match_count += 1
-		}
+		match_count += draw_filtered_scene(state, filter)
 		imgui.Spacing()
 	}
 
-	// ── Rendering / Post-FX params ──
 	if section_has_matches(filter, RENDERING_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Rendering")
 		imgui.Separator()
-
-		// Live PostFX controls
 		match_count += draw_postfx_filtered(state, filter)
-
-		// PBR debug (still disabled)
-		imgui.BeginDisabled()
-
-		if fuzzy_match(filter, "PBR Debug Mode", "rendering albedo normal metallic roughness ao irradiance prefilter brdf") {
-			pbr_debug_mode: i32 = 0
-			imgui.Combo("Debug Mode", &pbr_debug_mode,
-				"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance\x00Prefilter\x00BRDF LUT\x00GI Probes\x00")
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Specular Anti-Aliasing", "rendering aa filtering") {
-			placeholder_aa := false
-			imgui.Checkbox("Specular Anti-Aliasing", &placeholder_aa)
-			match_count += 1
-		}
-
-		imgui.EndDisabled()
 		imgui.Spacing()
 	}
 
-	// ── Debug Views ──
 	if section_has_matches(filter, DEBUG_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Debug")
 		imgui.Separator()
 		imgui.BeginDisabled()
-
-		placeholder := false
-
-		if fuzzy_match(filter, "Bloom Debug", "glow visualization") {
-			imgui.Checkbox("Bloom Debug", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "DoF Debug", "depth focus visualization") {
-			imgui.Checkbox("DoF Debug", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Exposure Histogram", "luminance distribution") {
-			imgui.Checkbox("Exposure Histogram", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Motion Blur Debug", "velocity visualization vector field") {
-			if state.postfx != nil {
-				p := state.postfx
-				mb_dbg := postfx.Post_Effect.Motion_Blur_Debug in p.active_effects
-				vf_dbg := postfx.Post_Effect.Vector_Field_Debug in p.active_effects
-				current_dbg: i32 = 0
-				if mb_dbg { current_dbg = 1 }
-				if vf_dbg { current_dbg = 2 }
-				debug_modes := [3]cstring{"Off", "Velocity (RG)", "Vector Field"}
-				if imgui.BeginCombo("MB Debug##filt", debug_modes[current_dbg]) {
-					for i in i32(0) ..< 3 {
-						if imgui.Selectable(debug_modes[i], i == current_dbg) {
-							if .Motion_Blur_Debug in p.active_effects {
-								postfx.pipeline_toggle(p, .Motion_Blur_Debug)
-							}
-							if .Vector_Field_Debug in p.active_effects {
-								postfx.pipeline_toggle(p, .Vector_Field_Debug)
-							}
-							if i == 1 { postfx.pipeline_toggle(p, .Motion_Blur_Debug) }
-							if i == 2 { postfx.pipeline_toggle(p, .Vector_Field_Debug) }
-						}
-					}
-					imgui.EndCombo()
-				}
-			}
-			match_count += 1
-		}
-		if fuzzy_match(filter, "FXAA Debug", "edge detection visualization") {
-			imgui.Checkbox("FXAA Debug", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Stencil Debug", "mask buffer") {
-			imgui.Checkbox("Stencil Debug", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "GPU Timeline", "profiling performance timing") {
-			imgui.Checkbox("GPU Timeline", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "GPU Metrics Log", "profiling performance stats") {
-			imgui.Checkbox("GPU Metrics Log", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Perf Mode", "performance gamemode sched nice cpu gpu boost priority") {
-			draw_perf_mode_widget(state)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Light Probes Debug", "gi global illumination") {
-			imgui.Checkbox("Light Probes Debug", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "N-Body Simulation", "physics particles gravity") {
-			imgui.Checkbox("N-Body Simulation", &placeholder)
-			match_count += 1
-		}
-
+		match_count += draw_filtered_debug(g, state, filter)
 		imgui.EndDisabled()
 		imgui.Spacing()
 	}
 
-	// ── Environment ──
 	if section_has_matches(filter, ENV_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Environment")
 		imgui.Separator()
 		imgui.BeginDisabled()
-
-		placeholder := false
-		placeholder_f: f32 = 0.5
-		env_idx: i32 = 0
-
-		if fuzzy_match(filter, "HDR Env Index", "environment map cycling skybox") {
-			imgui.SliderInt("HDR Env Index", &env_idx, 0, 5)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Env LOD Blur", "environment mip background") {
-			imgui.SliderFloat("Env LOD Blur", &placeholder_f, 0.0, 8.0)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Screenshot", "capture image save") {
-			imgui.Checkbox("Screenshot", &placeholder)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Hot-Reload Shaders", "reload recompile glsl") {
-			imgui.Checkbox("Hot-Reload Shaders", &placeholder)
-			match_count += 1
-		}
-
+		match_count += draw_filtered_env(filter)
 		imgui.EndDisabled()
 		imgui.Spacing()
 	}
 
-	// ── IBL Debug ──
 	if section_has_matches(filter, IBL_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "IBL Debug")
 		imgui.SameLine()
 		ibl_goto_button(g, .None)
 		imgui.Separator()
+		match_count += draw_filtered_ibl(g, state, filter)
+		imgui.Spacing()
+	}
 
-		if fuzzy_match(filter, "Preview Size", "ibl debug texture preview zoom size") {
-			imgui.SliderFloat("Preview Size", &g.ibl_preview_size, 64.0, 512.0)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Mip Level (Roughness)", "ibl prefilter specular mip roughness level") {
-			imgui.SliderInt("Mip Level (Roughness)", &g.ibl_mip_level, 0, IBL_PREFILTER_MIP_LEVELS - 1)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Environment Map", "ibl hdr source environment map texture gpu") {
-			ibl_goto_button(g, .Env_Map)
-			imgui.Text("Env HDR: ID=%d (%dx%d)",
-				state.env_texture_id, state.env_texture_width, state.env_texture_height)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Irradiance Map", "ibl diffuse irradiance convolution texture gpu") {
-			ibl_goto_button(g, .Irradiance)
-			imgui.Text("Irradiance: ID=%d (%dx%d)",
-				state.ibl_irradiance_map, IBL_IRRADIANCE_SIZE * 2, IBL_IRRADIANCE_SIZE)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "Prefilter Map", "ibl specular prefilter ggx split sum texture gpu") {
-			ibl_goto_button(g, .Prefilter)
-			imgui.Text("Prefilter: ID=%d (%dx%d, %d mips)",
-				state.ibl_prefilter_map, IBL_PREFILTER_SIZE * 2, IBL_PREFILTER_SIZE, IBL_PREFILTER_MIP_LEVELS)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "BRDF LUT", "ibl split sum brdf lookup table texture gpu") {
-			ibl_goto_button(g, .BRDF_LUT)
-			imgui.Text("BRDF LUT: ID=%d (%dx%d)",
-				state.ibl_brdf_lut, IBL_BRDF_LUT_SIZE, IBL_BRDF_LUT_SIZE)
-			match_count += 1
-		}
-		if fuzzy_match(filter, "GPU Memory Estimate", "gpu vram memory estimation usage size textures") {
-			imgui.PushIDInt(99)
-			if imgui.SmallButton("Go To") {
-				g.ibl_debug_open = true
-				g.search_buf = {}
-			}
-			imgui.PopID()
-			imgui.Text("GPU Memory: see IBL Debug tab")
-			match_count += 1
-		}
+	if section_has_matches(filter, COMPUTE_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Compute Tuning")
+		imgui.SameLine()
+		compute_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_compute(g, filter)
 		imgui.Spacing()
 	}
 
@@ -1164,6 +1305,18 @@ ibl_goto_button :: proc(g: ^Gui, target: IBL_Scroll_Target) {
 	imgui.PopID()
 }
 
+// Navigate from search result to the Compute Tuning tab.
+@(private)
+compute_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_compute_tuning")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 8
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
 // Keyword constants for section-level pre-filtering.
 @(private)
 CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov bobbing zoom projection mouse movement"
@@ -1182,3 +1335,6 @@ ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders 
 
 @(private)
 IBL_KEYWORDS :: "ibl debug irradiance prefilter specular diffuse brdf lut split sum texture gpu memory estimate estimation vram mip roughness preview environment map hdr convolution ggx"
+
+@(private)
+COMPUTE_KEYWORDS :: "compute tuning shader progressive slicing dispatch samples workgroup spbrdf irmap spmap slices profile legacy optimized vram timing optimization"

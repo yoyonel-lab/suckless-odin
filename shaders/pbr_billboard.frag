@@ -19,6 +19,11 @@ uniform mat4 u_previousViewProj;
 uniform vec3 u_cam_pos;
 uniform vec2 u_screen_size;
 uniform int u_edge_aa_mode; // 0=off, 1=on, 2=debug
+uniform bool u_specular_aa_enabled;
+uniform int u_specular_aa_mode; // 0=screen-space, 1=curvature
+uniform int u_specular_aa_debug_mode; // 0=off, 1=grayscale-variance, 2=color-difference
+uniform bool u_specular_aa_split_enabled;
+uniform float u_specular_aa_split_position;
 
 // IBL textures (equirectangular 2D, same binding as suckless-ogl)
 layout(binding = 15) uniform sampler2D irradianceMap;
@@ -78,7 +83,7 @@ vec3 compute_IBL_PBR(vec3 N, vec3 V, vec3 R, vec3 F0, float NdotV,
     vec2 brdfUV = vec2(NdotV, roughness);
     vec2 texSize = vec2(textureSize(brdfLUT, 0));
     brdfUV = brdfUV * (texSize - 1.0) / texSize + 0.5 / texSize;
-    vec2 brdf = texture(brdfLUT, brdfUV).rg;
+    vec2 brdf = textureLod(brdfLUT, brdfUV, 0.0).rg;
 
     // Multiple scattering compensation
     vec3 FssEss = F * brdf.x + brdf.y;
@@ -93,6 +98,34 @@ vec3 compute_IBL_PBR(vec3 N, vec3 V, vec3 R, vec3 F0, float NdotV,
     kD = (1.0 - (FssEss + multipleScattering)) * (1.0 - metallic);
 
     return (kD * diffuse + specular) * ao;
+}
+
+// -------------------------------------------------------------------
+// Specular Anti-Aliasing (Varef / Variance-based roughness clamping)
+// -------------------------------------------------------------------
+float compute_specular_aa_roughness(vec3 N, float roughness, float projectedCurvature, out float out_variance)
+{
+    float variance = 0.0;
+    if (u_specular_aa_mode == 1) {
+        // Curvature-based variance (Analytic)
+        variance = 50.00 * (projectedCurvature * projectedCurvature);
+    } else {
+        // Derivative-based variance (Screen-space)
+        vec3 dNdx = dFdx(N);
+        vec3 dNdy = dFdy(N);
+        variance = 50.00 * max(dot(dNdx, dNdx), dot(dNdy, dNdy));
+    }
+
+    // Sanitize variance and cap it to prevent "exploding" roughness at geometric silhouettes
+    if (variance >= 0.0 && variance <= 0.1) {
+        // Keep valid variance
+    } else {
+        variance = 0.0;
+    }
+    out_variance = variance;
+
+    // Varef: Add variance to the microfacet distribution variance (roughness^2)
+    return sqrt(clamp(roughness * roughness + variance, 0.0, 1.0));
 }
 
 // -------------------------------------------------------------------
@@ -151,12 +184,12 @@ void main()
     vec4 clipPos = u_projection * u_view * vec4(hitPos, 1.0);
     gl_FragDepth = clipPos.z / clipPos.w * 0.5 + 0.5;
 
+    // Compute world-space pixel size at hit depth
+    float pixelSizeWorld = (2.0 * clipPos.w) / (u_projection[1][1] * u_screen_size.y);
+
     // Analytic edge smoothing (anti-aliasing)
     float edgeFactor = 1.0;
     if (u_edge_aa_mode > 0) {
-        // Compute world-space pixel size at hit depth, then scale by sphere radius
-        // to get the expected per-pixel change in discriminant.
-        float pixelSizeWorld = (2.0 * clipPos.w) / (u_projection[1][1] * u_screen_size.y);
         float analyticFwidthH = 2.0 * SphereRadius * pixelSizeWorld;
         edgeFactor = clamp(discriminant / max(analyticFwidthH, 1e-4), 0.0, 1.0);
         edgeFactor = smoothstep(0.0, 1.0, edgeFactor);
@@ -168,10 +201,59 @@ void main()
     float NdotV = max(dot(N, V), 0.0);
     vec3 F0 = mix(vec3(0.04), Albedo, Metallic);
 
+    float uvX = gl_FragCoord.x / u_screen_size.x;
+    bool bypass_specular_aa = false;
+    if (u_specular_aa_split_enabled && uvX > u_specular_aa_split_position) {
+        bypass_specular_aa = true;
+    }
+
+    // Specular Anti-Aliasing
     float roughness = max(Roughness, 0.04);
+    float spec_aa_variance = 0.0;
+    if (u_specular_aa_enabled && !bypass_specular_aa) {
+        float projectedCurvature = pixelSizeWorld / max(1e-4, SphereRadius);
+        roughness = compute_specular_aa_roughness(N, roughness, projectedCurvature, spec_aa_variance);
+    }
+    roughness = max(roughness, 0.04);
 
     vec3 color = compute_IBL_PBR(N, V, R, F0, NdotV,
                                   Albedo, Metallic, roughness, AO);
+
+    if (u_specular_aa_debug_mode == 1 && !bypass_specular_aa) {
+        FragColor = vec4(vec3(spec_aa_variance * 10.0), edgeFactor);
+
+        // Draw split line if active and close to position
+        if (u_specular_aa_split_enabled) {
+            float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
+            if (dist < 1.5) {
+                FragColor = vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
+            }
+        }
+        return;
+    } else if (u_specular_aa_debug_mode == 2 && !bypass_specular_aa) {
+        float roughness_no_aa = max(Roughness, 0.04);
+        vec3 color_no_aa = compute_IBL_PBR(N, V, R, F0, NdotV,
+                                             Albedo, Metallic, roughness_no_aa, AO);
+        FragColor = vec4(abs(color - color_no_aa) * 10.0, edgeFactor);
+
+        // Draw split line if active and close to position
+        if (u_specular_aa_split_enabled) {
+            float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
+            if (dist < 1.5) {
+                FragColor = vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
+            }
+        }
+        return;
+    }
+
+    // Draw split line for PBR view
+    if (u_specular_aa_split_enabled) {
+        float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
+        if (dist < 1.5) {
+            FragColor = vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
+            return;
+        }
+    }
 
     // Debug mode: highlight the AA transition zone
     if (u_edge_aa_mode == 2) {
