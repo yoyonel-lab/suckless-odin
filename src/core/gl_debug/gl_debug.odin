@@ -12,6 +12,8 @@ package gl_debug
 // - Pushing a group automatically allocates a matching CPU Tracy zone and starts a GPU timer context.
 // - Popping a group automatically ends both CPU and GPU stages.
 
+import "base:runtime"
+import "core:strings"
 import gl "vendor:OpenGL"
 import tracy "../../core/tracy"
 
@@ -34,20 +36,29 @@ Zone_Color :: struct {
 }
 
 ZONE_COLORS :: [?]Zone_Color{
-	{"Scene_Render", 0xD08770},
-	{"Instanced_PBR_Spheres", 0xD08770},
-	{"Swap_Buffers", 0xD08770},
-	{"Skybox_Pass", 0x88C0D0},
-	{"PostFX_Bloom", 0x5E81AC},
-	{"PostFX_DepthOfField", 0xA3BE8C},
-	{"PostFX_AutoExposure", 0xEBCB8B},
-	{"PostFX_FXAA_Prepass", 0xBF616A},
-	{"PostFX_MotionBlur_Compute", 0xBF616A},
-	{"Text_Overlay", 0x4C566A},
-	{"GUI_ImGui", 0x4C566A},
+	{"Scene_Render", tracy.COLOR_GPU_PASS},
+	{"Instanced_PBR_Spheres", tracy.COLOR_GPU_GEOMETRY},
+	{"Swap_Buffers", tracy.COLOR_CPU_PRESENT},
+	{"Skybox_Pass", tracy.COLOR_GPU_SKYBOX},
+	{"PostProcess_Uber", tracy.COLOR_GPU_POSTFX},
+	{"PostFX_Bloom", tracy.COLOR_GPU_POSTFX},
+	{"PostFX_DepthOfField", tracy.COLOR_GPU_POSTFX},
+	{"PostFX_AutoExposure", tracy.COLOR_GPU_POSTFX},
+	{"PostFX_FXAA_Prepass", tracy.COLOR_GPU_POSTFX},
+	{"PostFX_MotionBlur_Compute", tracy.COLOR_GPU_POSTFX},
+	{"Text_Overlay", tracy.COLOR_GPU_OVERLAY},
+	{"GUI_ImGui", tracy.COLOR_CPU_GUI},
+	{"IBL: BRDF_LUT_Slice", tracy.COLOR_IBL_BRDF},
+	{"IBL: Luminance_Reduction", tracy.COLOR_IBL_LUMINANCE},
+	{"IBL: Specular_Init", tracy.COLOR_IBL_SPECULAR},
+	{"IBL: Specular_Mip_Slice", tracy.COLOR_IBL_SPECULAR},
+	{"IBL: Irradiance_Slice", tracy.COLOR_IBL_IRRADIANCE},
+	{"IBL: Finalize", tracy.COLOR_SYNC_WAIT},
+	{"Env_Manager: Render_Overlay", tracy.COLOR_GPU_OVERLAY},
+	{"Env_Manager: Capture_Snapshot", tracy.COLOR_GPU_SKYBOX},
 }
 
-DEFAULT_ZONE_COLOR :: u32(0x81A1C1) // Composite blue
+DEFAULT_ZONE_COLOR :: u32(tracy.COLOR_CPU_UPDATE)
 
 @(private)
 zone_color_for_name :: proc(name_str: string) -> u32 {
@@ -72,7 +83,7 @@ g_cache_count: int = 0
 // Returns a pointer to a stable Source_Location_Data in the cache.
 // Static source locations enable Tracy zone aggregation in statistics.
 @(private)
-get_or_create_srcloc :: proc(name: cstring) -> ^tracy.Source_Location_Data {
+get_or_create_srcloc :: proc(name: cstring, loc: runtime.Source_Code_Location) -> ^tracy.Source_Location_Data {
 	name_str := string(name)
 	for i in 0 ..< g_cache_count {
 		if g_cache[i].name == name_str {
@@ -82,13 +93,17 @@ get_or_create_srcloc :: proc(name: cstring) -> ^tracy.Source_Location_Data {
 
 	if g_cache_count < len(g_cache) {
 		color := zone_color_for_name(name_str)
+		allocator := runtime.default_allocator()
+		file_cstr := strings.clone_to_cstring(loc.file_path, allocator)
+		proc_cstr := strings.clone_to_cstring(loc.procedure, allocator)
+
 		g_cache[g_cache_count] = Source_Loc_Cache_Entry{
 			name = name_str,
 			loc  = tracy.Source_Location_Data{
 				name     = name,
-				function = name,
-				file     = "gl_debug.odin",
-				line     = 0,
+				function = proc_cstr,
+				file     = file_cstr,
+				line     = u32(loc.line),
 				color    = color,
 			},
 		}
@@ -100,14 +115,14 @@ get_or_create_srcloc :: proc(name: cstring) -> ^tracy.Source_Location_Data {
 }
 
 // Push a named debug group (visible in RenderDoc and Tracy).
-push_group :: proc(name: cstring) {
+push_group :: proc(name: cstring, loc := #caller_location) {
 	gl.PushDebugGroup(gl.DEBUG_SOURCE_APPLICATION, 0, -1, name)
 
 	when tracy.TRACY_ENABLE {
-		loc := get_or_create_srcloc(name)
-		cpu_zone := tracy.zone_begin(loc)
+		loc_data := get_or_create_srcloc(name, loc)
+		cpu_zone := tracy.zone_begin(loc_data)
 		color := zone_color_for_name(string(name))
-		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
+		gpu_ctx := tracy.gpu_zone_begin(name, loc_data.function, loc_data.file, loc_data.line, color)
 
 		if g_stack_depth < MAX_STACK_DEPTH {
 			g_zone_stack[g_stack_depth] = Active_Zone{
@@ -135,12 +150,12 @@ pop_group :: proc() {
 
 // Push a Tracy-only marker (CPU and GPU timestamps, no OpenGL Debug Group).
 // Bypasses driver/MangoHud debug stack boundaries for cross-frame sync.
-push_gpu_zone_only :: proc(name: cstring) {
+push_gpu_zone_only :: proc(name: cstring, loc := #caller_location) {
 	when tracy.TRACY_ENABLE {
-		loc := get_or_create_srcloc(name)
-		cpu_zone := tracy.zone_begin(loc)
+		loc_data := get_or_create_srcloc(name, loc)
+		cpu_zone := tracy.zone_begin(loc_data)
 		color := zone_color_for_name(string(name))
-		gpu_ctx := tracy.gpu_zone_begin(name, name, "gl_debug.odin", 0, color)
+		gpu_ctx := tracy.gpu_zone_begin(name, loc_data.function, loc_data.file, loc_data.line, color)
 
 		if g_stack_depth < MAX_STACK_DEPTH {
 			g_zone_stack[g_stack_depth] = Active_Zone{
@@ -166,5 +181,7 @@ pop_gpu_zone_only :: proc() {
 
 // Label a GL object (texture, buffer, program, VAO, etc.) for RenderDoc.
 object_label :: proc(identifier: u32, handle: u32, label: cstring) {
-	gl.ObjectLabel(identifier, handle, -1, label)
+	when ODIN_DEBUG {
+		gl.ObjectLabel(identifier, handle, -1, label)
+	}
 }

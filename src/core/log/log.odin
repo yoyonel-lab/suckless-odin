@@ -3,6 +3,7 @@ package applog
 import "core:fmt"
 import "core:time"
 import "core:sys/linux"
+import tracy "../tracy"
 
 // Severity levels for log filtering (mirrors C version)
 Log_Level :: enum {
@@ -58,6 +59,18 @@ log_message :: proc(level: Log_Level, tag: string, format: string, args: ..any) 
 
 	if g_log_callback != nil {
 		g_log_callback(level, tag, message)
+	}
+
+	when tracy.TRACY_ENABLE {
+		color: u32
+		switch level {
+		case .Debug:            color = tracy.COLOR_LOG_DEBUG
+		case .Info:             color = tracy.COLOR_LOG_INFO
+		case .Warning:          color = tracy.COLOR_LOG_WARNING
+		case .Error, .Critical: color = tracy.COLOR_LOG_ERROR
+		case .Not_Set:          color = tracy.COLOR_LOG_DEBUG
+		}
+		tracy.message_c(formatted, color)
 	}
 
 	if int(level) >= int(Log_Level.Error) {
