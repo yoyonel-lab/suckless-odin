@@ -35,7 +35,7 @@ Every commit must have a **single concern**. Never mix:
 - `refactor`: Code restructuring without feature change
 - `test`: Test additions/modifications
 - `docs`: Documentation only
-- `build`: Build system, Justfile, dependencies
+- `build`: Build system, Taskfile.yml, dependencies
 - `ci`: GitHub Actions, CI pipeline
 - `chore`: Config, tooling, git config
 - `perf`: Performance optimization
@@ -46,8 +46,8 @@ Every commit must have a **single concern**. Never mix:
 ## Pre-Commit Workflow
 
 1. Make code changes
-2. Run `just lint` → must pass with no errors/warnings
-3. Run `just test` → all tests must pass
+2. Run `task lint` → must pass with no errors/warnings
+3. Run `task test` → all tests must pass
 4. Commit with SoC discipline
 5. **ASK user before pushing**
 

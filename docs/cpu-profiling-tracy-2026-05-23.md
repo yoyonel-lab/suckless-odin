@@ -8,8 +8,8 @@ pour une app pure-rendering sans simulation/réseau/gameplay.
 
 ## Setup
 
-- Build: `just build-profile` (Tracy enabled, `-o:speed`)
-- Profiler: Tracy 0.13.1 (`just tracy-server`)
+- Build: `task build-profile` (Tracy enabled, `-o:speed`)
+- Profiler: Tracy 0.13.1 (`task tracy-server`)
 - Config: `glfw.SwapInterval(0)` (vsync off)
 - Machine: Linux, ~4 cores logiques
 
@@ -133,20 +133,20 @@ C'est normal pour OpenGL. Des APIs à plus bas overhead (Vulkan, Metal, D3D12) p
 
 ```bash
 # Build avec Tracy
-just build-profile
+task build-profile
 
 # Lancer Tracy profiler
-just tracy-server
+task tracy-server
 
 # Lancer l'app (dans un autre terminal)
-./build/profile/suckless-odin
+task run-profile
 
 # Activer vsync via CLI (réduit CPU usage)
-./build/profile/suckless-odin --vsync
+task run-profile -- --vsync
 
 # Pour le test A/B, comparer:
-./build/ultra/suckless-odin              # vsync off (uncapped, CPU hot)
-./build/ultra/suckless-odin --vsync      # vsync on (capped, CPU idle)
+task run-ultra                           # vsync off (uncapped, CPU hot)
+task run-ultra -- --vsync                 # vsync on (capped, CPU idle)
 ```
 
 ## Conclusion

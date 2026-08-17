@@ -3,11 +3,11 @@
 ## Quick Start
 
 ```bash
-just bench              # Run all benchmarks
-just bench-search       # Fuzzy search only
+task bench              # Run all benchmarks
+task bench-search       # Fuzzy search only
 
 # Export results as JSON for historical tracking:
-BENCH_JSON=/tmp/results.json just bench-search
+BENCH_JSON=/tmp/results.json task bench-search
 ```
 
 ## Framework Structure
@@ -44,10 +44,11 @@ Each `Bench_Case` is: name, iteration count, function. The harness handles warmu
 ### Adding a New Benchmark (3 steps)
 
 1. Create `benchmarks/<name>/bench_<name>.odin` importing the harness + target package
-2. Add Justfile recipe:
-   ```just
+2. Add Taskfile.yml task:
+   ```yaml
    bench-<name>:
-       odin run benchmarks/<name>/ -o:speed -out:/tmp/odin-bench-<name>
+     cmds:
+       - odin run benchmarks/<name>/ -o:speed -out:/tmp/odin-bench-<name>
    ```
 3. Add to aggregate: `bench: bench-search bench-<name>`
 
@@ -56,7 +57,7 @@ Each `Bench_Case` is: name, iteration count, function. The harness handles warmu
 Set `BENCH_JSON=<path>` environment variable to export results:
 
 ```bash
-BENCH_JSON=bench_results.json just bench-search
+BENCH_JSON=bench_results.json task bench-search
 ```
 
 Output:
@@ -73,9 +74,9 @@ This can be consumed by CI to detect regressions (e.g., fail if ns/call increase
 
 ### How to Validate an Optimization
 
-1. **Measure baseline**: `just bench-search` on current commit, note `ns/call`
+1. **Measure baseline**: `task bench-search` on current commit, note `ns/call`
 2. **Apply refactoring**: make your changes
-3. **Re-measure**: `just bench-search` again
+3. **Re-measure**: `task bench-search` again
 4. **Compare**: ns/call must decrease (or stay equal) with identical checksums
 5. **Verify assembly** (optional): inspect generated code with `-build-mode:asm`
 

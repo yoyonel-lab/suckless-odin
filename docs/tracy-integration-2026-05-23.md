@@ -11,10 +11,10 @@ ported from the C legacy implementation (`suckless-ogl/src/tracy_manager.c`).
 
 | Build | Flag | Tracy Active | Cost |
 |-------|------|--------------|------|
-| `just build` | (none) | No — all tracy calls compile to no-ops | Zero (eliminated at compile-time) |
-| `just build-profile` | `-define:TRACY_ENABLE=true` | Yes | Minimal (ON_DEMAND — idle until server connects) |
-| `just build-release` | (none) | No | Zero |
-| `just build-ultra` | (none) | No | Zero |
+| `task build` | (none) | No — all tracy calls compile to no-ops | Zero (eliminated at compile-time) |
+| `task build-profile` | `-define:TRACY_ENABLE=true` | Yes | Minimal (ON_DEMAND — idle until server connects) |
+| `task build-release` | (none) | No | Zero |
+| `task build-ultra` | (none) | No | Zero |
 
 ### Components
 
@@ -71,13 +71,13 @@ ported from the C legacy implementation (`suckless-ogl/src/tracy_manager.c`).
 
 ```bash
 # Build everything (one-time setup)
-just build-tracy
+task build-tracy
 
 # Profile build
-just build-profile
+task build-profile
 
 # Launch profiler server
-just tracy-server
+task tracy-server
 
 # Then run the app — Tracy connects automatically (ON_DEMAND)
 ./build/profile/suckless-odin
@@ -94,7 +94,7 @@ just tracy-server
 ### Automated (recommended)
 
 ```bash
-just update-tracy
+task update-tracy
 ```
 
 This fetches the latest git tag, checks out that version, and rebuilds both `libtracy.a` and the profiler server.
@@ -106,16 +106,16 @@ cd deps/tracy
 git fetch --tags
 git checkout v0.XX.X   # desired version
 cd ../..
-just build-tracy       # rebuilds lib + server
+task build-tracy       # rebuilds lib + server
 ```
 
 ### Post-update checklist
 
-1. Verify `just build-tracy-lib` succeeds (C++ API changes)
-2. Verify `just build-profile` links correctly (symbol compatibility)
+1. Verify `task build-tracy-lib` succeeds (C++ API changes)
+2. Verify `task build-profile` links correctly (symbol compatibility)
 3. Check `deps/tracy_gpu.cpp` — if Tracy's `TracyOpenGL.hpp` API changed, update the bridge
 4. Check `src/core/tracy/tracy.odin` — if Tracy adds/renames C symbols, update FFI bindings
-5. Run `just tracy-server` and connect to a profile build to validate end-to-end
+5. Run `task tracy-server` and connect to a profile build to validate end-to-end
 
 ## Zero-Cost Guarantee
 
@@ -133,14 +133,15 @@ Zone colors use a centralized `ZONE_COLORS` table in `src/core/gl_debug/gl_debug
 (Nord color theme), resolved by `zone_color_for_name()`. To add a new zone color, add a
 single entry to the table — no duplication across call sites.
 
-## Zone Aggregation (Statistics)
+## Zone Aggregation (Statistics) & Call Site Locations
 
-All CPU zones use **static source locations** — a stable pointer to a `Source_Location_Data`
-stored in a global cache array (`g_cache`). This allows Tracy to recognize the same zone
-across frames and aggregate them in Statistics/Histograms.
+All CPU zones use **static source locations** — a stable pointer to a `Source_Location_Data` stored in a global cache array (`g_cache`). This allows Tracy to recognize the same zone across frames and aggregate them in Statistics/Histograms.
 
-Key implementation detail: `zone_begin(loc)` (static pointer) enables aggregation.
-`zone_begin_alloc(srcloc)` (dynamic u64 handle) does NOT — Tracy treats each call as unique.
+Key implementation details:
+- **`#caller_location` Resolution**: For generic GPU debug wrappers in `src/core/gl_debug/gl_debug.odin` (`push_group` and `push_gpu_zone_only`), we use Odin's built-in `#caller_location` parameter.
+- **Dynamic Caching**: The compiler's `Source_Code_Location` (which has Odin strings) is parsed, and `strings.clone_to_cstring` is called with the persistent heap `runtime.default_allocator()` to generate static `cstring` pointers. These are stored in `g_cache` once per unique zone/group name to prevent memory leaks and double-frees, ensuring zero per-frame CPU overhead.
+- **Manual Zones**: In cases of manual/custom Tracy zones (such as `Skybox_Ensure_Cubemap` or `HDR_Load_Decode`), structures are placed at the file/package level using `#file` and `#line` to let the Odin compiler automatically supply the absolute file path and precise source code line numbers.
+- **Aggregation**: Using stable, persistent pointers to `Source_Location_Data` via `zone_begin(loc)` is crucial. Avoid dynamic allocations at execution time (`zone_begin_alloc`), as Tracy treats each allocation as a unique zone, preventing aggregation in statistics.
 
 ### Interpreting Swap_Buffers
 

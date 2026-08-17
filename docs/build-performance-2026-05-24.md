@@ -4,7 +4,7 @@ Date: 2026-05-24
 
 ## Context
 
-Investigation into why `just build-release` takes ~10s for a ~11.5k LOC project.
+Investigation into why `task build-release` takes ~10s for a ~11.5k LOC project.
 Odin uses LLVM as its backend, which produces highly optimized code but has
 inherent compilation overhead from optimization passes.
 
@@ -72,10 +72,10 @@ trade-off.
 
 | Tier | Build | Run | Time | Use case |
 |---|---|---|---|---|
-| Debug | `just build` | `just br` | 3.0s | Development iteration |
-| Fast release | `just build-fast-release` | `just br-fr` | 3.0s | Quick release testing |
-| Release | `just build-release` | `just br-release` | 10s | CI / shipping |
-| Ultra | `just build-ultra` | `just br-ultra` | ~10s | Benchmarking |
+| Debug | `task build` | `task br` | 3.0s | Development iteration |
+| Fast release | `task build-fast-release` | `task br-fr` | 3.0s | Quick release testing |
+| Release | `task build-release` | `task br-release` | 10s | CI / shipping |
+| Ultra | `task build-ultra` | `task br-ultra` | ~10s | Benchmarking |
 
 ## `-internal-cached` Flag (Undocumented)
 

@@ -7,24 +7,24 @@ This document describes the hybrid architecture used to compile the engine insid
 On immutable operating systems like Bazzite, Fedora Silverblue, or uBlue, installing development packages natively (`clang`, `llvm`, etc.) is heavily discouraged. To solve this, `suckless-odin` utilizes a `distrobox` container named `clang-dev` to handle all compilation processes.
 
 ### How it works
-The `Justfile` dynamically detects if it is running inside the container (via the `$CONTAINER_ID` environment variable).
-- **If executed from the host:** The `Justfile` aliases core commands (`odin`, `python3`, `cmake`, `bash`) to prefix them with `distrobox enter clang-dev --`.
+The `Taskfile.yml` dynamically detects if it is running inside the container (via the `$CONTAINER_ID` environment variable).
+- **If executed from the host:** The `Taskfile.yml` aliases core commands (`odin`, `python3`, `cmake`, `bash`) to prefix them with `distrobox enter clang-dev --`.
 - **If executed inside the container:** The commands run natively without double-wrapping.
 
-This ensures the developer can run `just build` directly from the host terminal, and the build will transparently occur within the container. 
+This ensures the developer can run `task build` directly from the host terminal, and the build will transparently occur within the container. 
 
 > [!IMPORTANT]
-> The engine's source code depends on `base` packages located in `/usr/lib/odin`. Because `distrobox enter` does not invoke an interactive login shell, `.bashrc` isn't invariably sourced. The `Justfile` explicitly sets `env ODIN_ROOT=/usr/lib/odin` before injecting the compiler call to prevent an `Internal Compiler Error`.
+> The engine's source code depends on `base` packages located in `/usr/lib/odin`. Because `distrobox enter` does not invoke an interactive login shell, `.bashrc` isn't invariably sourced. The `Taskfile.yml` explicitly sets `env ODIN_ROOT=/usr/lib/odin` before injecting the compiler call to prevent an `Internal Compiler Error`.
 
 ## 2. Native Execution & NVIDIA Optimus Offloading
 
 While the application **compiles** inside the container, it must **run** directly on the host to properly leverage the proprietary NVIDIA kernel drivers (`libGLX_nvidia.so`) via PRIME Render Offloading.
 
-All `run` targets (like `run-ultra` or `br-ultra`) in the `Justfile` strip the `distrobox` wrapper, executing the compiled binaries (located in `build/`) strictly on the host system.
+All `run` targets (like `run-ultra` or `br-ultra`) in the `Taskfile.yml` strip the `distrobox` wrapper, executing the compiled binaries (located in `build/`) strictly on the host system.
 
 ### Local `.env` Configuration
 
-To force the native executable to utilize the dedicated NVIDIA GPU (instead of defaulting to the Intel iGPU or Mesa software rendering) without passing verbose inline flags, `Just` is configured with `set dotenv-load`. 
+To force the native executable to utilize the dedicated NVIDIA GPU (instead of defaulting to the Intel iGPU or Mesa software rendering) without passing verbose inline flags, `Task` is configured with `.env` files. 
 
 You can create a `.env` file at the root of the project with the following configuration:
 
@@ -50,21 +50,24 @@ USE_MANGOHUD=1
 
 ## 3. Dynamic MangoHud Hooking
 
-The `Justfile` intercepts the `USE_MANGOHUD` variable from your `.env` file. 
+The `Taskfile.yml` intercepts the `USE_MANGOHUD` variable from your `.env` file. 
 
-Instead of wrapping the entire `just` execution tree (e.g., `mangohud just br-ultra`), which erroneously initializes MangoHud hooks with the Intel GPU before the `.env` variables take effect, the `Justfile` explicitly targets the final binary:
+Instead of wrapping the entire `task` execution tree (e.g., `mangohud task br-ultra`), which erroneously initializes MangoHud hooks with the Intel GPU before the `.env` variables take effect, the `Taskfile.yml` explicitly targets the final binary:
 
-```just
-runner := if env_var_or_default("USE_MANGOHUD", "0") == "1" { "mangohud " } else { "" }
-
-run:
-    {{ runner }}./build/debug/suckless-odin
+```yaml
+RUNNER:
+  sh: |
+    if [ "$USE_MANGOHUD" = "1" ]; then
+      echo "mangohud "
+    else
+      echo ""
+    fi
 ```
 
 **Developer Workflow:**
 With the `.env` file correctly configured, you can invoke the maximum-performance workflow natively via a single command:
 ```bash
-just br-ultra
+task br-ultra
 ```
 This single step compiles the optimized codebase inside the `clang-dev` container, offloads execution directly to the NVIDIA GPU, and displays MangoHud profiling metrics natively on the host.
 
@@ -72,7 +75,7 @@ This single step compiles the optimized codebase inside the `clang-dev` containe
 
 The `suckless-odin` engine utilizes the **Tracy Profiler**. However, attempting to run the pre-compiled Tracy GUI via Homebrew (`linuxbrew`) directly on immutable systems (like Bazzite) will frequently result in Wayland/X11 Segfaults (`signal 11` during `xkbcommon` initialization).
 
-To resolve this, the `Justfile` is configured to compile and launch the Tracy Server GUI entirely from within the `clang-dev` Distrobox container:
+To resolve this, the `Taskfile.yml` is configured to compile and launch the Tracy Server GUI entirely from within the `clang-dev` Distrobox container:
 
-1. **Compilation**: Running `just build-tracy-server` fetches all complex UI dependencies (ImGui, Capstone, GLFW) and compiles the server using the container's stable library ecosystem.
-2. **Execution**: `just tracy-server` executes the binary from inside the container. Distrobox seamlessly forwards the graphical context to the host's Wayland display without native library conflicts.
+1. **Compilation**: Running `task build-tracy-server` fetches all complex UI dependencies (ImGui, Capstone, GLFW) and compiles the server using the container's stable library ecosystem.
+2. **Execution**: `task tracy-server` executes the binary from inside the container. Distrobox seamlessly forwards the graphical context to the host's Wayland display without native library conflicts.

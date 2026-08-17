@@ -15,17 +15,17 @@ build/
 
 | Recipe | Output | Odin Flags | Use Case |
 |--------|--------|-----------|----------|
-| `just build` | `build/debug/` | `-debug` | Development, debugging |
-| `just build-release` | `build/release/` | `-o:speed` | Performance testing, distribution |
-| `just build-strict` | `build/debug/` | `-debug -vet -strict-style -warnings-as-errors` | Pre-commit validation |
-| `just build-sanitize` | `build/sanitize/` | `-debug -sanitize:address` | Memory error detection |
+| `task build` | `build/debug/` | `-debug` | Development, debugging |
+| `task build-release` | `build/release/` | `-o:speed` | Performance testing, distribution |
+| `task build-strict` | `build/debug/` | `-debug -vet -strict-style -warnings-as-errors` | Pre-commit validation |
+| `task build-sanitize` | `build/sanitize/` | `-debug -sanitize:address` | Memory error detection |
 
 ### Running
 
 ```bash
-just run           # Run debug build
-just run-release   # Run release build
-just br            # Build debug + run
+task run           # Run debug build
+task run-release   # Run release build
+task br            # Build debug + run
 ```
 
 ## CI/CD Pipeline (GitHub Actions)
@@ -85,8 +85,8 @@ The visual regression test renders the full PBR scene from 6 camera viewpoints a
 To regenerate references locally:
 
 ```bash
-just gen-refs        # With display
-just gen-refs-xvfb   # Headless
+task gen-refs        # With display
+task gen-refs-xvfb   # Headless
 ```
 
 ### HDR Asset
@@ -98,8 +98,8 @@ The scene requires an HDR environment map (`assets/textures/hdr/cedar_bridge_2_4
 Run the full pipeline locally (mirrors GitHub Actions):
 
 ```bash
-just ci              # lint + build + all tests (with xvfb)
-just test-gl-xvfb   # GL tests only, headless
+task ci              # lint + build + all tests (with xvfb)
+task test-gl-xvfb   # GL tests only, headless
 ```
 
 > **Note:** For executing the local build pipeline across isolated containers (e.g., `distrobox`) or offloading to NVIDIA GPUs via MangoHud natively, refer to [Distrobox Environment & Native GPU Offloading](distrobox-optimus-2026-05-24.md).
@@ -117,8 +117,8 @@ just test-gl-xvfb   # GL tests only, headless
 
 ```bash
 git submodule update --init    # After clone
-just build-imgui               # Compile .a (~90s)
-just update-imgui              # Pull latest + rebuild
+task build-imgui               # Compile .a (~90s)
+task update-imgui              # Pull latest + rebuild
 ```
 
 ### GLFW 3.4+ (built from source, shared)
@@ -163,14 +163,14 @@ Extra linker flags in CI: `-lX11` (imgui_impl_glfw calls X11 directly).
 The CI uses a pinned Odin nightly release, cached between runs:
 - Version: `nightly+2026-05-03`
 - Platform: `linux-amd64`
-- Install path: `/opt/odin` (CI) or `/tmp/odin-linux-amd64-nightly+2026-05-03/` (local dev)
+- Install path: `/opt/odin` (CI) or `/home/latty/.local/share/odin-compiler/` (local dev)
 
 ## Memory Safety (ASAN / LSAN)
 
 All allocations must be matched with corresponding `delete`/`free`. Validate with:
 
 ```bash
-just build-sanitize                           # Build with -sanitize:address
+task build-sanitize                           # Build with -sanitize:address
 ./build/sanitize/suckless-odin & APP_PID=$!
 sleep 2 && xdotool key Escape                 # Clean shutdown (triggers LSAN)
 wait $APP_PID                                 # Exit code 0 = no leaks
@@ -188,7 +188,7 @@ Uses [pre-commit.com](https://pre-commit.com/) framework. Config in `.pre-commit
 ### Install
 
 ```bash
-just pre-commit-install    # Installs both pre-commit and pre-push hooks
+task pre-commit-install    # Installs both pre-commit and pre-push hooks
 ```
 
 ### Hooks

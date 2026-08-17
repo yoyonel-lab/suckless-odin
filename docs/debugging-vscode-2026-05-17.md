@@ -9,7 +9,7 @@
 | Odin compiler | dev-2026-05-nightly | `-debug` flag pour DWARF symbols |
 | LLDB (lldb-dap) | Homebrew LLVM 22.1.5 | `brew install llvm` |
 | Extension VS Code | `llvm-vs-code-extensions.lldb-dap` | Marketplace |
-| Just | — | Build orchestration |
+| Task | — | Build orchestration |
 
 ### Extension critique
 
@@ -28,7 +28,7 @@ Le champ `"type"` dans launch.json doit être **`"lldb-dap"`** (pas `"lldb"`).
         {
             "label": "build debug",
             "type": "shell",
-            "command": "just",
+            "command": "task",
             "args": ["build"],
             "group": "build",
             "problemMatcher": [],
@@ -37,7 +37,7 @@ Le champ `"type"` dans launch.json doit être **`"lldb-dap"`** (pas `"lldb"`).
         {
             "label": "build sanitize",
             "type": "shell",
-            "command": "just",
+            "command": "task",
             "args": ["build-sanitize"],
             "group": "build",
             "problemMatcher": [],
@@ -46,7 +46,7 @@ Le champ `"type"` dans launch.json doit être **`"lldb-dap"`** (pas `"lldb"`).
         {
             "label": "build release",
             "type": "shell",
-            "command": "just",
+            "command": "task",
             "args": ["build-release"],
             "group": "build",
             "problemMatcher": [],
@@ -146,9 +146,9 @@ frame variable          # Toutes les variables de la frame
 
 | Commande | Flag debug | Résultat |
 |----------|-----------|----------|
-| `just build` | `-debug` | Symboles DWARF complets |
-| `just build-sanitize` | `-debug -sanitize:address` | ASAN + symboles |
-| `just build-release` | `-o:speed` | Pas de debug info |
+| `task build` | `-debug` | Symboles DWARF complets |
+| `task build-sanitize` | `-debug -sanitize:address` | ASAN + symboles |
+| `task build-release` | `-o:speed` | Pas de debug info |
 
 ## Troubleshooting
 
@@ -165,7 +165,7 @@ frame variable          # Toutes les variables de la frame
 
 **Cause** : le binaire n'est pas compilé avec `-debug`.
 
-**Solution** : vérifier que `just build` utilise bien le flag `-debug` dans la commande odin.
+**Solution** : vérifier que `task build` utilise bien le flag `-debug` dans la commande odin.
 
 ### Breakpoint non atteint (cercle gris)
 
