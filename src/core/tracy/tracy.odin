@@ -1,6 +1,5 @@
 package tracy
 
-
 TRACY_ENABLE :: #config(TRACY_ENABLE, false)
 
 Source_Location_Data :: struct {
@@ -18,6 +17,13 @@ Zone_Context :: struct {
 
 Zone :: struct {
 	ctx: Zone_Context,
+}
+
+Plot_Format :: enum i32 {
+	Number     = 0,
+	Memory     = 1,
+	Percentage = 2,
+	Watt       = 3,
 }
 
 when TRACY_ENABLE {
@@ -41,6 +47,18 @@ when TRACY_ENABLE {
 		___tracy_emit_zone_begin_alloc :: proc(srcloc: u64, active: i32) -> Zone_Context ---
 		___tracy_emit_message :: proc(txt: cstring, size: uint, callstack_depth: i32) ---
 		___tracy_emit_messageC :: proc(txt: cstring, size: uint, color: u32, callstack_depth: i32) ---
+
+		// Real-time plots
+		___tracy_emit_plot :: proc(name: cstring, val: f64) ---
+		___tracy_emit_plot_float :: proc(name: cstring, val: f32) ---
+		___tracy_emit_plot_int :: proc(name: cstring, val: i64) ---
+		___tracy_emit_plot_config :: proc(name: cstring, type: i32, step: i32, fill: i32, color: u32) ---
+
+		// Memory tracking
+		___tracy_emit_memory_alloc :: proc(ptr: rawptr, size: uint, secure: i32) ---
+		___tracy_emit_memory_free :: proc(ptr: rawptr, secure: i32) ---
+		___tracy_emit_memory_alloc_named :: proc(ptr: rawptr, size: uint, secure: i32, name: cstring) ---
+		___tracy_emit_memory_free_named :: proc(ptr: rawptr, secure: i32, name: cstring) ---
 
 		// GPU Profiling functions from tracy_gpu.cpp
 		tracy_gpu_init :: proc() ---
@@ -87,6 +105,54 @@ fiber_enter :: #force_inline proc(name: cstring) {
 fiber_leave :: #force_inline proc() {
 	when TRACY_ENABLE {
 		___tracy_fiber_leave()
+	}
+}
+
+plot :: #force_inline proc(name: cstring, val: f64) {
+	when TRACY_ENABLE {
+		___tracy_emit_plot(name, val)
+	}
+}
+
+plot_f32 :: #force_inline proc(name: cstring, val: f32) {
+	when TRACY_ENABLE {
+		___tracy_emit_plot_float(name, val)
+	}
+}
+
+plot_i64 :: #force_inline proc(name: cstring, val: i64) {
+	when TRACY_ENABLE {
+		___tracy_emit_plot_int(name, val)
+	}
+}
+
+plot_config :: #force_inline proc(name: cstring, type: Plot_Format, step: bool = false, fill: bool = true, color: u32 = 0) {
+	when TRACY_ENABLE {
+		___tracy_emit_plot_config(name, i32(type), i32(1 if step else 0), i32(1 if fill else 0), color)
+	}
+}
+
+alloc :: #force_inline proc(ptr: rawptr, size: uint) {
+	when TRACY_ENABLE {
+		___tracy_emit_memory_alloc(ptr, size, 0)
+	}
+}
+
+free :: #force_inline proc(ptr: rawptr) {
+	when TRACY_ENABLE {
+		___tracy_emit_memory_free(ptr, 0)
+	}
+}
+
+alloc_named :: #force_inline proc(ptr: rawptr, size: uint, name: cstring) {
+	when TRACY_ENABLE {
+		___tracy_emit_memory_alloc_named(ptr, size, 0, name)
+	}
+}
+
+free_named :: #force_inline proc(ptr: rawptr, name: cstring) {
+	when TRACY_ENABLE {
+		___tracy_emit_memory_free_named(ptr, 0, name)
 	}
 }
 
