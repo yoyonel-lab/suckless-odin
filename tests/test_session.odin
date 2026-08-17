@@ -3,6 +3,8 @@ package tests
 import "core:testing"
 import "core:os"
 import "core:math"
+import "core:c/libc"
+import "core:strings"
 import mt "../src/core/math_types"
 
 import session "../src/core/session"
@@ -38,6 +40,23 @@ test_session_save_load :: proc(t: ^testing.T) {
 	state_to_save.overlay_mode = 2
 	state_to_save.camera_enabled = false
 	state_to_save.perf_mode_active = true
+	state_to_save.specular_aa.enabled = true
+	state_to_save.specular_aa.mode = 1
+	state_to_save.specular_aa.debug_mode = 2
+	state_to_save.specular_aa.split_enabled = true
+	state_to_save.specular_aa.split_position = 0.75
+	
+	state_to_save.skybox_mode = 1
+	state_to_save.mipmap_mode = 2
+	state_to_save.ibl_debug_exposure = 0.5
+	state_to_save.diff_gain = 2.5
+	state_to_save.edge_aa_enabled = true
+	state_to_save.show_blur_diff = true
+	state_to_save.sort_mode = 1
+	state_to_save.blur_source = 0
+	state_to_save.skybox_blur_lod = 1.2
+	state_to_save.edge_aa_debug = false
+	state_to_save.gui_active_tab = 3
 	
 	// 1. Test save
 	save_ok := session.save_session(&state_to_save, test_file)
@@ -75,6 +94,23 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.overlay_mode, 2)
 	testing.expect_value(t, loaded_state.camera_enabled, false)
 	testing.expect_value(t, loaded_state.perf_mode_active, true)
+	testing.expect_value(t, loaded_state.specular_aa.enabled, true)
+	testing.expect_value(t, loaded_state.specular_aa.mode, 1)
+	testing.expect_value(t, loaded_state.specular_aa.debug_mode, 2)
+	testing.expect_value(t, loaded_state.specular_aa.split_enabled, true)
+	testing.expect_value(t, loaded_state.specular_aa.split_position, 0.75)
+	
+	testing.expect_value(t, loaded_state.skybox_mode, 1)
+	testing.expect_value(t, loaded_state.mipmap_mode, 2)
+	testing.expect_value(t, loaded_state.ibl_debug_exposure, 0.5)
+	testing.expect_value(t, loaded_state.diff_gain, 2.5)
+	testing.expect_value(t, loaded_state.edge_aa_enabled, true)
+	testing.expect_value(t, loaded_state.show_blur_diff, true)
+	testing.expect_value(t, loaded_state.sort_mode, 1)
+	testing.expect_value(t, loaded_state.blur_source, 0)
+	testing.expect_value(t, loaded_state.skybox_blur_lod, 1.2)
+	testing.expect_value(t, loaded_state.edge_aa_debug, false)
+	testing.expect_value(t, loaded_state.gui_active_tab, 3)
 }
 
 @(test)
@@ -89,3 +125,12 @@ test_session_missing_file :: proc(t: ^testing.T) {
 	// Should fail gracefully and return false
 	testing.expect_value(t, load_ok, false)
 }
+
+@(test)
+test_persistence_coverage :: proc(t: ^testing.T) {
+	cmd := "python3 scripts/check_persistence.py"
+	cstr := strings.clone_to_cstring(cmd, context.temp_allocator)
+	exit_code := libc.system(cstr)
+	testing.expect_value(t, exit_code, 0)
+}
+

@@ -6,6 +6,14 @@ import "core:fmt"
 import mt "../math_types"
 import postfx "../../rendering/postfx"
 
+Specular_AA_Settings :: struct {
+	enabled:        bool `json:"enabled"`,
+	mode:           i32  `json:"mode"`,
+	debug_mode:     i32  `json:"debug_mode"`,
+	split_enabled:  bool `json:"split_enabled"`,
+	split_position: f32  `json:"split_position"`,
+}
+
 // Session_State holds all runtime state to persist across runs.
 Session_State :: struct {
 	window_pos: [2]i32 `json:"window_pos"`,
@@ -35,11 +43,13 @@ Session_State :: struct {
 	gui_visible: bool `json:"gui_visible"`,
 	gui_active_tab: i32 `json:"gui_active_tab"`,
 	ibl_debug_open: bool `json:"ibl_debug_open"`,
+	ibl_debug_exposure: f32 `json:"ibl_debug_exposure"`,
 	
 	is_fullscreen: bool `json:"is_fullscreen"`,
 	overlay_mode: i32 `json:"overlay_mode"`,
 	camera_enabled: bool `json:"camera_enabled"`,
 	perf_mode_active: bool `json:"perf_mode_active"`,
+	specular_aa: Specular_AA_Settings `json:"specular_aa"`,
 }
 
 SESSION_FILE_PATH :: "session.json"
@@ -75,3 +85,10 @@ load_session :: proc(state: ^Session_State, path: string = SESSION_FILE_PATH) ->
 	}
 	return true
 }
+
+// Free dynamically allocated memory in session state
+session_free :: proc(state: ^Session_State) {
+	delete(state.postfx_settings.name)
+	delete(state.postfx_settings.lut3d_path)
+}
+
