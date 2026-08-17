@@ -25,10 +25,13 @@ gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 	(cast(^rawptr)p)^ = glfw.GetProcAddress(name)
 }
 
-// Ensure GL context is initialized (idempotent).
+// Ensure GL context is initialized (idempotent/fresh for each test).
 @(private)
 ensure_gl_context :: proc(t: ^testing.T) -> bool {
-	if gl_window != nil { return true }
+	if gl_window != nil {
+		glfw.DestroyWindow(gl_window)
+		gl_window = nil
+	}
 
 	if !glfw.Init() {
 		testing.expect(t, false, "GLFW init failed — no display available?")

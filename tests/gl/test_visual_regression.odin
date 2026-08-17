@@ -18,6 +18,7 @@ import "core:os"
 import "core:math"
 import "core:c"
 import "core:strings"
+import "core:time"
 
 import gl "vendor:OpenGL"
 import stbi "vendor:stb/image"
@@ -340,6 +341,25 @@ test_visual_scene_multi_view :: proc(t: ^testing.T) {
 		return
 	}
 	defer sc.scene_destroy(&s)
+
+	// Wait for async IBL pipeline to complete (first load)
+	for _ in 0..<5000 {
+		sc.scene_update(&s, 0.016)
+		// ISO: real app always renders between compute dispatches (GPU coherency).
+		// Render into FBO to avoid polluting the default framebuffer.
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.fbo)
+		gl.Viewport(0, 0, rt.width, rt.height)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		sc.scene_render(&s, rt.width, rt.height)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		if !s.env_mgr.is_first_load && s.env_mgr.transition_state == .Idle && s.env_mgr.ibl_state == .Idle { break }
+		// Yield to let the async loader thread complete I/O
+		time.sleep(1 * time.Millisecond)
+	}
+	if s.env_mgr.is_first_load || s.env_mgr.transition_state != .Idle || s.env_mgr.ibl_state != .Idle {
+		testing.expect(t, false, "IBL pipeline and transition did not complete within timeout")
+		return
+	}
 
 	// Render and check all 6 viewpoints
 	viewpoints := VIEWPOINTS
