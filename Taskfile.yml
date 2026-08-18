@@ -567,7 +567,15 @@ tasks:
       - chmod +x scripts/benchmark_heaptrack.sh
       - ./scripts/benchmark_heaptrack.sh
 
+  profile-heaptrack-xvfb:
+    desc: Profile heap memory allocations with Heaptrack in headless Xvfb
+    deps: [build-relwithdebinfo]
+    cmds:
+      - chmod +x scripts/benchmark_heaptrack.sh
+      - ./scripts/benchmark_heaptrack.sh --xvfb
+
   profile-heaptrack-gui:
+
     desc: Open Heaptrack profiling results in heaptrack_gui
     vars:
       DUMP_FILE:
