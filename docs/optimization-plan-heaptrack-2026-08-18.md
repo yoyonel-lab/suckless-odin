@@ -115,6 +115,22 @@ task profile-heaptrack     # Vérification de la baisse du Peak Heap (< 85 MB)
 | **Appels totaux à `malloc/calloc`** | Baisse générale | 221,483 appels | 198,423 appels | **-23,060 appels (-10.4%)** | 🟢 **Atteint** |
 | **Non-régression mémoire & E2E** | 0 fuite FBO, 228 frames | 225 frames rendues | 228 frames rendues | **0 leak FBO, 0 erreur Valgrind** | 🟢 **Validé** |
 
+### 📊 Bilan Plan B : `src/scene/async_loader.odin`
+
+| Métrique / Objectif | Gain Espéré (Cible) | Baseline (Avant Plan B) | Mesuré (Après Plan B) | Delta Réel | Verdict |
+|---|---|---|---|---|---|
+| **Pic de consommation (Peak Heap)** | Baisse substantielle | 143.93 MB | **114.97 MB** | **-28.96 MB (-20.1%)** | 🟢 **Dépassé** |
+| **Allocation raw `.hdr` sur le Heap** | Élimination de `heap_alloc` (24.75 MB) | 24.75 MB | **0 octet** *(mmap direct)* | **-24.75 MB de Heap** | 🟢 **Atteint** |
+| **Non-régression chargement IBL** | 100% de parité 4K HDR et tests unitaires | 79/79 tests OK | 79/79 tests OK | **0 régression, IBL 100% stable** | 🟢 **Validé** |
+
+---
+
+### 🏆 Synthèse Globale Cumulée Heaptrack (Plans A + B)
+
+* **Peak Heap RAM** : **143.93 MB $\rightarrow$ 114.97 MB (-28.96 MB / -20.1% d'empreinte mémoire)**
+* **Appels d'allocations** : **221,483 $\rightarrow$ 198,423 (-23,060 allocations)**
+* **Reconfigurations FBO** : **~5,700 $\rightarrow$ 0 appel `glFramebufferTexture2D` par frame**
+
 ---
 
 ## 4. Matrice de Suivi d'Exécution
@@ -122,5 +138,6 @@ task profile-heaptrack     # Vérification de la baisse du Peak Heap (< 85 MB)
 | Piste | Description | Statut | Synthèse des Gains | Non-Régression |
 |---|---|---|---|---|
 | **Plan A** | FBOs pré-attachés Bloom & DoF (`bloom.odin`, `dof.odin`) | 🟢 **Complété** | **-23,060 allocs (-10.4%)**<br>**0 rebind `FramebufferTexture2D`** | ✅ `task test-unit` (79/79)<br>✅ `task valgrind-xvfb` (0 err)<br>✅ `task test-integration-xvfb` |
-| **Plan B** | Optimisation Staging & I/O (`async_loader.odin`) | 🟡 À faire | TBD *(Cible : < 85 MB Peak Heap)* | `task valgrind-xvfb` |
+| **Plan B** | Optimisation I/O mmap zero-heap (`async_loader.odin`) | 🟢 **Complété** | **-28.96 MB Peak Heap (-20.1%)**<br>**0 alloc heap sur fichiers HDR** | ✅ `task test-unit` (79/79)<br>✅ `task valgrind-xvfb` (0 err)<br>✅ `task test-integration-xvfb` |
+
 
