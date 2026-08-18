@@ -94,3 +94,66 @@
    ...
    obj:*/libglfw*.so*
 }
+
+{
+   Suppress_Gallium_Driver_Cond
+   Memcheck:Cond
+   obj:*/libgallium*.so*
+}
+
+{
+   Suppress_Gallium_Driver_Value8
+   Memcheck:Value8
+   obj:*/libgallium*.so*
+}
+
+{
+   Suppress_Gallium_Driver_Value4
+   Memcheck:Value4
+   obj:*/libgallium*.so*
+}
+
+{
+   Suppress_Gallium_Driver_Leak
+   Memcheck:Leak
+   ...
+   obj:*/libgallium*.so*
+}
+
+{
+   Suppress_LLVM_JIT_Cond
+   Memcheck:Cond
+   obj:*/libLLVM*.so*
+}
+
+{
+   Suppress_LLVM_JIT_Value8
+   Memcheck:Value8
+   obj:*/libLLVM*.so*
+}
+
+{
+   Suppress_LLVM_JIT_Value4
+   Memcheck:Value4
+   obj:*/libLLVM*.so*
+}
+
+{
+   Suppress_LLVM_JIT_Leak
+   Memcheck:Leak
+   ...
+   obj:*/libLLVM*.so*
+}
+
+{
+   Suppress_Mesa_Driver_Cond
+   Memcheck:Cond
+   obj:*/dri/*.so*
+}
+
+{
+   Suppress_GL_Loader_Driver_Cond
+   Memcheck:Cond
+   obj:*/libGL*.so*
+}
+
