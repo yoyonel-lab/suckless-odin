@@ -132,6 +132,8 @@ Ouvre le graphe d'appels interactif dans **KCachegrind**.
 
 ### A. Capture & Vérification Automatisée
 
+![Automated Tracy Profiler capture and programmatic trace verification](./tracy.png)
+
 ```bash
 task profile-tracy
 ```
