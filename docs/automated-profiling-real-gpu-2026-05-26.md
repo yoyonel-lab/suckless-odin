@@ -73,6 +73,32 @@ Every profile run generates two persistent files that are saved in the host mach
     *   Automating performance regressions tracking (e.g., verifying that compute shader slice times remain within budget).
     *   Sanity checking call patterns.
 
+### 3.3 Startup Telemetry & Warm-up Metrics (`/tmp/startup_telemetry.csv`)
+*   **What it is**: Lightweight CSV trace capturing the engine's initialization cost and the detailed breakdown of its first 5 frames.
+*   **Producer**: Written automatically by [`src/app/telemetry.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/app/telemetry.odin) via [`src/app/app.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/app/app.odin) as soon as `frame_index == 5`.
+*   **Consumer**: Parsed and reported by [`scripts/analyze_profile.py`](file:///home/latty/Prog/__PERSO__/suckless-odin/scripts/analyze_profile.py) during `task profile` and `task profile-headless`.
+*   **Why it exists**: Isolates cold-start costs (shader compilation, pipeline setup, initial IBL bakes) from steady-state rendering, ensuring startup regressions are detected immediately.
+*   **Structure & Manual Interpretation (Human Guide)**:
+    ```csv
+    metric,value
+    init_time_ms,184.230
+    frame_1_total_ms,12.540
+    frame_1_poll_ms,0.015
+    frame_1_update_ms,0.450
+    frame_1_render_ms,10.200
+    frame_1_swap_ms,1.875
+    frame_2_total_ms,4.120
+    ...
+    ```
+    *   `init_time_ms`: Total engine initialization duration (GLFW window creation, OpenGL 4.5 context, PBR shaders compilation, PostFX pipeline setup, initial UBO/SSBO allocations). Target: **< 300 ms** on physical GPU.
+    *   `frame_1_total_ms` (Frame 1): Usually the longest frame due to first-time buffer population and GPU driver command stream initialization.
+    *   `frame_N_poll_ms`: Time spent in `glfwPollEvents()` processing OS window events.
+    *   `frame_N_update_ms`: CPU logic update (camera movement, state machine transitions, uniforms staging).
+    *   `frame_N_render_ms`: CPU time recording OpenGL draw commands (instanced sphere grid, skybox, PostFX passes).
+    *   `frame_N_swap_ms`: Time blocked in `glfwSwapBuffers()` (GPU sync, front buffer presentation, or VSync).
+    *   `frame_2` to `frame_5`: Highlights frame time convergence towards target steady-state (< 4.0 ms per frame at 250 FPS).
+
+
 ---
 
 ## 4. Verification and Invariant Checks (Dev Guide)
@@ -92,12 +118,11 @@ For each load, the environment manager splits the prefiltering workloads into pr
 *   `IBL: Specular_Mip_Slice` must have **`counts = 74`** ($37 \times 2$)
 *   `IBL: Irradiance_Slice` must have **`counts = 24`** ($12 \times 2$)
 
-### 4.3 Error Diagnostics
-If the sleeps in `scripts/profile_run.sh` are set too short, the simulated `Page_Up` keystroke will be injected while the startup load is still processing. 
-*   **Symptom**: `/tmp/trace.csv` reports `counts = 1` for loading/generation zones.
-*   **Log Indicator**: Look for this warning in the application logs:
-    `suckless-odin.env - WARNING - Transition already in progress, ignoring`
-*   **Solution**: Increase the initial startup delay (`sleep` duration before cycling) to let the GPU complete its IBL computations.
+### 4.3 Event-Driven Synchronization & Diagnostics
+The profiling runner uses event-driven synchronization (`scripts/interactive_runner.sh`) by tailing application log traces rather than arbitrary `sleep` timeouts.
+*   **Synchronization Mechanism**: The runner monitors transitions into the `Idle` state (`Transition state: .* -> Idle`) before injecting keystrokes (`Page_Up`, `w`, `Page_Down`, `Escape`).
+*   **Diagnostic Check**: If an environment transition fails or stalls, the runner logs a clear timeout warning indicating the exact pending state transition.
+
 
 ---
 
