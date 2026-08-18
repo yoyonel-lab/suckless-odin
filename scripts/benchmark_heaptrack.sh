@@ -30,8 +30,18 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 chmod +x ./scripts/interactive_runner.sh
 
+HEADLESS=0
+if [[ "${1:-}" == "--xvfb" || "${1:-}" == "--headless" ]]; then
+	HEADLESS=1
+fi
+
 echo "[heaptrack] Exécution de suckless-odin sous Heaptrack..."
-env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh heaptrack --record-only "$APP_BIN"
+if [ "$HEADLESS" -eq 1 ]; then
+	xvfb-run -a -s "-screen 0 1024x768x24" env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh heaptrack --record-only "$APP_BIN"
+else
+	env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh heaptrack --record-only "$APP_BIN"
+fi
+
 
 HT_FILE=$(find . -maxdepth 1 -name "heaptrack.suckless-odin.*.zst" 2>/dev/null | head -n 1 || true)
 if [ -z "$HT_FILE" ] || [ ! -f "$HT_FILE" ]; then
