@@ -25,10 +25,23 @@ if [ ! -x "$TRACY_CAPTURE_BIN" ]; then
 fi
 
 # 1. Démarrer le serveur de capture Tracy en arrière-plan
-echo "[Tracy] Démarrage du serveur de capture (16s timebox)..."
-"$TRACY_CAPTURE_BIN" -o "$TRACE_FILE" -s 16 -f >"$TMP_DIR/tracy_capture.log" 2>&1 &
+echo "[Tracy] Démarrage du serveur de capture..."
+"$TRACY_CAPTURE_BIN" -o "$TRACE_FILE" -s 60 -f >"$TMP_DIR/tracy_capture.log" 2>&1 &
 CAPTURE_PID=$!
-sleep 1
+
+# Attente active que le serveur socket Tracy (port 8086) soit prêt
+for _ in {1..40}; do
+	if ! kill -0 "$CAPTURE_PID" 2>/dev/null; then
+		echo "❌ Erreur: tracy-capture s'est arrêté au démarrage."
+		cat "$TMP_DIR/tracy_capture.log"
+		exit 1
+	fi
+	if (echo >/dev/tcp/127.0.0.1/8086) 2>/dev/null; then
+		break
+	fi
+	sleep 0.05
+done
+
 
 # 2. Lancer la session interactive sous build-profile
 echo "[Tracy] Lancement de l'application instrumentée..."

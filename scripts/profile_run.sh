@@ -46,63 +46,13 @@ fi
 if [ "$HEADLESS" = true ]; then
     # Headless: run under xvfb-run
     echo "Starting application under xvfb-run on DISPLAY :99..."
-    xvfb-run -n 99 -s "-screen 0 1024x768x24" bash -c "
-      ./build/profile/suckless-odin &
-      APP_PID=\$!
-      echo 'Waiting 25s for software-rendered startup IBL to complete...'
-      sleep 25
-      echo 'Sending Page_Up (Prior) to cycle environment map...'
-      xdotool key Prior
-      echo 'Waiting 25s for the cycled environment map to process under software...'
-      sleep 25
-      echo 'Sending Escape to terminate application...'
-      xdotool key Escape
-      wait \$APP_PID
-    "
+    xvfb-run -n 99 -s "-screen 0 1024x768x24" ./scripts/interactive_runner.sh ./build/profile/suckless-odin
 else
     # Physical GPU: run directly on the active display
     echo "Starting application natively..."
-    ./build/profile/suckless-odin &
-    APP_PID=$!
-
-    echo "Waiting for application window to appear..."
-    WINDOW_ID=""
-    for i in {1..20}; do
-        WINDOW_ID=$(xdotool search --name "suckless-odin — Icosphere Phong" 2>/dev/null | head -n 1)
-        if [ -n "$WINDOW_ID" ]; then
-            break
-        fi
-        sleep 0.2
-    done
-
-    if [ -n "$WINDOW_ID" ]; then
-        echo "Found window ID: $WINDOW_ID. Activating and focusing..."
-        # Bring window to front and focus
-        xdotool windowactivate --sync "$WINDOW_ID" 2>/dev/null || true
-        xdotool windowfocus --sync "$WINDOW_ID" 2>/dev/null || true
-        
-        echo "Waiting 4.5s for startup environment load to completely finish on physical GPU..."
-        sleep 4.5
-        
-        echo "Sending Page_Up (Prior) to cycle environment map..."
-        xdotool key --window "$WINDOW_ID" Prior
-        
-        echo "Waiting 6.0s for the cycled environment map's progressive IBL to process on physical GPU..."
-        sleep 6.0
-        
-        echo "Sending Escape to close application..."
-        xdotool key --window "$WINDOW_ID" Escape
-    else
-        echo "WARNING: Could not find application window. Falling back to active-window injection..."
-        sleep 4.5
-        xdotool key Prior
-        sleep 6.0
-        xdotool key Escape
-    fi
-
-    # Wait for the application to exit cleanly
-    wait $APP_PID || true
+    ./scripts/interactive_runner.sh ./build/profile/suckless-odin
 fi
+
 
 echo "Application stopped."
 
