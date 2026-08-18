@@ -22,7 +22,8 @@ CXXFLAGS="$CXXFLAGS -I$ROOT_DIR/deps"
 CFLAGS="-O2 -w -I$GLAD_DIR/include"
 
 # SIMD utils flags: enable AVX2/F16C for FP32→FP16 conversion (ISO: simd_utils.c)
-SIMD_CFLAGS="-O2 -w -mavx2 -mf16c -I$ROOT_DIR/deps"
+SIMD_CFLAGS="-O3 -w -mavx2 -mf16c -I$ROOT_DIR/deps"
+
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"

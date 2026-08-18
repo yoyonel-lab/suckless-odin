@@ -273,6 +273,69 @@ typedef struct {
 	int success;
 } Hdr_Slice_Task;
 
+static inline void fast_memset_u8(uint8_t* dst, uint8_t val, int count)
+{
+#if defined(__AVX2__)
+	if (count >= 16) {
+		__m128i v128 = _mm_set1_epi8((char)val);
+		while (count >= 32) {
+			_mm_storeu_si128((__m128i*)dst, v128);
+			_mm_storeu_si128((__m128i*)(dst + 16), v128);
+			dst += 32;
+			count -= 32;
+		}
+		while (count >= 16) {
+			_mm_storeu_si128((__m128i*)dst, v128);
+			dst += 16;
+			count -= 16;
+		}
+	}
+#endif
+	uint64_t v64 = (uint64_t)val * 0x0101010101010101ULL;
+	while (count >= 8) {
+		memcpy(dst, &v64, 8);
+		dst += 8;
+		count -= 8;
+	}
+	while (count > 0) {
+		*dst++ = val;
+		count--;
+	}
+}
+
+static inline void fast_memcpy_u8(uint8_t* dst, const uint8_t* src, int count)
+{
+#if defined(__AVX2__)
+	while (count >= 32) {
+		__m128i v0 = _mm_loadu_si128((const __m128i*)src);
+		__m128i v1 = _mm_loadu_si128((const __m128i*)(src + 16));
+		_mm_storeu_si128((__m128i*)dst, v0);
+		_mm_storeu_si128((__m128i*)(dst + 16), v1);
+		dst += 32;
+		src += 32;
+		count -= 32;
+	}
+	while (count >= 16) {
+		_mm_storeu_si128((__m128i*)dst, _mm_loadu_si128((const __m128i*)src));
+		dst += 16;
+		src += 16;
+		count -= 16;
+	}
+#endif
+	while (count >= 8) {
+		uint64_t v64;
+		memcpy(&v64, src, 8);
+		memcpy(dst, &v64, 8);
+		dst += 8;
+		src += 8;
+		count -= 8;
+	}
+	while (count > 0) {
+		*dst++ = *src++;
+		count--;
+	}
+}
+
 static void decode_scanline_slice(int w, int h, int start_y, int end_y,
                                  const uint8_t* const* scanline_ptrs,
                                  const uint8_t* end,
@@ -307,12 +370,12 @@ static void decode_scanline_slice(int w, int h, int start_y, int end_y,
 					int run = count - 128;
 					if (x + run > w || ptr >= end) { *p_success = 0; return; }
 					uint8_t val = *ptr++;
-					memset(chan + x, val, (size_t)run);
+					fast_memset_u8(chan + x, val, run);
 					x += run;
 				} else {
 					int run = count;
 					if (x + run > w || ptr + run > end) { *p_success = 0; return; }
-					memcpy(chan + x, ptr, (size_t)run);
+					fast_memcpy_u8(chan + x, ptr, run);
 					ptr += run;
 					x += run;
 				}
@@ -326,20 +389,51 @@ static void decode_scanline_slice(int w, int h, int start_y, int end_y,
 #if defined(__AVX2__) && defined(__F16C__)
 		int x = 0;
 		for (; x + 8 <= w; x += 8) {
-			float f_rgba[32];
-			for (int i = 0; i < 8; ++i) {
-				uint8_t e = scanline_e[x + i];
-				float scale = s_exp_table[e];
-				f_rgba[i * 4 + 0] = (float)scanline_r[x + i] * scale;
-				f_rgba[i * 4 + 1] = (float)scanline_g[x + i] * scale;
-				f_rgba[i * 4 + 2] = (float)scanline_b[x + i] * scale;
-				f_rgba[i * 4 + 3] = 1.0f;
-			}
+			uint64_t r_u64, g_u64, b_u64;
+			memcpy(&r_u64, &scanline_r[x], 8);
+			memcpy(&g_u64, &scanline_g[x], 8);
+			memcpy(&b_u64, &scanline_b[x], 8);
 
-			__m256 v0 = _mm256_loadu_ps(&f_rgba[0]);
-			__m256 v1 = _mm256_loadu_ps(&f_rgba[8]);
-			__m256 v2 = _mm256_loadu_ps(&f_rgba[16]);
-			__m256 v3 = _mm256_loadu_ps(&f_rgba[24]);
+			__m128i r_8 = _mm_cvtsi64_si128((long long)r_u64);
+			__m128i g_8 = _mm_cvtsi64_si128((long long)g_u64);
+			__m128i b_8 = _mm_cvtsi64_si128((long long)b_u64);
+
+			__m256 r_f = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(r_8));
+			__m256 g_f = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(g_8));
+			__m256 b_f = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(b_8));
+			__m256 a_f = _mm256_set1_ps(1.0f);
+
+			__m256 scale = _mm256_setr_ps(
+				s_exp_table[scanline_e[x + 0]],
+				s_exp_table[scanline_e[x + 1]],
+				s_exp_table[scanline_e[x + 2]],
+				s_exp_table[scanline_e[x + 3]],
+				s_exp_table[scanline_e[x + 4]],
+				s_exp_table[scanline_e[x + 5]],
+				s_exp_table[scanline_e[x + 6]],
+				s_exp_table[scanline_e[x + 7]]
+			);
+
+			r_f = _mm256_mul_ps(r_f, scale);
+			g_f = _mm256_mul_ps(g_f, scale);
+			b_f = _mm256_mul_ps(b_f, scale);
+
+			// Interleave 8x R, G, B, A into 8 RGBA vectors
+			__m256 rg_lo = _mm256_unpacklo_ps(r_f, g_f);
+			__m256 rg_hi = _mm256_unpackhi_ps(r_f, g_f);
+			__m256 ba_lo = _mm256_unpacklo_ps(b_f, a_f);
+			__m256 ba_hi = _mm256_unpackhi_ps(b_f, a_f);
+
+			__m256 rgba_01_45    = _mm256_shuffle_ps(rg_lo, ba_lo, _MM_SHUFFLE(1, 0, 1, 0));
+			__m256 rgba_01_45_hi = _mm256_shuffle_ps(rg_lo, ba_lo, _MM_SHUFFLE(3, 2, 3, 2));
+			__m256 rgba_23_67    = _mm256_shuffle_ps(rg_hi, ba_hi, _MM_SHUFFLE(1, 0, 1, 0));
+			__m256 rgba_23_67_hi = _mm256_shuffle_ps(rg_hi, ba_hi, _MM_SHUFFLE(3, 2, 3, 2));
+
+			__m256 v0 = _mm256_permute2f128_ps(rgba_01_45, rgba_01_45_hi, 0x20);
+			__m256 v1 = _mm256_permute2f128_ps(rgba_23_67, rgba_23_67_hi, 0x20);
+			__m256 v2 = _mm256_permute2f128_ps(rgba_01_45, rgba_01_45_hi, 0x31);
+			__m256 v3 = _mm256_permute2f128_ps(rgba_23_67, rgba_23_67_hi, 0x31);
+
 
 			__m128i h0 = _mm256_cvtps_ph(v0, F16C_ROUND_MODE);
 			__m128i h1 = _mm256_cvtps_ph(v1, F16C_ROUND_MODE);
@@ -382,6 +476,7 @@ static void decode_scanline_slice(int w, int h, int start_y, int end_y,
 
 	*p_success = 1;
 }
+
 
 static void* hdr_slice_worker(void* arg)
 {
