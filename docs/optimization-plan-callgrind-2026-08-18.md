@@ -115,6 +115,22 @@ task bench-render           # Mesure du gain sur le frame time moyen et framerat
 | **Speedup vs STB `loadf`** | > 10x | 10.17x | 12.45x | **+2.28x plus rapide** | 🟢 **Dépassé** |
 | **Sécurité mémoire & parité** | 0 mismatch bit-à-bit, 0 erreur Valgrind | 79/79 tests OK | 79/79 tests OK | **0 mismatch, 0 leak** | 🟢 **Validé** |
 
+### 📊 Bilan Plan B : `src/rendering/overlay.odin`
+
+| Métrique / Objectif | Gain Espéré (Cible) | Avant Plan B | Après Plan B | Gain Réel | Verdict |
+|---|---|---|---|---|---|
+| **`append_text_vertices` (Ir)** | Élimination de la tessellation (~16M Ir) | 14,991,845 Ir | < 1,000,000 Ir *(Sorti du TOP 15)* | **~ -14.0 M Ir (-93%)** | 🟢 **Dépassé** |
+| **Total Programme (Ir)** | Baisse du total d'instructions | 1,431,834,025 Ir | 1,382,264,171 Ir | **-49.57 M Ir (-3.5%)** | 🟢 **Atteint** |
+| **Lookups Uniforms OpenGL** | 0 `glGetUniformLocation` par frame | 2 lookups / frame | 0 lookup / frame *(au init)* | **-100% de coût chaîne GL** | 🟢 **Atteint** |
+| **Trafic PCIe VBO** | 0 upload VBO si texte statique | `glBufferSubData` / frame | 0 upload / frame statique | **-100% bande passante VBO** | 🟢 **Atteint** |
+| **Non-régression visuelle & E2E** | 225 frames rendues sans deadlock | 225 frames | 225 frames | **Scénario validé** | 🟢 **Validé** |
+
+---
+
+### 🏆 Synthèse Globale Cumulée (Plans A + B)
+
+* **Instructions CPU totales (`Ir`)** : **1,759,368,117 $\rightarrow$ 1,382,264,171** (**-377.10 Millions Ir / -21.4% d'instructions CPU économisées**).
+
 ---
 
 ## 4. Matrice de Suivi d'Exécution
@@ -122,6 +138,7 @@ task bench-render           # Mesure du gain sur le frame time moyen et framerat
 | Piste | Description | Statut | Synthèse des Gains | Non-Régression |
 |---|---|---|---|---|
 | **Plan A** | Inlining RLE & Vectorisation pure FP16 (`simd_utils.c`) | 🟢 **Complété** | **-302.08 M Ir (-44.3%)** sur scanlines<br>**-327.53 M Ir (-18.6%)** global | ✅ `task test-unit` (79/79)<br>✅ `task valgrind-xvfb` (0 err) |
-| **Plan B** | Caching Uniforms & Dirty-Check VBO (`overlay.odin`) | 🟡 À faire | TBD | `task test-integration-xvfb` |
+| **Plan B** | Caching Uniforms & Dirty-Check VBO (`overlay.odin`) | 🟢 **Complété** | **-14.0 M Ir (-93%)** sur overlay<br>**-49.57 M Ir (-3.5%)** global | ✅ `task test-integration-xvfb`<br>✅ `task test-unit` (79/79) |
+
 
 
