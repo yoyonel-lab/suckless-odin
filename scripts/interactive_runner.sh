@@ -52,7 +52,17 @@ wait_for_next_log() {
 "$@" >"$RUNNER_LOG" 2>&1 &
 APP_PID=$!
 
-echo "[Runner] Application lancée (PID=$APP_PID). Recherche de la fenêtre GLFW..."
+get_target_wid() {
+	local wid=""
+	wid=$(timeout 2 xdotool search --pid "$APP_PID" --onlyvisible 2>/dev/null | head -n 1 || true)
+	if [ -z "$wid" ]; then
+		wid=$(timeout 2 xdotool search --onlyvisible --name "Icosphere Phong" 2>/dev/null | head -n 1 || true)
+	fi
+	if [ -z "$wid" ]; then
+		wid=$(timeout 2 xdotool search --onlyvisible --class "suckless-odin" 2>/dev/null | head -n 1 || true)
+	fi
+	echo "$wid"
+}
 
 WINDOW_ID=""
 for _ in {1..50}; do
@@ -61,10 +71,7 @@ for _ in {1..50}; do
 		cat "$RUNNER_LOG"
 		exit 1
 	fi
-	WINDOW_ID=$(xdotool search --onlyvisible --name "Icosphere Phong" 2>/dev/null | head -n 1 || true)
-	if [ -z "$WINDOW_ID" ]; then
-		WINDOW_ID=$(xdotool search --onlyvisible --class "suckless-odin" 2>/dev/null | head -n 1 || true)
-	fi
+	WINDOW_ID=$(get_target_wid)
 	if [ -n "$WINDOW_ID" ]; then
 		break
 	fi
@@ -73,25 +80,25 @@ done
 
 activate_window() {
 	if [ -n "$WINDOW_ID" ]; then
-		xdotool windowactivate --sync "$WINDOW_ID" 2>/dev/null || xdotool windowfocus --sync "$WINDOW_ID" 2>/dev/null || true
+		timeout 2 xdotool windowactivate --sync "$WINDOW_ID" 2>/dev/null || timeout 2 xdotool windowfocus --sync "$WINDOW_ID" 2>/dev/null || true
 	fi
 }
 
 send_key() {
 	local key="$1"
-	if [ -n "$WINDOW_ID" ]; then
-		xdotool windowactivate --sync "$WINDOW_ID" 2>/dev/null || true
-		xdotool key --window "$WINDOW_ID" "$key" 2>/dev/null || true
+	local wid
+	wid=$(get_target_wid)
+	if [ -n "$wid" ]; then
+		timeout 2 xdotool windowfocus "$wid" 2>/dev/null || true
+		timeout 2 xdotool key --window "$wid" --delay 0 "$key" 2>/dev/null || true
 	fi
-	xdotool key "$key" 2>/dev/null || true
 }
-
 
 if [ -n "$WINDOW_ID" ]; then
 	echo "[Runner] Fenêtre trouvée (WID=$WINDOW_ID). Activation..."
 	activate_window
 else
-	echo "[Runner] AVERTISSEMENT : Fenêtre introuvable. Mode injection globale actif..."
+	echo "[Runner] AVERTISSEMENT : Fenêtre introuvable pour PID $APP_PID."
 fi
 
 echo "[Runner] ⏳ Attente initialisation moteur & premier bake IBL (State -> Idle)..."
@@ -102,16 +109,11 @@ send_key "Page_Up"
 wait_for_next_log "Transition state: .* -> Idle" 120 "Bake HDR #1 Idle"
 
 echo "[Runner] 🎥 Déplacement caméra vers l'avant (Touche W)..."
-if [ -n "$WINDOW_ID" ]; then
-	xdotool keydown --window "$WINDOW_ID" w 2>/dev/null || xdotool keydown w 2>/dev/null || true
-else
-	xdotool keydown w 2>/dev/null || true
-fi
-sleep 1.0
-if [ -n "$WINDOW_ID" ]; then
-	xdotool keyup --window "$WINDOW_ID" w 2>/dev/null || xdotool keyup w 2>/dev/null || true
-else
-	xdotool keyup w 2>/dev/null || true
+wid=$(get_target_wid)
+if [ -n "$wid" ]; then
+	timeout 2 xdotool keydown --window "$wid" w 2>/dev/null || true
+	sleep 1.0
+	timeout 2 xdotool keyup --window "$wid" w 2>/dev/null || true
 fi
 
 echo "[Runner] 🌍 Changement environnement HDR #2 (Touche Page_Down)..."
