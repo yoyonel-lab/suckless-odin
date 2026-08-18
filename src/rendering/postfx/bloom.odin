@@ -8,8 +8,9 @@ import log "../../core/log"
 // Number of bloom mip levels (half-res cascade).
 BLOOM_MIP_LEVELS :: 5
 
-// Single mip level in the bloom chain.
+// Single mip level in the bloom chain with dedicated pre-attached FBO.
 Bloom_Mip :: struct {
+	fbo:     u32,
 	texture: u32,
 	width:   i32,
 	height:  i32,
@@ -20,11 +21,10 @@ Bloom_FX :: struct {
 	prefilter_program:  u32,
 	downsample_program: u32,
 	upsample_program:   u32,
-	fbo:                u32,
 	mips:               [BLOOM_MIP_LEVELS]Bloom_Mip,
 }
 
-// Initialize bloom resources (shaders, FBO, mip textures).
+// Initialize bloom resources (shaders, FBOs, mip textures).
 bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> (ok: bool) {
 	defer if !ok { bloom_destroy(b) }
 
@@ -44,11 +44,7 @@ bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> (ok: bool) {
 		"shaders/postfx/bloom_upsample.frag",
 	) or_return
 
-	// Create FBO (single FBO, re-attach textures per pass)
-	gl.GenFramebuffers(1, &b.fbo)
-	gl.BindFramebuffer(gl.FRAMEBUFFER, b.fbo)
-
-	// Create mip chain textures (each half the previous)
+	// Create mip chain textures and dedicated pre-attached FBOs
 	mip_w := width
 	mip_h := height
 	for i in 0 ..< BLOOM_MIP_LEVELS {
@@ -60,6 +56,10 @@ bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> (ok: bool) {
 		b.mips[i].width = mip_w
 		b.mips[i].height = mip_h
 		b.mips[i].texture = create_texture_2d(mip_w, mip_h, gl.R11F_G11F_B10F, gl.RGB)
+
+		gl.GenFramebuffers(1, &b.mips[i].fbo)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, b.mips[i].fbo)
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.mips[i].texture, 0)
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -70,8 +70,8 @@ bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> (ok: bool) {
 
 // Destroy all bloom GPU resources.
 bloom_destroy :: proc(b: ^Bloom_FX) {
-	delete_fbo(&b.fbo)
 	for &mip in b.mips {
+		delete_fbo(&mip.fbo)
 		delete_texture(&mip.texture)
 	}
 	delete_program(&b.prefilter_program)
@@ -85,11 +85,12 @@ bloom_destroy :: proc(b: ^Bloom_FX) {
 //   bloom halos on fogged objects — requires UBO already uploaded).
 // Result is in mips[0].texture, ready to be bound as bloom texture unit.
 bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, depth_tex: u32, quad: ^Fullscreen_Quad) {
-	gl.BindFramebuffer(gl.FRAMEBUFFER, b.fbo)
-	defer gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	gl.Disable(gl.DEPTH_TEST)
 
 	// --- 1. Prefilter: extract bright pixels → mip[0] ---
+	gl.BindFramebuffer(gl.FRAMEBUFFER, b.mips[0].fbo)
+	gl.Viewport(0, 0, b.mips[0].width, b.mips[0].height)
+
 	gl.UseProgram(b.prefilter_program)
 	gl.Uniform1f(0, params.threshold)
 	gl.Uniform1f(1, params.soft_threshold)
@@ -100,9 +101,6 @@ bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, dept
 	// Bind depth texture so the fog-aware prefilter can attenuate bright pixels.
 	gl.ActiveTexture(gl.TEXTURE2)
 	gl.BindTexture(gl.TEXTURE_2D, depth_tex)
-
-	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.mips[0].texture, 0)
-	gl.Viewport(0, 0, b.mips[0].width, b.mips[0].height)
 
 	quad_draw(quad)
 
@@ -116,13 +114,13 @@ bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, dept
 		mip_src := &b.mips[i]
 		mip_dst := &b.mips[i + 1]
 
+		gl.BindFramebuffer(gl.FRAMEBUFFER, mip_dst.fbo)
+		gl.Viewport(0, 0, mip_dst.width, mip_dst.height)
+
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, mip_src.texture)
 
 		gl.Uniform2f(0, f32(mip_src.width), f32(mip_src.height))
-
-		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, mip_dst.texture, 0)
-		gl.Viewport(0, 0, mip_dst.width, mip_dst.height)
 
 		quad_draw(quad)
 	}
@@ -132,7 +130,6 @@ bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, dept
 	gl.Uniform1f(0, params.radius)
 
 	gl.Enable(gl.BLEND)
-	defer gl.Disable(gl.BLEND)
 	gl.BlendFunc(gl.ONE, gl.ONE)
 	gl.BlendEquation(gl.FUNC_ADD)
 
@@ -140,15 +137,19 @@ bloom_render :: proc(b: ^Bloom_FX, params: ^Bloom_Params, src_texture: u32, dept
 		mip_src := &b.mips[i + 1]
 		mip_dst := &b.mips[i]
 
+		gl.BindFramebuffer(gl.FRAMEBUFFER, mip_dst.fbo)
+		gl.Viewport(0, 0, mip_dst.width, mip_dst.height)
+
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, mip_src.texture)
 
-		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, mip_dst.texture, 0)
-		gl.Viewport(0, 0, mip_dst.width, mip_dst.height)
-
 		quad_draw(quad)
 	}
+
+	gl.Disable(gl.BLEND)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
+
 
 // Resize bloom mip chain (call on window resize).
 bloom_resize :: proc(b: ^Bloom_FX, width, height: i32) {
