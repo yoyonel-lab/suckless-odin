@@ -200,6 +200,65 @@ float_half_convert_loc := tracy.Source_Location_Data{
 	color    = tracy.COLOR_IO_CONVERT,
 }
 
+import posix "core:sys/posix"
+
+Mapped_File :: struct {
+	data:      [^]u8,
+	size:      uint,
+	is_mmap:   bool,
+	raw_slice: []u8,
+}
+
+@(private)
+map_or_read_file :: proc(path_str: string, path_cstr: cstring) -> (mf: Mapped_File, ok: bool) {
+	when ODIN_OS == .Linux || ODIN_OS == .Darwin {
+		fd := posix.open(path_cstr, {})
+		if fd >= 0 {
+			defer posix.close(fd)
+			stat: posix.stat_t
+			if posix.fstat(fd, &stat) == .OK && stat.st_size > 0 {
+				size := uint(stat.st_size)
+				ptr := posix.mmap(nil, size, { .READ }, { .PRIVATE }, fd, 0)
+				if ptr != posix.MAP_FAILED && ptr != nil {
+					mf.data = cast([^]u8)ptr
+					mf.size = size
+					mf.is_mmap = true
+					return mf, true
+				}
+			}
+		}
+	}
+
+
+	bytes, err := os.read_entire_file_from_path(path_str, context.allocator)
+	if err == nil && len(bytes) > 0 {
+		mf.data = raw_data(bytes)
+		mf.size = uint(len(bytes))
+		mf.is_mmap = false
+		mf.raw_slice = bytes
+		return mf, true
+	}
+	return mf, false
+}
+
+@(private)
+unmap_file :: proc(mf: ^Mapped_File) {
+	when ODIN_OS == .Linux || ODIN_OS == .Darwin {
+		if mf.is_mmap && mf.data != nil && mf.size > 0 {
+			posix.munmap(rawptr(mf.data), mf.size)
+			mf.data = nil
+			mf.size = 0
+			return
+		}
+	}
+	if len(mf.raw_slice) > 0 {
+		delete(mf.raw_slice)
+		mf.raw_slice = nil
+	}
+	mf.data = nil
+	mf.size = 0
+}
+
 @(private)
 async_worker_proc :: proc(t: ^thread.Thread) {
 	loader := cast(^Async_Loader)t.data
@@ -239,13 +298,13 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 		tracy.message_c(fmt.tprintf("Loading HDR: %s", path_cstr), tracy.COLOR_IO_DECODE)
 
 		path_str := string(path_cstr)
-		file_bytes, read_err := os.read_entire_file_from_path(path_str, context.allocator)
+		mf, map_ok := map_or_read_file(path_str, path_cstr)
 
 		w, h: i32
 		half_data: [^]u16
 
-		if read_err == nil && len(file_bytes) > 0 {
-			if simd.fast_hdr_get_dimensions(raw_data(file_bytes), uint(len(file_bytes)), &w, &h) != 0 {
+		if map_ok && mf.size > 0 {
+			if simd.fast_hdr_get_dimensions(mf.data, mf.size, &w, &h) != 0 {
 				pixel_count := uint(w) * uint(h) * 4 // RGBA
 				alloc_size := (pixel_count * size_of(u16) + 63) & ~uint(63)
 				half_data = cast([^]u16)libc.aligned_alloc(64, alloc_size)
@@ -253,7 +312,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 					half_data = cast([^]u16)libc.malloc(pixel_count * size_of(u16))
 				}
 				if half_data != nil {
-					if simd.fast_hdr_decode_fp16_threaded(raw_data(file_bytes), uint(len(file_bytes)), &w, &h, half_data, pixel_count, 1, 8) == 0 {
+					if simd.fast_hdr_decode_fp16_threaded(mf.data, mf.size, &w, &h, half_data, pixel_count, 1, 8) == 0 {
 						libc.free(half_data)
 						half_data = nil
 					}
@@ -264,7 +323,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			if half_data == nil {
 				stbi.set_flip_vertically_on_load(1)
 				w_c, h_c, channels: c.int
-				data := stbi.loadf_from_memory(raw_data(file_bytes), c.int(len(file_bytes)), &w_c, &h_c, &channels, 4)
+				data := stbi.loadf_from_memory(mf.data, c.int(mf.size), &w_c, &h_c, &channels, 4)
 				if data != nil {
 					w = i32(w_c)
 					h = i32(h_c)
@@ -280,8 +339,9 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 					stbi.image_free(data)
 				}
 			}
-			delete(file_bytes)
+			unmap_file(&mf)
 		} else {
+
 			// Direct file fallback if os.read_entire_file failed
 			stbi.set_flip_vertically_on_load(1)
 			w_c, h_c, channels: c.int
