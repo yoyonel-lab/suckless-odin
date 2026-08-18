@@ -27,20 +27,30 @@ MAX_VERTICES      :: 4096  // max vertices (6 per glyph quad)
 FLOATS_PER_VERTEX :: 8     // x, y, u, v, r, g, b, a
 
 Text_Overlay :: struct {
-	mode:    Overlay_Mode,
-	program: u32,
-	vao:     u32,
-	vbo:     u32,
-	texture: u32,  // font atlas texture
+	mode:               Overlay_Mode,
+	program:            u32,
+	vao:                u32,
+	vbo:                u32,
+	texture:            u32, // font atlas texture
+	loc_projection:     i32,
+	loc_atlas:          i32,
 
 	// Font data
-	chardata: [FONT_CHAR_COUNT]stbtt.bakedchar,
+	chardata:           [FONT_CHAR_COUNT]stbtt.bakedchar,
 
 	// FPS tracking
 	frame_count:        i32,
 	fps_accum:          f32,
 	fps_display:        f32,
 	frame_time_display: f32, // smoothed frame time (ms), same window as fps
+
+	// Cached vertex state (dirty-checking)
+	cached_vert_count:  int,
+	last_mode:          Overlay_Mode,
+	last_cam_pos:       mt.Vec3,
+	last_cam_yaw:       f32,
+	last_cam_pitch:     f32,
+	is_dirty:           bool,
 }
 
 overlay_create :: proc(overlay: ^Text_Overlay) -> bool {
@@ -74,6 +84,9 @@ void main() {
 		return false
 	}
 	overlay.program = program
+	overlay.loc_projection = gl.GetUniformLocation(overlay.program, "u_projection")
+	overlay.loc_atlas = gl.GetUniformLocation(overlay.program, "u_atlas")
+	overlay.is_dirty = true
 
 	// Load font file
 	font_data, font_err := os.read_entire_file_from_path("assets/fonts/FiraCode-Regular.ttf", context.allocator)
@@ -147,14 +160,20 @@ overlay_cycle :: proc(overlay: ^Text_Overlay) {
 	next := int(overlay.mode) + 1
 	if next > int(Overlay_Mode.FPS_Position_Env) { next = 0 }
 	overlay.mode = Overlay_Mode(next)
+	overlay.is_dirty = true
 }
 
 overlay_update :: proc(overlay: ^Text_Overlay, dt: f32) {
 	overlay.fps_accum += dt
 	overlay.frame_count += 1
 	if overlay.fps_accum >= 0.5 {
-		overlay.fps_display = f32(overlay.frame_count) / overlay.fps_accum
-		overlay.frame_time_display = (overlay.fps_accum / f32(overlay.frame_count)) * 1000.0
+		new_fps := f32(overlay.frame_count) / overlay.fps_accum
+		new_frame_time := (overlay.fps_accum / f32(overlay.frame_count)) * 1000.0
+		if new_fps != overlay.fps_display || new_frame_time != overlay.frame_time_display {
+			overlay.fps_display = new_fps
+			overlay.frame_time_display = new_frame_time
+			overlay.is_dirty = true
+		}
 		overlay.frame_count = 0
 		overlay.fps_accum = 0.0
 	}
@@ -165,32 +184,45 @@ overlay_render :: proc(overlay: ^Text_Overlay, width, height: i32, cam_pos: mt.V
 	if overlay.mode == .Off { return }
 	if overlay.program == 0 || overlay.texture == 0 { return }
 
-	// Build text lines
-	line0 := fmt.tprintf("FPS: %.1f  (%.2f ms)", overlay.fps_display, overlay.frame_time_display)
-	line1 := fmt.tprintf("Pos: (%.2f, %.2f, %.2f)", cam_pos.x, cam_pos.y, cam_pos.z)
-	line2 := fmt.tprintf("Yaw: %.1f  Pitch: %.1f", cam_yaw, cam_pitch)
+	cam_dirty := cam_pos != overlay.last_cam_pos || cam_yaw != overlay.last_cam_yaw || cam_pitch != overlay.last_cam_pitch
+	mode_dirty := overlay.mode != overlay.last_mode
 
-	// Generate vertices from text
-	verts: [MAX_VERTICES * FLOATS_PER_VERTEX]f32
-	vert_count := 0
+	if overlay.is_dirty || cam_dirty || mode_dirty {
+		overlay.last_cam_pos = cam_pos
+		overlay.last_cam_yaw = cam_yaw
+		overlay.last_cam_pitch = cam_pitch
+		overlay.last_mode = overlay.mode
+		overlay.is_dirty = false
 
-	color := [4]f32{1.0, 1.0, 1.0, 1.0}  // white like legacy
+		// Build text lines
+		line0 := fmt.tprintf("FPS: %.1f  (%.2f ms)", overlay.fps_display, overlay.frame_time_display)
+		line1 := fmt.tprintf("Pos: (%.2f, %.2f, %.2f)", cam_pos.x, cam_pos.y, cam_pos.z)
+		line2 := fmt.tprintf("Yaw: %.1f  Pitch: %.1f", cam_yaw, cam_pitch)
 
-	vert_count = append_text_vertices(overlay, &verts, vert_count, line0, 10, 32, color)
-	vert_count = append_text_vertices(overlay, &verts, vert_count, line1, 10, 64, color)
-	vert_count = append_text_vertices(overlay, &verts, vert_count, line2, 10, 96, color)
+		// Generate vertices from text
+		verts: [MAX_VERTICES * FLOATS_PER_VERTEX]f32
+		vert_count := 0
+		color := [4]f32{1.0, 1.0, 1.0, 1.0}  // white like legacy
 
-	if overlay.mode == .FPS_Position_Env {
-		line3 := fmt.tprintf("Env: cedar_bridge_2_4k.hdr")
-		vert_count = append_text_vertices(overlay, &verts, vert_count, line3, 10, 128, color)
+		vert_count = append_text_vertices(overlay, &verts, vert_count, line0, 10, 32, color)
+		vert_count = append_text_vertices(overlay, &verts, vert_count, line1, 10, 64, color)
+		vert_count = append_text_vertices(overlay, &verts, vert_count, line2, 10, 96, color)
+
+		if overlay.mode == .FPS_Position_Env {
+			line3 := fmt.tprintf("Env: cedar_bridge_2_4k.hdr")
+			vert_count = append_text_vertices(overlay, &verts, vert_count, line3, 10, 128, color)
+		}
+
+		overlay.cached_vert_count = vert_count
+
+		if vert_count > 0 {
+			gl.BindBuffer(gl.ARRAY_BUFFER, overlay.vbo)
+			gl.BufferSubData(gl.ARRAY_BUFFER, 0, vert_count * FLOATS_PER_VERTEX * size_of(f32), &verts[0])
+			gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+		}
 	}
 
-	if vert_count == 0 { return }
-
-	// Upload vertex data (orphan previous backing store to avoid implicit sync)
-	gl.BindBuffer(gl.ARRAY_BUFFER, overlay.vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, MAX_VERTICES * FLOATS_PER_VERTEX * size_of(f32), nil, gl.DYNAMIC_DRAW)
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, vert_count * FLOATS_PER_VERTEX * size_of(f32), &verts[0])
+	if overlay.cached_vert_count == 0 { return }
 
 	// Setup orthographic projection
 	ortho := ortho_matrix(0, f32(width), f32(height), 0, -1, 1)
@@ -201,17 +233,15 @@ overlay_render :: proc(overlay: ^Text_Overlay, width, height: i32, cam_pos: mt.V
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
 	gl.UseProgram(overlay.program)
-	loc_proj := gl.GetUniformLocation(overlay.program, "u_projection")
-	gl.UniformMatrix4fv(loc_proj, 1, false, &ortho[0][0])
+	gl.UniformMatrix4fv(overlay.loc_projection, 1, false, &ortho[0][0])
 
 	// Bind font atlas
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, overlay.texture)
-	loc_atlas := gl.GetUniformLocation(overlay.program, "u_atlas")
-	gl.Uniform1i(loc_atlas, 0)
+	gl.Uniform1i(overlay.loc_atlas, 0)
 
 	gl.BindVertexArray(overlay.vao)
-	gl.DrawArrays(gl.TRIANGLES, 0, i32(vert_count))
+	gl.DrawArrays(gl.TRIANGLES, 0, i32(overlay.cached_vert_count))
 	gl.BindVertexArray(0)
 
 	gl.BindTexture(gl.TEXTURE_2D, 0)
@@ -219,6 +249,7 @@ overlay_render :: proc(overlay: ^Text_Overlay, width, height: i32, cam_pos: mt.V
 	gl.Disable(gl.BLEND)
 	gl.Enable(gl.DEPTH_TEST)
 }
+
 
 // Append text glyph quads to vertex buffer using stb_truetype baked data
 @(private)
