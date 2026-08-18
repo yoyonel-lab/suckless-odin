@@ -27,6 +27,7 @@ session.json
 
 # Local environment
 .env
+.envrc
 
 # TLA+ Formal Verification Cache and Generated Assets
 .tla-cache/

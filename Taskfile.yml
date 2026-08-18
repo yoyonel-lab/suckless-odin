@@ -1,5 +1,7 @@
 version: '3'
 
+dotenv: ['.env']
+
 vars:
   BUILD_BASE: build
   DISTROBOX_CONTAINER: clang-dev
@@ -690,17 +692,29 @@ tasks:
       - ./scripts/benchmark_vtune_threading.sh
 
   profile-vtune-gui:
-    desc: Open the latest VTune profiling result in vtune-gui
-    vars:
-      VTUNE_RES:
-        sh: ls -td /tmp/vtune_results_* 2>/dev/null | head -n1 || echo ""
+    desc: Open the suckless-odin VTune project in vtune-gui
     cmds:
       - |
-        if [ -z "{{.VTUNE_RES}}" ] || [ ! -d "{{.VTUNE_RES}}" ]; then
-          echo "Erreur: Aucun résultat VTune trouvé dans /tmp. Lancez d'abord un profilage VTune."
+        VTUNE_GUI_BIN=""
+        if command -v vtune-gui >/dev/null 2>&1; then
+          VTUNE_GUI_BIN="$(command -v vtune-gui)"
+        elif [ -x /opt/intel/oneapi/vtune/latest/bin64/vtune-gui ]; then
+          VTUNE_GUI_BIN="/opt/intel/oneapi/vtune/latest/bin64/vtune-gui"
+        elif [ -d /opt/intel/oneapi/vtune ]; then
+          VTUNE_GUI_BIN="$(find /opt/intel/oneapi/vtune -name vtune-gui -type f -perm -111 2>/dev/null | grep bin64 | head -n1 || true)"
+        fi
+        if [ -z "$VTUNE_GUI_BIN" ] || [ ! -x "$VTUNE_GUI_BIN" ]; then
+          echo "Erreur: vtune-gui introuvable dans PATH ou /opt/intel/oneapi/vtune."
           exit 1
         fi
-        vtune-gui "{{.VTUNE_RES}}"
+        PROJECT_DIR="$HOME/intel/vtune/projects/suckless-odin"
+        if [ -d "$PROJECT_DIR" ]; then
+          echo "Ouverture du projet VTune suckless-odin ($PROJECT_DIR)..."
+          "$VTUNE_GUI_BIN" --project-path "$PROJECT_DIR"
+        else
+          echo "Projet VTune introuvable. Lancement de VTune GUI..."
+          "$VTUNE_GUI_BIN"
+        fi
 
   profile-all:
     desc: Run the complete profiling suite (Heaptrack + VTune Hotspots + VTune Memory)
@@ -715,17 +729,43 @@ tasks:
     desc: Launch RenderDoc GUI with debug build loaded
     deps: [build]
     vars:
-      RENDERDOC_DIR: '{{default "/usr/bin" .RENDERDOC_DIR}}'
+      RENDERDOC_DIR: '{{.RENDERDOC_DIR | default .ENV.RENDERDOC_DIR | default "/usr/bin"}}'
     cmds:
-      - "{{.RENDERDOC_DIR}}/qrenderdoc --working-dir . ./{{.BUILD_BASE}}/debug/suckless-odin"
+      - |
+        RENDERDOC_BIN="{{.RENDERDOC_DIR}}/qrenderdoc"
+        if [ ! -x "$RENDERDOC_BIN" ]; then
+          if command -v qrenderdoc >/dev/null 2>&1; then
+            RENDERDOC_BIN="$(command -v qrenderdoc)"
+          elif [ -x "$HOME/.local/renderdoc_1.42/bin/qrenderdoc" ]; then
+            RENDERDOC_BIN="$HOME/.local/renderdoc_1.42/bin/qrenderdoc"
+          else
+            echo "Erreur: qrenderdoc introuvable dans {{.RENDERDOC_DIR}} ou dans PATH."
+            echo "Définissez RENDERDOC_DIR (ex: export RENDERDOC_DIR=/chemin/vers/renderdoc/bin dans .envrc)."
+            exit 127
+          fi
+        fi
+        "$RENDERDOC_BIN" --working-dir . ./{{.BUILD_BASE}}/debug/suckless-odin
 
   renderdoc-capture:
     desc: Headless frame capture via RenderDoc CLI (outputs .rdc file)
     deps: [build]
     vars:
-      RENDERDOC_DIR: '{{default "/usr/bin" .RENDERDOC_DIR}}'
+      RENDERDOC_DIR: '{{.RENDERDOC_DIR | default .ENV.RENDERDOC_DIR | default "/usr/bin"}}'
     cmds:
-      - "{{.RENDERDOC_DIR}}/renderdoccmd capture --working-dir . ./{{.BUILD_BASE}}/debug/suckless-odin"
+      - |
+        RENDERDOC_CMD="{{.RENDERDOC_DIR}}/renderdoccmd"
+        if [ ! -x "$RENDERDOC_CMD" ]; then
+          if command -v renderdoccmd >/dev/null 2>&1; then
+            RENDERDOC_CMD="$(command -v renderdoccmd)"
+          elif [ -x "$HOME/.local/renderdoc_1.42/bin/renderdoccmd" ]; then
+            RENDERDOC_CMD="$HOME/.local/renderdoc_1.42/bin/renderdoccmd"
+          else
+            echo "Erreur: renderdoccmd introuvable dans {{.RENDERDOC_DIR}} ou dans PATH."
+            echo "Définissez RENDERDOC_DIR (ex: export RENDERDOC_DIR=/chemin/vers/renderdoc/bin dans .envrc)."
+            exit 127
+          fi
+        fi
+        "$RENDERDOC_CMD" capture --working-dir . ./{{.BUILD_BASE}}/debug/suckless-odin
 
   # ─── CODEGEN / VERIFICATION (TLA+) ──────────────────────────────────────────
 

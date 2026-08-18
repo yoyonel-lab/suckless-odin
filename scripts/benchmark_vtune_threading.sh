@@ -34,7 +34,8 @@ if [ -f /opt/intel/oneapi/setvars.sh ]; then
 	source /opt/intel/oneapi/setvars.sh --force >/dev/null 2>&1 || true
 fi
 
-RES_DIR="/tmp/vtune_results_threading_$(date +%s)"
+PROJECT_DIR="$HOME/intel/vtune/projects/suckless-odin"
+mkdir -p "$PROJECT_DIR"
 OUT_DIR="./build/profiling/vtune"
 mkdir -p "$OUT_DIR"
 
@@ -45,8 +46,10 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 chmod +x ./scripts/interactive_runner.sh
 
 echo "[vtune] Collection threading avec sudo..."
-sudo -E "$VTUNE_BIN" -collect threading -result-dir "$RES_DIR" env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh "$APP_BIN"
-sudo chown -R "$USER":"$USER" "$RES_DIR"
+sudo -E "$VTUNE_BIN" -collect threading -project-dir "$PROJECT_DIR" env TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh "$APP_BIN"
+sudo chown -R "$USER":"$USER" "$PROJECT_DIR"
+
+RES_DIR=$(ls -td "$PROJECT_DIR"/r* 2>/dev/null | head -n1 || true)
 
 echo ""
 echo "=========================================================================="
@@ -58,5 +61,5 @@ cat "$SUMMARY_FILE"
 echo "=========================================================================="
 
 echo ""
-echo "✅ Résultats enregistrés dans : $RES_DIR"
-echo "👉 Pour voir la timeline des threads (Gantt) : task profile-vtune-gui (ou vtune-gui $RES_DIR)"
+echo "✅ Résultats enregistrés dans le projet VTune : $PROJECT_DIR"
+echo "👉 Pour explorer dans VTune Profiler GUI : task profile-vtune-gui (ou vtune-gui \"$PROJECT_DIR/suckless-odin.vtuneproj\")"
