@@ -304,6 +304,69 @@ tasks:
       - chmod +x scripts/test_integration_e2e.sh
       - ./scripts/test_integration_e2e.sh ./{{.BUILD_BASE}}/release/suckless-odin --headless
 
+  stress:
+    desc: Comprehensive stress test combining fullscreen toggles, dynamic camera motion, and HDR transitions (30 cycles, physical display)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_stress.sh
+      - ./scripts/test_stress.sh ./{{.BUILD_BASE}}/release/suckless-odin 30 50 {{.CLI_ARGS}}
+
+  stress-xvfb:
+    desc: Comprehensive stress test (fullscreen + camera + HDR) headless under Xvfb (30 cycles)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_stress.sh
+      - ./scripts/test_stress.sh ./{{.BUILD_BASE}}/release/suckless-odin 30 50 --headless {{.CLI_ARGS}}
+
+  stress-asan:
+    desc: Comprehensive stress test (fullscreen + camera + HDR) under AddressSanitizer (20 cycles)
+    deps: [build-sanitize]
+    cmds:
+      - chmod +x scripts/test_stress.sh
+      - ./scripts/test_stress.sh ./{{.BUILD_BASE}}/sanitize/suckless-odin 20 100 {{.CLI_ARGS}}
+
+  stress-fullscreen:
+    desc: Stress test rapid fullscreen/windowed toggling on physical display (100 cycles, 50ms)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_stress_fullscreen.sh
+      - ./scripts/test_stress_fullscreen.sh ./{{.BUILD_BASE}}/release/suckless-odin 100 50 {{.CLI_ARGS}}
+
+  stress-fullscreen-xvfb:
+    desc: Stress test rapid fullscreen/windowed toggling headless under Xvfb (100 cycles, 50ms)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_stress_fullscreen.sh
+      - ./scripts/test_stress_fullscreen.sh ./{{.BUILD_BASE}}/release/suckless-odin 100 50 --headless {{.CLI_ARGS}}
+
+  stress-fullscreen-asan:
+    desc: Stress test fullscreen toggling under AddressSanitizer (50 cycles, 100ms)
+    deps: [build-sanitize]
+    cmds:
+      - chmod +x scripts/test_stress_fullscreen.sh
+      - ./scripts/test_stress_fullscreen.sh ./{{.BUILD_BASE}}/sanitize/suckless-odin 50 100 {{.CLI_ARGS}}
+
+  stress-envmap:
+    desc: Stress test rapid asynchronous HDR environment switching on physical display (30 cycles, 200ms)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_stress_envmap.sh
+      - ./scripts/test_stress_envmap.sh ./{{.BUILD_BASE}}/release/suckless-odin 30 200 {{.CLI_ARGS}}
+
+  stress-envmap-xvfb:
+    desc: Stress test rapid asynchronous HDR environment switching headless under Xvfb (30 cycles, 200ms)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_stress_envmap.sh
+      - ./scripts/test_stress_envmap.sh ./{{.BUILD_BASE}}/release/suckless-odin 30 200 --headless {{.CLI_ARGS}}
+
+  stress-envmap-sanitize:
+    desc: Stress test async HDR environment switching under AddressSanitizer (20 cycles, 200ms)
+    deps: [build-sanitize]
+    cmds:
+      - chmod +x scripts/test_stress_envmap.sh
+      - ./scripts/test_stress_envmap.sh ./{{.BUILD_BASE}}/sanitize/suckless-odin 20 200 {{.CLI_ARGS}}
+
   # ─── LINT & VET ────────────────────────────────────────────────────────────
 
   lint:

@@ -76,9 +76,11 @@ toggle_fullscreen :: proc(application: ^App) {
 		application.saved_width, application.saved_height = glfw.GetWindowSize(application.window)
 		glfw.SetWindowMonitor(application.window, monitor, 0, 0,
 			mode.width, mode.height, mode.refresh_rate)
+		log.log_info("suckless-odin.input", "Switched to fullscreen (%dx%d@%dHz)", mode.width, mode.height, mode.refresh_rate)
 	} else {
 		glfw.SetWindowMonitor(application.window, nil, application.saved_x, application.saved_y,
 			application.saved_width, application.saved_height, 0)
+		log.log_info("suckless-odin.input", "Switched to windowed (%dx%d at %d,%d)", application.saved_width, application.saved_height, application.saved_x, application.saved_y)
 	}
 
 	application.is_fullscreen = !application.is_fullscreen
@@ -165,7 +167,8 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 	cam.process_scroll(&app.scene.camera, f32(yoffset))
 }
 
-// GLFW framebuffer resize callback.
+// GLFW framebuffer resize callback — lightweight and passive (Deferred Resize pattern).
+// Does not reallocate GPU resources inside the synchronous GLFW/driver callback context.
 @(private)
 framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
 	context = runtime.default_context()
@@ -174,6 +177,8 @@ framebuffer_size_callback :: proc "c" (window: glfw.WindowHandle, width, height:
 	if app != nil {
 		app.width = width
 		app.height = height
-		scene.scene_resize(&app.scene, width, height)
+		app.pending_width = width
+		app.pending_height = height
+		app.resize_pending = true
 	}
 }

@@ -94,6 +94,11 @@ App :: struct {
 	saved_height:    i32,
 	total_frames:    u64,
 
+	// Deferred resize state (ISO port of suckless-ogl Deferred Resize pattern)
+	resize_pending:  bool,
+	pending_width:   i32,
+	pending_height:  i32,
+
 	// Scene
 	scene:           scene.Scene,
 
@@ -253,6 +258,12 @@ run :: proc(application: ^App) {
 		glfw.PollEvents()
 		tracy.zone_end(poll_zone)
 		poll_dur := time.duration_milliseconds(time.tick_since(poll_start))
+
+		// Deferred resize processing outside of GLFW callback context
+		if application.resize_pending {
+			scene.scene_resize(&application.scene, application.pending_width, application.pending_height)
+			application.resize_pending = false
+		}
 
 		if !gui.wants_keyboard(&application.imgui) {
 			process_keyboard(application)

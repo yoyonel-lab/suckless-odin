@@ -1,0 +1,9 @@
+# LeakSanitizer suppressions for suckless-odin
+# Ignore known leaks in system / GPU driver libraries
+leak:libX11.so
+leak:libGLX_mesa.so
+leak:libgallium
+leak:libnvidia-glcore.so
+leak:libglapi.so
+leak:libLLVM
+leak:<unknown module>
