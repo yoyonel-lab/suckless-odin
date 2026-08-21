@@ -16,6 +16,8 @@ import postfx "../rendering/postfx"
 import rendering "../rendering"
 import dbg "../core/gl_debug"
 import gl_state "../core/gl_state"
+import itt "../core/itt"
+import renderdoc "../core/renderdoc"
 
 @(private)
 frame_zone_loc := tracy.Source_Location_Data{
@@ -124,10 +126,19 @@ create :: proc(width, height: i32, title: cstring) -> ^App {
 }
 
 // Initializes the application: window, OpenGL context, callbacks.
-init :: proc(application: ^App, vsync: bool = false, compute_profile: settings.Compute_Shader_Profile = .Legacy) -> bool {
+init :: proc(
+	application: ^App,
+	vsync: bool = false,
+	compute_profile: settings.Compute_Shader_Profile = .Legacy,
+	capture_ibl: bool = false,
+) -> bool {
 	if application == nil { return false }
 
 	log.set_callback(tracy_log_callback)
+
+	// Probe Intel ITT and RenderDoc in-app APIs
+	itt.init()
+	renderdoc.init()
 
 	// Try to load previous session
 	session_state := session.Session_State{}
@@ -193,6 +204,7 @@ init :: proc(application: ^App, vsync: bool = false, compute_profile: settings.C
 		log.log_error("suckless-odin.app", "Failed to create scene")
 		return false
 	}
+	application.scene.env_mgr.capture_ibl = capture_ibl
 
 	// Initialize GUI (Dear ImGui)
 	if !gui.init(&application.imgui, application.window) {
