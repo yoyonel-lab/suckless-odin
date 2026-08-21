@@ -98,4 +98,4 @@ Ce document consigne les résultats physiques et l'analyse microarchitecturale o
 1. **Intégrité des Performances Multi-Plateforme** :
    Le binaire compilé avec la chaîne `-target:windows_amd64` et lié statiquement via Clang/LLD offre des performances rigoureusement équivalentes au binaire Linux natif.
 2. **Efficacité SIMD** :
-   La bibliothèque [`deps/libsimd_windows_x64.lib`](../deps/libsimd_windows_x64.lib) sature le bus DRAM à près de 88% de sa capacité théorique, assurant des transitions d'environnement instantanées sous Wine/Proton.
+   La bibliothèque `deps/libsimd_windows_x64.lib` sature le bus DRAM à près de 88% de sa capacité théorique, assurant des transitions d'environnement instantanées sous Wine/Proton.
