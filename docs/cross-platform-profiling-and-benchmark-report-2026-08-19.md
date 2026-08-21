@@ -35,7 +35,7 @@ flowchart LR
 
 ## 3. Décomposition Nanoseconde du Pipeline Graphique (Tracy Profiler)
 
-Analyse issue des captures de traces complètes : [`build/profiling/tracy/session.tracy`](../build/profiling/tracy/session.tracy) (Linux) et [`build/profiling/tracy/session_win.tracy`](../build/profiling/tracy/session_win.tracy) (Windows).
+Analyse issue des captures de traces complètes : `build/profiling/tracy/session.tracy` (Linux) et `build/profiling/tracy/session_win.tracy` (Windows).
 
 ```mermaid
 gantt

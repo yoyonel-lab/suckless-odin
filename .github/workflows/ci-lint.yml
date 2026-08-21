@@ -28,6 +28,9 @@ jobs:
       - name: Vet & Strict Style Check
         run: odin check src/ -vet -strict-style -warnings-as-errors
 
+      - name: Verify Documentation Links Integrity
+        run: python3 scripts/verify_docs_links.py
+
       - name: Markdown Lint Check
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:

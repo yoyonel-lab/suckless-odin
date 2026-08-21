@@ -12,19 +12,20 @@
 
 ## 📑 Table des Matières
 
-1. [Architecture GPU Intel Iris Xe & Notions Fondamentales](#1-architecture-gpu-intel-iris-xe--notions-fondamentales)
-2. [Intégration de l'API Intel ITT & Collecte Ciblée](#2-intégration-de-lapi-intel-itt--collecte-ciblée)
-3. [Analyse Écran par Écran de `r016gpu_hs` (GPU Hotspots & EUs)](#3-analyse-écran-par-écran-de-r016gpu_hs-gpu-hotspots--eus)
-4. [Analyse Écran par Écran de `r017gpu_mem` (Mémoire Globale & Cache L3)](#4-analyse-écran-par-écran-de-r017gpu_mem-mémoire-globale--cache-l3)
-   * [Écran 1 : Onglet `Summary` (Histogramme de Lecture & Débits VRAM)](#écran-1--onglet-summary-r017gpu_mem)
-   * [Écran 2 : Onglet `Graphics` (Timeline Mémoire, Cache L3 & Absence de Conflit SLM)](#écran-2--onglet-graphics-r017gpu_mem)
-   * [Écran 3 : Onglet `Platform` (Vue Hybride & Corrélation Débit / Tranches)](#écran-3--onglet-platform-r017gpu_mem)
-5. [Guide Méthodologique : Interpréter les Goulots d'Étranglement](#5-guide-méthodologique--interpréter-les-goulots-détranglement)
+1. [Architecture GPU Intel Iris Xe & Notions Fondamentales](#1-architecture-gpu-intel-iris-xe-notions-fondamentales)
+2. [Intégration de l'API Intel ITT & Collecte Ciblée](#2-integration-api-intel-itt)
+3. [Analyse Écran par Écran de `r016gpu_hs` (GPU Hotspots & EUs)](#3-analyse-r016gpu_hs)
+4. [Analyse Écran par Écran de `r017gpu_mem` (Mémoire Globale & Cache L3)](#4-analyse-r017gpu_mem)
+   * [Écran 1 : Onglet `Summary` (Histogramme de Lecture & Débits VRAM)](#ecran-1-summary-r017gpu_mem)
+   * [Écran 2 : Onglet `Graphics` (Timeline Mémoire, Cache L3 & Absence de Conflit SLM)](#ecran-2-graphics-r017gpu_mem)
+   * [Écran 3 : Onglet `Platform` (Vue Hybride & Corrélation Débit / Tranches)](#ecran-3-platform-r017gpu_mem)
+5. [Guide Méthodologique : Interpréter les Goulots d'Étranglement](#5-guide-methodologique-goulots)
 6. [Comparatif des Types de Collecteurs VTune sous Linux (OpenGL vs SYCL/Level-Zero)](#6-comparatif-des-types-de-collecteurs-vtune-sous-linux-opengl-vs-sycllevel-zero)
-7. [Références & Documentation Officielle Intel](#7-références--documentation-officielle-intel)
+7. [Références & Documentation Officielle Intel](#7-references-documentation-officielle-intel)
 
 ---
 
+<a id="1-architecture-gpu-intel-iris-xe-notions-fondamentales"></a>
 ## 1. 🏛️ Architecture GPU Intel Iris Xe & Notions Fondamentales
 
 Pour comprendre les métriques affichées par VTune, il est indispensable de connaître les composants clés du processeur graphique Intel Iris Xe (architecture Gen12 / Xe-LP) :
@@ -43,16 +44,21 @@ flowchart TD
         
         subgraph DualSubSlices["Sub-Slices Matériels (96 EUs Total)"]
             EU["96 Execution Units (EUs)<br>7 Threads Matériels / EU = 672 Threads Concurrents"]
-            SLM["Shared Local Memory (SLM)"]
-            SAMPLER["Samplers Matériels (Filtrage Bilinéaire/Trilinéaire/Cubemap)"]
+            SLM["Shared Local Memory (SLM)<br>384 Ko (par tranche)"]
+            Sampler["Texture Sampler L1 / L2<br>Filtrage Matériel Trilinéraire & Anisotrope"]
+            SubsliceDataPort["Data Port (Accès Mémoire L3 direct)"]
         end
     end
 
-    DRAM <--> GTI
+    CPU <--> LLC
+    LLC <--> DRAM
+    LLC <--> GTI
     GTI <--> L3
-    L3 <--> EU
-    L3 <--> SAMPLER
-    L3 <--> SLM
+    L3 <--> SubsliceDataPort
+    L3 <--> Sampler
+    SubsliceDataPort <--> EU
+    Sampler <--> EU
+    SLM <--> EU
 ```
 
 * **Execution Unit (EU)** : Cœur de calcul SIMD vectoriel. Notre GPU dispose de **96 EUs**, chacun capable d'exécuter jusqu'à **7 threads matériels simultanés**, soit **672 threads en vol** en continu.
@@ -65,6 +71,7 @@ flowchart TD
 
 ---
 
+<a id="2-integration-api-intel-itt"></a>
 ## 2. ⚡ Intégration de l'API Intel ITT & Collecte Ciblée
 
 Dans un moteur 3D interactif, un profilage continu capture des millions de trames inutiles (boucle d'initialisation, temps d'inactivité, présentation X11).
@@ -86,6 +93,7 @@ Résultat : **Seules les phases de calcul IBL sont enregistrées.** Le régime p
 
 ---
 
+<a id="3-analyse-r016gpu_hs"></a>
 ## 3. 🔍 Analyse Écran par Écran de `r016gpu_hs` (GPU Hotspots & EUs)
 
 ### Écran 1 : Onglet `Summary` (Diagnostic Global & Histogramme Mémoire)
@@ -125,12 +133,14 @@ Résultat : **Seules les phases de calcul IBL sont enregistrées.** Le régime p
 
 ---
 
+<a id="4-analyse-r017gpu_mem"></a>
 ## 4. 🧠 Analyse Écran par Écran de `r017gpu_mem` (Mémoire Globale & Cache L3)
 
 La trace **`r017gpu_mem`** (`task profile-vtune-gpu-memory`) cible spécifiquement la hiérarchie mémoire du GPU Intel Iris Xe.
 
 ---
 
+<a id="ecran-1-summary-r017gpu_mem"></a>
 ### Écran 1 : Onglet `Summary` (`r017gpu_mem`)
 
 ![Summary Tab r017](/home/latty/.gemini/antigravity-cli/brain/823a8faf-51aa-4bae-8e70-4e25c779caf3/r017_summary_tab.png)
@@ -148,6 +158,7 @@ La trace **`r017gpu_mem`** (`task profile-vtune-gpu-memory`) cible spécifiqueme
 
 ---
 
+<a id="ecran-2-graphics-r017gpu_mem"></a>
 ### Écran 2 : Onglet `Graphics` (`r017gpu_mem`)
 
 ![Graphics Tab r017](/home/latty/.gemini/antigravity-cli/brain/823a8faf-51aa-4bae-8e70-4e25c779caf3/r017_graphics_tab.png)
@@ -167,6 +178,7 @@ La trace **`r017gpu_mem`** (`task profile-vtune-gpu-memory`) cible spécifiqueme
 
 ---
 
+<a id="ecran-3-platform-r017gpu_mem"></a>
 ### Écran 3 : Onglet `Platform` (`r017gpu_mem`)
 
 ![Platform Tab r017](/home/latty/.gemini/antigravity-cli/brain/823a8faf-51aa-4bae-8e70-4e25c779caf3/r017_platform_tab.png)
@@ -180,6 +192,7 @@ La trace **`r017gpu_mem`** (`task profile-vtune-gpu-memory`) cible spécifiqueme
 
 ---
 
+<a id="5-guide-methodologique-goulots"></a>
 ## 5. 🛠️ Guide Méthodologique : Interpréter les Goulots d'Étranglement
 
 Voici la grille de décision complète pour diagnostiquer et optimiser les compute shaders :
@@ -194,6 +207,7 @@ Voici la grille de décision complète pour diagnostiquer et optimiser les compu
 
 ---
 
+<a id="6-comparatif-des-types-de-collecteurs-vtune-sous-linux-opengl-vs-sycllevel-zero"></a>
 ## 6. 🔬 Comparatif des Types de Collecteurs VTune sous Linux (OpenGL vs SYCL/Level-Zero)
 
 | Collecteur VTune | Cible Logique | Compatible OpenGL Core Profile ? | Pourquoi ? |
@@ -204,6 +218,7 @@ Voici la grille de décision complète pour diagnostiquer et optimiser les compu
 
 ---
 
+<a id="7-references-documentation-officielle-intel"></a>
 ## 7. 📚 Références & Documentation Officielle Intel
 
 * [Intel® VTune™ Profiler User Guide: GPU Compute/Media Hotspots Analysis](https://www.intel.com/content/www/us/en/docs/vtune-profiler/user-guide/current/gpu-compute-media-hotspots-analysis.html)

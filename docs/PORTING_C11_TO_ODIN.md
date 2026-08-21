@@ -223,15 +223,16 @@ Voir le guide d'intégration complet : [`docs/steam-integration-and-proton-guide
 | Aspect | C11 (`suckless-ogl`) | Odin (`suckless-odin`) | Comparaison |
 |---|---|---|---|
 | **Génération du Site de Documentation** | MkDocs Material + Doxygen ([`mkdocs.yml`](../suckless-ogl/mkdocs.yml), `docs.yml`) | Fichiers Markdown dans [`docs/`](.) | C11 dispose d'un pipeline complet déployant un site web statique sur GitHub Pages avec recherche intégrée. |
-| **Contrôles d'intégrité de la documentation** | [`scripts/verify_docs.py`](../suckless-ogl/scripts/verify_docs.py), [`tests/test_docs_links.py`](../suckless-ogl/tests/test_docs_links.py), [`tests/test_mermaid_integrity.py`](../suckless-ogl/tests/test_mermaid_integrity.py) | Markdownlint CLI v19 | C11 valide les liens brisés et la syntaxe des diagrammes Mermaid en CI. |
+| **Contrôles d'intégrité de la documentation** | [`scripts/verify_docs.py`](../suckless-ogl/scripts/verify_docs.py), [`tests/test_docs_links.py`](../suckless-ogl/tests/test_docs_links.py), [`tests/test_mermaid_integrity.py`](../suckless-ogl/tests/test_mermaid_integrity.py) | [`scripts/verify_docs_links.py`](../scripts/verify_docs_links.py) (`task test-docs-links`, `task lint`) + Markdownlint CLI v19 | ✅ Porté : validation exhaustive de l'intégralité des 300+ liens relatifs et ancres internes en local et en CI. |
 
 ---
 
-## 5. Raccourcis Clavier & Philosophie de Contrôle
+## 5. Raccourcis Clavier, Contrôleur Gamepad & Philosophie de Contrôle
 
 Dans le projet C11, l'absence de GUI riche imposait plus de **67 raccourcis clavier distincts**.  
-Dans le projet Odin, l'interface Dear ImGui (`F2`) expose l'intégralité des curseurs, sélecteurs et boutons de manière interactive, tout en conservant les raccourcis de navigation essentiels :
+Dans le projet Odin, l'interface Dear ImGui (`F2`) expose l'intégralité des curseurs, sélecteurs et boutons de manière interactive, tout en conservant les raccourcis de navigation et le support complet des **manettes DualShock 4 / DualSense / Logitech / Xbox** (voir le guide dédié : [`docs/gamepad-controller-integration-and-usage-guide.md`](gamepad-controller-integration-and-usage-guide.md)) :
 
+### 5.1. Clavier & Souris
 | Raccourci | Action | Implémentation Odin |
 |---|---|---|
 | `Escape` | Quitter l'application | [`src/app/input.odin`](../src/app/input.odin) |
@@ -244,8 +245,22 @@ Dans le projet Odin, l'interface Dear ImGui (`F2`) expose l'intégralité des cu
 | `C` | Toggle mode caméra (curseur verrouillé/visible) | [`src/app/input.odin`](../src/app/input.odin) |
 | `Space` | Réinitialiser la caméra (position, yaw, pitch) | [`src/app/input.odin`](../src/app/input.odin) |
 | `Page Up` / `Page Down` | Défiler les environnements HDR (transition fluide) | [`src/scene/env_manager.odin`](../src/scene/env_manager.odin) |
+| `F12` | Déclencher une capture de frame RenderDoc | [`src/app/input.odin`](../src/app/input.odin) |
 | `Molette Souris` | Impulsion d'accélération dans l'axe de visée | [`src/camera/camera.odin`](../src/camera/camera.odin) |
 | `Mouvement Souris` | Orientation de la vue (mouselook avec lissage) | [`src/camera/camera.odin`](../src/camera/camera.odin) |
+
+### 5.2. Manette & Contrôleur Gamepad (DualShock 4, DualSense, Logitech, Xbox)
+| Contrôle Gamepad | Action | Implémentation Odin |
+|---|---|---|
+| **Stick Gauche (X/Y)** | Déplacement horizontal (Strafe gauche/droite & Avancer/Reculer) | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Stick Droit (X/Y)** | Orientation caméra (Yaw & Pitch avec lissage temporel) | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Gâchettes R2 / L2** | Altitude (R2 = Monter $+Y$, L2 = Descendre $-Y$) | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Boutons R1 / L1** | Défiler les cartes HDR (R1 = Suivant, L1 = Précédent) | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Start / Options** | Ouvrir / Fermer le menu Dear ImGui | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Back / Share / Select** | Réinitialiser la position et rotation caméra | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Bouton Y / Triangle** | Cycle de l'overlay de métriques (F1) | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Bouton X / Carré** | Toggle mode caméra | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
+| **Bouton A / Croix** | Toggle mode plein écran | [`src/app/gamepad.odin`](../src/app/gamepad.odin) |
 
 ---
 
@@ -256,14 +271,14 @@ Dans le projet Odin, l'interface Dear ImGui (`F2`) expose l'intégralité des cu
 | Domaine | Couverture globale | Statut fonctionnel |
 |---|---|---|
 | **Core & Windowing** | 100% | ✅ Complet |
-| **Caméra & Contrôles** | 100% | ✅ Complet |
+| **Caméra & Contrôles** | 100% | ✅ Complet (+ Gamepad DualShock/Logitech/Xbox) |
 | **PBR & IBL Pipeline** | 95% | ✅ Complet (seul le slicing multi-frames temps réel diffère) |
 | **Skybox & Env Manager** | 100% | ✅ Complet (+ TLA+ et SIMD HDR) |
 | **Post-Processing** | 100% | ✅ Complet (+ A/B split, cache variantes, stops EV) |
-| **Interface & Profilage** | 120% | ✅ Supérieur au C11 (ImGui, GPU timers, Tracy, Search) |
-| **Tests & Validation** | 183 tests passants | ✅ Tests unitaires, CLI, shaders et headless GPU (Xvfb) |
-| **Windows & Wine Tooling** | 100% | ✅ **Complet** (cross-compilation Clang/LLD, Wine runner, 104 tests Wine, packaging `.tar.zst`/`.zip`) |
-| **Écosystème Steam / Proton** | 0% | ❌ **À implémenter** (assets steamgrid, injection art, proton runner) |
+| **Interface & Profilage** | 120% | ✅ Supérieur au C11 (ImGui, GPU timers, Tracy, Search, RenderDoc, ITT) |
+| **Tests & Validation** | 186 tests passants | ✅ Tests unitaires, CLI, shaders et headless GPU (Xvfb) |
+| **Windows & Wine Tooling** | 100% | ✅ **Complet** (cross-compilation Clang/LLD, Wine runner, 106 tests Wine, packaging `.tar.zst`/`.zip`) |
+| **Écosystème Steam / Proton** | 100% | ✅ **Complet** (assets steamgrid, injection art, runner Proton) |
 | **Tests de Stress Dédiés** | 100% | ✅ Complet (`test-chaos`, `stress-fullscreen` 100 cycles, `stress-envmap` 30 cycles, ASan) |
 | **Documentation Statique** | 50% | 🟡 Markdown brut (manque pipeline MkDocs/Doxygen avec CI) |
 
