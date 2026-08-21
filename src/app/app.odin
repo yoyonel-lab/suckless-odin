@@ -112,6 +112,9 @@ App :: struct {
 
 	// Performance mode (GameMode / SCHED_FIFO / Nice)
 	perf:            perf_mode.Perf_Mode,
+
+	// Gamepad / Controller input (DualShock 4 / DualSense / Logitech / XInput)
+	gamepad:         Gamepad_State,
 }
 
 // Creates the application (allocates + creates window).
@@ -195,6 +198,9 @@ init :: proc(
 	glfw.SetScrollCallback(application.window, scroll_callback)
 	glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 	application.camera_enabled = true
+
+	// Gamepad / Controller subsystem
+	gamepad_init(&application.gamepad)
 
 	// Load compute shader and slicing parameters from JSON file
 	tuning_params := settings.load_compute_tuning_params(compute_profile)
@@ -280,6 +286,8 @@ run :: proc(application: ^App) {
 		if !gui.wants_keyboard(&application.imgui) {
 			process_keyboard(application)
 		}
+
+		gamepad_poll(application, &application.gamepad, application.delta_time)
 
 		update_start := time.tick_now()
 		// Update scene (camera physics, etc.)
