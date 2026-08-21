@@ -120,6 +120,14 @@ def validate_file_links(md_file: str) -> tuple[list[str], int]:
             resolved = os.path.normpath(os.path.join(md_dir, target_path))
             root_resolved = os.path.normpath(os.path.join(PROJECT_ROOT, target_path))
 
+            # Skip sister repository paths that lie outside this repository tree
+            try:
+                rel_to_root = os.path.relpath(resolved, PROJECT_ROOT)
+                if rel_to_root.startswith(".."):
+                    continue
+            except ValueError:
+                continue
+
             if os.path.exists(resolved):
                 err = check_target_anchor(resolved, fragment, rel_md, line_num)
                 if err:
