@@ -11,6 +11,6 @@ if [ "$MODE" = "gl" ]; then
         mesa-utils xvfb >/dev/null
 else
     sudo apt-get install -y -qq \
-        libgl1-mesa-dev libc++-dev libx11-dev >/dev/null
+        libgl1-mesa-dev libc++-dev libx11-dev libclang-rt-19-dev >/dev/null
 fi
 echo "==> Linux system packages installed for mode '${MODE}'."
