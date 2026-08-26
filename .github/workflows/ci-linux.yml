@@ -179,6 +179,8 @@ jobs:
           odin build tests/gl/ \
             -out:/tmp/odin-test-gl \
             -build-mode:test \
+            -debug \
+            -thread-count:2 \
             -define:ODIN_TEST_THREADS=1 \
             -extra-linker-flags:"-lX11"
 
