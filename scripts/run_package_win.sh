@@ -34,8 +34,12 @@ echo "==> Testing version banner under Wine..."
 echo "==> Testing headless standalone benchmark under Wine (20 frames)..."
 (
     cd "${EXTRACTED_DIR}"
-    if [ -z "${DISPLAY:-}" ] && command -v xvfb-run >/dev/null 2>&1; then
-        WINEDEBUG=-all xvfb-run -a -s "-screen 0 1024x768x24" "$WINE_CMD" suckless-odin.exe --benchmark --benchmark-frames=20
+    if [ -n "${CI:-}" ] || [ -z "${DISPLAY:-}" ] || (! command -v xdpyinfo >/dev/null 2>&1) || (! xdpyinfo >/dev/null 2>&1); then
+        if command -v xvfb-run >/dev/null 2>&1; then
+            WINEDEBUG=-all xvfb-run -a -s "-screen 0 1024x768x24" "$WINE_CMD" suckless-odin.exe --benchmark --benchmark-frames=20
+        else
+            WINEDEBUG=-all "$WINE_CMD" suckless-odin.exe --benchmark --benchmark-frames=20
+        fi
     else
         WINEDEBUG=-all "$WINE_CMD" suckless-odin.exe --benchmark --benchmark-frames=20
     fi
