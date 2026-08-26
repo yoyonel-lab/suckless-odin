@@ -15,7 +15,7 @@ Document de référence exhaustif pour l'état d'avancement, la comparaison arch
 | **Effets Post-Processing** | 13 effets | 14 effets + A/B split + Stops EV | 100% porté + contrôles temps réel ImGui |
 | **Interface & Contrôles** | ~67 raccourcis clavier + overlay minimal | Dear ImGui dockable + Fuzzy search + 11 touches clés | UI graphique complète + recherche instantanée `Ctrl+F` |
 | **Support Windows / Cross-compil** | MinGW + Wine + CPack + `package_win.sh` | Windows amd64 natif + MinGW/LLD + Wine (`task build-win`, `test-win`, `package-win`) | ✅ 100% Porté (Cross-compilation, Wine tests, Packaging standalone) |
-| **Écosystème Steam & Proton** | Runner Proton + Artworks Steamgrid + Injector | — | ❌ *Écosystème Steam non porté en Odin* |
+| **Écosystème Steam & Proton** | Runner Proton + Artworks Steamgrid + Injector | [`scripts/run_proton.sh`](scripts/run_proton.sh), [`scripts/generate_steam_assets.sh`](scripts/generate_steam_assets.sh) | ✅ 100% Porté (Runner Proton, Steam Grid & Injection) |
 | **Décodeur HDR & SIMD** | `stb_image` float classique | SIMD AVX2/NEON FP16 direct (10.8× plus rapide) | Traitement streaming mémoire zero-heap |
 | **Vérification formelle** | — | Modèle TLA+ + compilateur codegen | Automate `Env_Manager` prouvé sans deadlock par TLC |
 | **Profilage & Télémétrie** | Tracy + Apitrace + Perf + Sampler | Tracy (CPU/GPU/PBO) + RenderDoc + VTune + Heaptrack | Profilage GPU temps réel par passe dans l'UI |
@@ -43,6 +43,7 @@ Document de référence exhaustif pour l'état d'avancement, la comparaison arch
 | Logging & Debug Output | [`log.c`](../suckless-ogl/src/log.c), [`gl_debug.c`](../suckless-ogl/src/gl_debug.c) | [`src/core/log/log.odin`](../src/core/log/log.odin), [`src/core/gl_debug/gl_debug.odin`](../src/core/gl_debug/gl_debug.odin) | ✅ | Niveaux de log, timestamps, KHR_debug markers / labels, Tracy log |
 | Persistance d'état de session | — | [`src/core/session/session.odin`](../src/core/session/session.odin), [`src/app/session.odin`](../src/app/session.odin) | ✅ *(Odin+)* | Sauvegarde/restauration JSON automatique (`session.json`) de 29 paramètres (caméra, postfx, env, UI) |
 | Mode Performance | [`perf_mode.c`](../suckless-ogl/src/perf_mode.c) | [`src/core/perf_mode/perf_mode.odin`](../src/core/perf_mode/perf_mode.odin) | ✅ | Mode basse consommation / headless benchmarking |
+| Support Manette / Gamepad | [`src/gamepad_input.c`](../suckless-ogl/src/gamepad_input.c) | [`src/app/gamepad.odin`](src/app/gamepad.odin) | ✅ | DualShock 4, Logitech F310/F710, Xbox One/Series. Sticks analogiques, deadzones, D-pad, hotplug |
 | Télémétrie & Export de métriques | [`app_metrics.c`](../suckless-ogl/src/app_metrics.c) | [`src/app/telemetry.odin`](../src/app/telemetry.odin) | ✅ | Export métriques de rendu, timings, JSON/CSV |
 
 ---
@@ -140,7 +141,6 @@ Document de référence exhaustif pour l'état d'avancement, la comparaison arch
 | **Rendu de traînées de particules** (`Trails`) | [`src/trail_renderer.c`](../suckless-ogl/src/trail_renderer.c), [`shaders/trail.*`](../suckless-ogl/shaders/trail.vert) | ❌ | Lié au système N-Body. |
 | **VFX d'ondes de choc** (`Shockwaves`) | [`src/shockwave.c`](../suckless-ogl/src/shockwave.c), [`shaders/shockwave.*`](../suckless-ogl/shaders/shockwave.vert) | ❌ | Lié aux collisions N-Body. |
 | **Light Probes / GI 1-Bounce (Harmoniques Sphériques SH9)** | [`src/light_probes.c`](../suckless-ogl/src/light_probes.c), [`src/sh_math.c`](../suckless-ogl/src/sh_math.c) | ❌ | Grille 3D de sondes SH9 avec worker pthread. |
-| **Support Manette / Gamepad** | [`src/gamepad_input.c`](../suckless-ogl/src/gamepad_input.c) | ❌ | Non prioritaire vis-à-vis du workflow clavier/souris + GUI. |
 | **Registre de Keybindings déclaratif & Notifications Toast** | [`src/app_binding.c`](../suckless-ogl/src/app_binding.c), [`src/action_notifier.c`](../suckless-ogl/src/action_notifier.c) | ❌ | Remplacé avantageusement par la GUI Dear ImGui interactive + tooltips d'aide intégrés. |
 
 ---

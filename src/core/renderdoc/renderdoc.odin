@@ -1,5 +1,7 @@
 package renderdoc
 
+RENDERDOC_ENABLE :: #config(RENDERDOC_ENABLE, false)
+
 import "core:c"
 import "core:dynlib"
 import "core:strings"
@@ -8,7 +10,7 @@ import log "../log"
 
 // RenderDoc In-App Capture API (v1.4.0) wrapper.
 // Enables programmatic frame and multi-frame captures directly from Odin code.
-// Zero-overhead when RenderDoc is not attached.
+// Zero-overhead when RenderDoc is not attached or compile-time disabled.
 
 RENDERDOC_API_Version :: enum c.int {
 	eRENDERDOC_API_Version_1_0_0 = 10000,
@@ -64,92 +66,117 @@ g_rdoc: RenderDoc_State
 
 // Initialize RenderDoc in-app API by probing loaded dynamic library.
 init :: proc() -> bool {
-	if g_rdoc.available { return true }
+	when RENDERDOC_ENABLE {
+		if g_rdoc.available { return true }
 
-	lib_handle: dynlib.Library
-	ok := false
+		lib_handle: dynlib.Library
+		ok := false
 
-	when ODIN_OS == .Linux || ODIN_OS == .Darwin {
-		lib_handle, ok = dynlib.load_library("librenderdoc.so")
-	} else when ODIN_OS == .Windows {
-		lib_handle, ok = dynlib.load_library("renderdoc.dll")
-	}
+		when ODIN_OS == .Linux || ODIN_OS == .Darwin {
+			lib_handle, ok = dynlib.load_library("librenderdoc.so")
+		} else when ODIN_OS == .Windows {
+			lib_handle, ok = dynlib.load_library("renderdoc.dll")
+		}
 
-	if !ok {
-		log.log_debug("RenderDoc", "RenderDoc library not found in process memory (not running under RenderDoc)")
+		if !ok {
+			log.log_debug("RenderDoc", "RenderDoc library not found in process memory (not running under RenderDoc)")
+			return false
+		}
+
+		get_api_sym, sym_ok := dynlib.symbol_address(lib_handle, "RENDERDOC_GetAPI")
+		if !sym_ok || get_api_sym == nil {
+			log.log_warning("RenderDoc", "Failed to find RENDERDOC_GetAPI symbol in librenderdoc")
+			return false
+		}
+
+		get_api_fn := cast(pRENDERDOC_GetAPI)get_api_sym
+		api_ptr: rawptr
+		ret := get_api_fn(.eRENDERDOC_API_Version_1_4_0, &api_ptr)
+		if ret != 1 || api_ptr == nil {
+			log.log_warning("RenderDoc", "RENDERDOC_GetAPI(1.4.0) returned error code: %d", ret)
+			return false
+		}
+
+		g_rdoc.api = cast(^API_1_4_0)api_ptr
+		g_rdoc.available = true
+
+		major, minor, patch: c.int
+		g_rdoc.api.GetAPIVersion(&major, &minor, &patch)
+		log.log_info("RenderDoc", "RenderDoc In-App API initialized (v%d.%d.%d active)", major, minor, patch)
+		return true
+	} else {
+		_ = dynlib.Library{}
+		_ = strings.clone_to_cstring
+		_ = log.log_debug
 		return false
 	}
-
-	get_api_sym, sym_ok := dynlib.symbol_address(lib_handle, "RENDERDOC_GetAPI")
-	if !sym_ok || get_api_sym == nil {
-		log.log_warning("RenderDoc", "Failed to find RENDERDOC_GetAPI symbol in librenderdoc")
-		return false
-	}
-
-	get_api_fn := cast(pRENDERDOC_GetAPI)get_api_sym
-	api_ptr: rawptr
-	ret := get_api_fn(.eRENDERDOC_API_Version_1_4_0, &api_ptr)
-	if ret != 1 || api_ptr == nil {
-		log.log_warning("RenderDoc", "RENDERDOC_GetAPI(1.4.0) returned error code: %d", ret)
-		return false
-	}
-
-	g_rdoc.api = cast(^API_1_4_0)api_ptr
-	g_rdoc.available = true
-
-	major, minor, patch: c.int
-	g_rdoc.api.GetAPIVersion(&major, &minor, &patch)
-	log.log_info("RenderDoc", "RenderDoc In-App API initialized (v%d.%d.%d active)", major, minor, patch)
-	return true
 }
 
 // Check if RenderDoc in-app API is currently active.
-is_active :: proc() -> bool {
-	return g_rdoc.available && g_rdoc.api != nil
+is_active :: #force_inline proc() -> bool {
+	when RENDERDOC_ENABLE {
+		return g_rdoc.available && g_rdoc.api != nil
+	} else {
+		return false
+	}
 }
 
 // Start a multi-frame or single-frame capture sequence.
-start_capture :: proc(device: rawptr = nil, window: rawptr = nil) {
-	if is_active() {
-		g_rdoc.api.StartFrameCapture(device, window)
-		log.log_info("RenderDoc", "Frame capture STARTED")
+start_capture :: #force_inline proc(device: rawptr = nil, window: rawptr = nil) {
+	when RENDERDOC_ENABLE {
+		if is_active() {
+			g_rdoc.api.StartFrameCapture(device, window)
+			log.log_info("RenderDoc", "Frame capture STARTED")
+		}
 	}
 }
 
 // End the active frame capture sequence and save the .rdc capture file.
-end_capture :: proc(device: rawptr = nil, window: rawptr = nil) -> bool {
-	if is_active() {
-		ret := g_rdoc.api.EndFrameCapture(device, window)
-		if ret == 1 {
-			log.log_info("RenderDoc", "Frame capture COMPLETED and written to disk successfully")
-			return true
+end_capture :: #force_inline proc(device: rawptr = nil, window: rawptr = nil) -> bool {
+	when RENDERDOC_ENABLE {
+		if is_active() {
+			ret := g_rdoc.api.EndFrameCapture(device, window)
+			if ret == 1 {
+				log.log_info("RenderDoc", "Frame capture COMPLETED and written to disk successfully")
+				return true
+			}
+			log.log_warning("RenderDoc", "Frame capture ended with error code: %d", ret)
+			return false
 		}
-		log.log_warning("RenderDoc", "Frame capture ended with error code: %d", ret)
+		return false
+	} else {
 		return false
 	}
-	return false
 }
 
 // Check if a capture is currently in progress.
-is_capturing :: proc() -> bool {
-	if is_active() {
-		return g_rdoc.api.IsFrameCapturing() == 1
+is_capturing :: #force_inline proc() -> bool {
+	when RENDERDOC_ENABLE {
+		if is_active() {
+			return g_rdoc.api.IsFrameCapturing() == 1
+		}
+		return false
+	} else {
+		return false
 	}
-	return false
 }
 
 // Trigger an immediate single frame capture at next swap.
-trigger_capture :: proc() {
-	if is_active() {
-		g_rdoc.api.TriggerCapture()
-		log.log_info("RenderDoc", "Capture triggered for next frame")
+trigger_capture :: #force_inline proc() {
+	when RENDERDOC_ENABLE {
+		if is_active() {
+			g_rdoc.api.TriggerCapture()
+			log.log_info("RenderDoc", "Capture triggered for next frame")
+		}
 	}
 }
 
 // Set custom output capture path template (e.g. "build/profiling/renderdoc/ibl_capture").
-set_capture_path_template :: proc(template_path: string) {
-	if is_active() {
-		c_path := strings.clone_to_cstring(template_path, context.temp_allocator)
-		g_rdoc.api.SetCaptureFilePathTemplate(c_path)
+set_capture_path_template :: #force_inline proc(template_path: string) {
+	when RENDERDOC_ENABLE {
+		if is_active() {
+			c_path := strings.clone_to_cstring(template_path, context.temp_allocator)
+			g_rdoc.api.SetCaptureFilePathTemplate(c_path)
+		}
 	}
 }

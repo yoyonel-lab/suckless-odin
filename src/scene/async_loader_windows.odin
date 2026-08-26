@@ -1,4 +1,4 @@
-//+build windows
+#+build windows
 package scene
 
 import "core:dynlib"
@@ -110,7 +110,7 @@ worker_os_init :: proc() {
 		if avrt_set_task != nil {
 			set_task := cast(proc "stdcall" (TaskName: cstring, TaskIndex: ^u32) -> rawptr)avrt_set_task
 			task_index: u32 = 0
-			g_worker_ctx.avrt_handle = set_task("Playback", &task_index)
+			g_worker_ctx.avrt_handle = set_task("Games", &task_index)
 		}
 	}
 }

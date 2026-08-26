@@ -1059,5 +1059,23 @@ tasks:
     cmds:
       - "{{.PYTHON3}} scripts/inject_steam_art.py {{.CLI_ARGS}}"
 
+  steam-kill:
+    desc: Terminate all running Steam processes (Flatpak and Native) to release cache locks
+    cmds:
+      - |
+        echo "==> Terminating Steam processes..."
+        if command -v flatpak >/dev/null 2>&1; then
+          flatpak kill com.valvesoftware.Steam 2>/dev/null || true
+        fi
+        pkill -9 -f "com.valvesoftware.Steam|steamwebhelper|ubuntu12_32/steam" 2>/dev/null || true
+        sleep 1
+        echo "✓ Steam processes terminated"
 
-
+  steam-update:
+    desc: Complete one-shot workflow to rebuild Windows package, kill Steam, and inject artworks
+    deps: [package-win]
+    cmds:
+      - task: steam-kill
+      - task: steam-art
+      - echo "✅ Steam application updated successfully (Binary + Shaders + Assets + Grid Artworks)."
+      - echo "👉 You can now relaunch Steam to play suckless-odin!"

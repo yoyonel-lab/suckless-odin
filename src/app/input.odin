@@ -58,9 +58,9 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	case glfw.KEY_SPACE:
 		camera_reset(app)
 	case glfw.KEY_PAGE_UP:
-		scene.scene_cycle_env(&app.scene, 1)
-	case glfw.KEY_PAGE_DOWN:
 		scene.scene_cycle_env(&app.scene, -1)
+	case glfw.KEY_PAGE_DOWN:
+		scene.scene_cycle_env(&app.scene, 1)
 	case glfw.KEY_F12:
 		renderdoc.trigger_capture()
 	}

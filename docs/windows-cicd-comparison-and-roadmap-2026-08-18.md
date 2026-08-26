@@ -25,9 +25,9 @@ Dans le projet `suckless-ogl` ([`.github/workflows/main.yml`](../suckless-ogl/.g
    - Compilation de l'exécutable release optimisé (`app-Windows-Release.exe`).
    - Upload du binaire Windows dans les artéfacts GitHub Actions.
 3. **`release` (Automatisation GitHub Releases)** :
-   - Déclenché sur chaque push `master` (publication `Nightly Build`) ou sur tag `v*`.
+   - Déclenché sur tag `v*` ou événement `workflow_dispatch`. Les pushes sur `master` génèrent et stockent automatiquement les paquets dans les artéfacts GitHub Actions du job `package-windows`.
    - Agrège les binaires Linux (`app-Release`, `app-UltraRelease`, `app-Profiling`) et Windows (`app-Windows-Release.exe`).
-   - Publication automatique via `softprops/action-gh-release@v3`.
+   - Publication automatique via `softprops/action-gh-release@v2`.
 
 ### 1.3. Outillage Local Steam & Proton
 - **Runner Proton** ([`scripts/run_proton.sh`](../suckless-ogl/scripts/run_proton.sh)) : Exécute le binaire Windows sous le runtime officiel Proton de Valve (Flatpak ou natif).
