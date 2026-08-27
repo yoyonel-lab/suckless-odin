@@ -63,8 +63,27 @@ markdown_extensions:
   - pymdownx.arithmatex:
       generic: true
 
+extra_javascript:
+  - javascripts/katex.js
+  - https://unpkg.com/katex@0/dist/katex.min.js
+  - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
+
+extra_css:
+  - https://unpkg.com/katex@0/dist/katex.min.css
+
 plugins:
   - search
+  - glightbox:
+      touchNavigation: true
+      loop: false
+      effect: zoom
+      slide_effect: slide
+      width: 100%
+      height: auto
+      zoomable: true
+      draggable: true
+      auto_caption: true
+      caption_position: bottom
 
 validation:
   nav:
@@ -95,3 +114,5 @@ nav:
       - Comparatif & Roadmap Windows CI/CD: windows-cicd-comparison-and-roadmap-2026-08-18.md
       - Quotas & Optimisation GitHub Actions: github-actions-quota-management-and-optimization-guide-2026-08-20.md
       - Sandbox Distrobox Optimus: distrobox-optimus-2026-05-24.md
+  - 📋 Audits & Feuilles de Route:
+      - Enrichissement Visuel de la Documentation (2026-08-27): documentation-visual-enrichment-analysis-and-roadmap-2026-08-27.md
