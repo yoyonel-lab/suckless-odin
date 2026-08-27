@@ -1,6 +1,7 @@
 # Build output
 build/
 build-release/
+site/
 suckless-odin
 *.exe
 

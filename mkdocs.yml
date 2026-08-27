@@ -1,0 +1,97 @@
+site_name: Suckless Odin
+site_description: Lean, High-Performance Odin PBR & IBL Realtime Rendering Engine
+site_author: Latty
+repo_url: https://github.com/yoyonel/suckless-odin
+repo_name: yoyonel/suckless-odin
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    # Palette toggle for dark mode (default)
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: light blue
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: light blue
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+  language: fr
+  features:
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - toc.integrate
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - abbr
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - md_in_html
+  - tables
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.arithmatex:
+      generic: true
+
+plugins:
+  - search
+
+validation:
+  nav:
+    not_found: ignore
+  links:
+    unrecognized_links: ignore
+
+nav:
+  - Accueil: index.md
+  - 🎮 Intégration Steam & Proton: steam-integration-and-proton-guide.md
+  - 🕹️ Contrôleurs & Gamepads: gamepad-controller-integration-and-usage-guide.md
+  - 🏗️ Architecture & Core:
+      - Analyse Architecture C11 vers Odin: PORTING_C11_TO_ODIN.md
+      - Architecture CPU/GPU Data: cpu-gpu-data-architecture-2026-05-23.md
+      - Rationale SIMD C: architecture-simd-c-rationale-2026-08-18.md
+      - Pipeline Post-Processing: postfx-pipeline-2026-05-18.md
+      - Pipeline IBL Asynchrone: async-ibl-pipeline-2026-05-26.md
+      - Filtrage Bicubique Envmap: envmap-bicubic-filtering-2026-05-21.md
+  - 🚀 Optimisation & Profiling:
+      - Protocole Benchmarking & Roadmap: optimization-roadmap-and-benchmarking-protocol-2026-08-18.md
+      - Profiling Tracy CPU: cpu-profiling-tracy-2026-05-23.md
+      - Profiling GPU Automatisé: automated-profiling-real-gpu-2026-05-26.md
+      - Plan Callgrind: optimization-plan-callgrind-2026-08-18.md
+      - Plan Heaptrack: optimization-plan-heaptrack-2026-08-18.md
+      - Analyse RenderDoc: renderdoc-frame-analysis-2026-05-19.md
+  - 🛠️ Build & CI/CD:
+      - Guide Build & CI/CD: ci-build.md
+      - Comparatif & Roadmap Windows CI/CD: windows-cicd-comparison-and-roadmap-2026-08-18.md
+      - Quotas & Optimisation GitHub Actions: github-actions-quota-management-and-optimization-guide-2026-08-20.md
+      - Sandbox Distrobox Optimus: distrobox-optimus-2026-05-24.md
