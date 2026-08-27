@@ -52,6 +52,11 @@ graph TD
     end
 ```
 
+| Matrice des Workflows GitHub Actions & Architecture de Validation ISO Locale |
+| :---: |
+| ![GitHub Actions CI Matrix](images/ci/01_ci_matrix_topology.webp) |
+| *Orchestrateur découpé : Lint/Vet, Linux Matrix (GCC/Clang/Xvfb), Windows Cross-Build (MinGW/Wine) et packaging automatique.* |
+
 ---
 
 ## 3. Workflows Breakdown

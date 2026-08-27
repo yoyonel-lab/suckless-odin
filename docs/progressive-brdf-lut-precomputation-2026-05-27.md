@@ -9,7 +9,9 @@ This document details the progressive precomputation design for the view-indepen
 During engine startup within `scene_create`, the IBL pipeline compiles and executes the `shaders/IBL/spbrdf.glsl` compute shader.
 
 1.  **Workload Scale**: The compute shader utilizes a high-quality Monte Carlo integration running `1024` GGX and Smith visibility samples per pixel:
+
     $$\text{Workload} = 512 \times 512 \text{ pixels} \times 1024 \text{ samples} = 268,435,456 \text{ iterations}$$
+
 2.  **The Freeze**: Dispatched in a single synchronous step with `gl.Finish()`, this causes an integrated GPU (e.g., Intel Iris Xe) to stall for **500ms - 800ms**. On software-rendering virtual framebuffers (Mesa LLVMpipe), the block exceeds **1.7 seconds**, preventing the main window from showing a loading screen or processing events immediately on start.
 
 ---
@@ -38,6 +40,11 @@ sequenceDiagram
     end
     Note over IBL, GPU: Precomputation Complete (brdf_lut_computed = true)
 ```
+
+| Texture BRDF LUT Précalculée ($512 \times 512$ RG16F) |
+| :---: |
+| ![Texture BRDF LUT](images/ibl/01_brdf_lut_512x512.webp) |
+| *Intégration Split-Sum de Cook-Torrance ($x$: $\cos\theta$, $y$: rugosité $\alpha$). Canal R = Échelle de Fresnel ($F_0$), Canal G = Biais.* |
 
 ---
 

@@ -50,6 +50,11 @@ flowchart TD
     end
 ```
 
+| Schéma de Disposition & Mapping Canonique Manette (DualShock / Xbox) |
+| :---: |
+| ![Gamepad Mapping Layout](images/gamepad/01_gamepad_layout_mapping.webp) |
+| *Mapping unifié : Sticks analogiques 6DoF, gâchettes de hauteur (L2/R2), boutons d'action et bascules ImGui/HUD.* |
+
 ### Grille de Correspondance Exhaustive :
 
 | Contrôle Manette | Bouton / Axe GLFW | Action dans `suckless-odin` | Équivalent Clavier / Souris |

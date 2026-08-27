@@ -19,6 +19,11 @@ Profil capturé sur session interactive normalisée (714 frames, 2 cycles HDR, m
   3. `postfx::dof_render` : **~1,428 appels (glFramebufferTexture2D)** ([`dof.odin:62, 74`](../src/rendering/postfx/dof.odin#L62))
   4. `scene::async_worker_proc` : **67.11 MB peak (FP16 buffer) + 24.75 MB peak (raw HDR)** ([`async_loader.odin:242, 251`](../src/scene/async_loader.odin#L242))
 
+| Profil de Consommation Mémoire Heaptrack (Timeline d'Allocation & Zéro Fuite) |
+| :---: |
+| ![Heaptrack Memory Profiler](images/profiling/06_heaptrack_memory_allocations.webp) |
+| *Graphique Heaptrack validant la stabilisation à 14.5 Mo de RAM en régime établi et l'absence de fuite continue.* |
+
 ---
 
 ## 2. Plans Détaillés par Piste d'Amélioration
@@ -127,9 +132,9 @@ task profile-heaptrack     # Vérification de la baisse du Peak Heap (< 85 MB)
 
 ### 🏆 Synthèse Globale Cumulée Heaptrack (Plans A + B)
 
-* **Peak Heap RAM** : **143.93 MB $\rightarrow$ 114.97 MB (-28.96 MB / -20.1% d'empreinte mémoire)**
-* **Appels d'allocations** : **221,483 $\rightarrow$ 198,423 (-23,060 allocations)**
-* **Reconfigurations FBO** : **~5,700 $\rightarrow$ 0 appel `glFramebufferTexture2D` par frame**
+* **Peak Heap RAM** : **143.93 MB → 114.97 MB (-28.96 MB / -20.1% d'empreinte mémoire)**
+* **Appels d'allocations** : **221,483 → 198,423 (-23,060 allocations)**
+* **Reconfigurations FBO** : **~5,700 → 0 appel `glFramebufferTexture2D` par frame**
 
 ---
 

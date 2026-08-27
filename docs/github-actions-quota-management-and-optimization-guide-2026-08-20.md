@@ -37,6 +37,11 @@ Sur un compte GitHub personnel en plan gratuit (*Free tier*), les dépôts **pri
 > [!IMPORTANT]
 > Le passage d'un dépôt en visibilité **Publique** supprime instantanément toute restriction de quota pour les runners Linux standard (`ubuntu-latest`).
 
+| Optimisation du Temps d'Exécution CI & Consommation du Quota Gratuit |
+| :---: |
+| ![GitHub Actions Quota Optimization](images/ci/02_ci_quota_optimization.webp) |
+| *Accélération de 185s à 8.5s (-95% de temps de build) grâce aux actions composites et à la mise en cache ccache.* |
+
 ---
 
 ## 3. Stratégies d'Optimisation Zéro-Coût

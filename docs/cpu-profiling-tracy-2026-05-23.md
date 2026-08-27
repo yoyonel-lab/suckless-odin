@@ -13,6 +13,11 @@ pour une app pure-rendering sans simulation/réseau/gameplay.
 - Config: `glfw.SwapInterval(0)` (vsync off)
 - Machine: Linux, ~4 cores logiques
 
+| Vue Globale de la Timeline Tracy (Threads Main, Async Loader, Audio & GPU Queue) |
+| :---: |
+| ![Tracy Timeline Overview](images/profiling/01_tracy_timeline_overview.webp) |
+| *Capture de la timeline Tracy à 143 FPS (~6.94ms/frame) avec répartition des zones CPU et des soumissions GPU.* |
+
 ## Tracy Zones Instrumentées
 
 ### CPU (Main thread)
@@ -57,12 +62,22 @@ Bimodale :
 - Pic principal à ~200μs (GPU a fini → flush rapide)
 - Longue traîne jusqu'à 4.5ms (GPU pas fini → driver stall/back-pressure)
 
+| Distribution des Durées de `Swap_Buffers` (Driver Throttling Bimodal) |
+| :---: |
+| ![Tracy Distribution SwapBuffers](images/profiling/02_tracy_frame_statistics_distribution.webp) |
+| *Histogramme montrant la dualité entre retour immédiat (~200μs) et retenue driver jusqu'à 2.88ms.* |
+
 ### GPU Frame Time
 
 - Frame 1242: 4.61 ms
 - Frame 1243: 3.78 ms
 - Frame 1244: 3.85 ms
 - Moyenne: ~4 ms → ~250 FPS max théorique GPU
+
+| Décomposition des Passes GPU par Frame (Tracy GPU Timers) |
+| :---: |
+| ![Tracy GPU Zones Breakdown](images/profiling/03_tracy_postfx_gpu_zones.webp) |
+| *Coût GPU par passe : Bloom multi-pass 1.44ms, Scene PBR 1.85ms, Composite 0.72ms.* |
 
 ## Diagnostic
 

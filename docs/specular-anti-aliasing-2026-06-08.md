@@ -16,15 +16,21 @@ Pour résoudre ce problème, nous avons intégré la technique de **Specular Ant
 L'algorithme adapte dynamiquement la rugosité microfacette ($\alpha = \text{roughness}^2$) en lui ajoutant une variance géométrique $\sigma_{\text{added}}^2$ estimée à partir de la courbure de la surface ou des variations spatiales des normales. 
 
 La rugosité finale filtrée est calculée comme suit :
+
 $$\text{roughness}_{\text{final}} = \sqrt{\max(\text{roughness}^2 + \sigma_{\text{added}}^2, 0.04)}$$
 
 Nous proposons deux modes d'estimation de la variance :
-1. **Screen-Space (Dérivées d'Écran) :**
+
+1. **Screen-Space (Dérivées d'Écran) :**  
    Estime la variance des normales en utilisant les dérivées partielles d'écran (`dFdx` / `dFdy`) de la normale géométrique $N$ dans le fragment shader :
-   $$\sigma_{\text{added}}^2 = 50.0 \times \max(\| \frac{\partial N}{\partial x} \|^2, \| \frac{\partial N}{\partial y} \|^2)$$
-2. **Curvature (Courbure Analytique) :**
+
+   $$\sigma_{\text{added}}^2 = 50.0 \times \max\left(\left\| \frac{\partial N}{\partial x} \right\|^2, \left\| \frac{\partial N}{\partial y} \right\|^2\right)$$
+
+2. **Curvature (Courbure Analytique) :**  
    Estime la variance de manière analytique à partir de la taille d'un pixel projeté dans le monde et du rayon de la sphère géométrique :
+
    $$\text{projectedCurvature} = \frac{\text{pixelSizeWorld}}{\text{SphereRadius}}$$
+
    $$\sigma_{\text{added}}^2 = 50.0 \times \text{projectedCurvature}^2$$
 
 ---
@@ -43,6 +49,16 @@ Les composants modifiés sont les suivants :
     - *Amplified Difference* : Affiche la différence absolue amplifiée 10x entre le rendu avec et sans AA spéculaire.
   - **A/B Split :** Un séparateur horizontal réglable (Slider 0% à 100%) permettant de comparer côte à côte (gauche avec AA, droite sans AA). Un trait vertical orange (1.5 pixel de large) démarque visuellement la limite.
 
+| Rendu Sans Specular AA (Shimmering & Aliasing) | Rendu Avec Specular AA (Filtrage Varef) |
+| :---: | :---: |
+| ![Sans Specular AA](images/materials/01_specular_aa_disabled.webp) | ![Avec Specular AA](images/materials/02_specular_aa_screen_space.webp) |
+| *Aliasing géométrique visible sur les silhouettes et reflets nets.* | *Microfacettes filtrées, reflets stables et transitions douces.* |
+
+| Mode Debug Split-Screen A/B (Ligne Orange) | Masque de Variance Injectée (Grayscale) |
+| :---: | :---: |
+| ![Split A/B Specular AA](images/materials/03_specular_aa_split_ab.webp) | ![Masque Variance](images/materials/04_specular_aa_variance_mask.webp) |
+| *Comparatif temps réel : gauche avec AA, droite brute.* | *Visualisation en niveaux de gris de la variance $\sigma_{\text{added}}^2$.* |
+
 ---
 
 ## 4. Analyse & Résolution du Bug GPU Intel/Mesa (Sphères Noires)
@@ -52,7 +68,9 @@ Sur les GPU Intel (tels que Mesa Intel Iris Xe), les sphères avec une rugosité
 
 ### Diagnostic technique
 1. Dans le shader compute de préfiltrage spéculaire `spmap.glsl`, le niveau de MIP map d'échantillonnage de la carte d'environnement d'entrée (`mipLevel`) est calculé dynamiquement :
-   $$\text{mipLevel} = 0.5 \times \log_2(\frac{\text{saSample}}{\text{saTexel}})$$
+
+   $$\text{mipLevel} = 0.5 \times \log_2\left(\frac{\text{saSample}}{\text{saTexel}}\right)$$
+
 2. Pour des valeurs de rugosité élevées, l'échantillonnage GGX est large. Le rapport $\frac{\text{saSample}}{\text{saTexel}}$ devient immense, générant des valeurs de `mipLevel` hors-limites (supérieures au niveau de MIP maximal de la texture, ex. $> 12.0$) ou négatives.
 3. Les pilotes graphiques sous Mesa/Linux ont tendance à optimiser et ignorer les fonctions standards GLSL de vérification `isnan(mipLevel)` et `isinf(mipLevel)` sous des paramètres d'optimisation agressive (*fast-math*). 
 4. Des valeurs `NaN`/`Inf` non interceptées passaient alors dans `textureLod(envMap, ...)`, provoquant le retour de couleurs corrompues (`NaN`/`Inf`). Le désinfecteur de couleur spéculaire du shader remplaçait ces valeurs invalides par du noir pur (`vec3(0.0)`), rendant les sphères rugueuses complètement noires.

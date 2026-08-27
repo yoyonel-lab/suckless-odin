@@ -44,6 +44,11 @@ Render_Frame (EID 2-237)
 └── glXSwapBuffers                               Action 20
 ```
 
+| Arborescence des Événements RenderDoc (Frame #6378 — EID 2 à 237) |
+| :---: |
+| ![RenderDoc Event Browser Hierarchy](images/profiling/04_renderdoc_event_browser_hierarchy.webp) |
+| *Visualisation de l'Event Browser : Passes Clear, Skybox, Instanced Draw PBR, Bloom mips et Uber Composite.* |
+
 ## Per-Pass Breakdown
 
 | Pass | Actions | Draws/Dispatches | Resolution | % of frame |
@@ -58,6 +63,11 @@ Render_Frame (EID 2-237)
 | Composite | 1 | 1 draw | 1920×1200 | 5% |
 | Overlay/GUI | 0 | 0 | — | 0% |
 | Swap | 1 | — | — | 5% |
+
+| Inspection du Pipeline State Viewer (Shaders, SSBO & Uniform Buffers std140) |
+| :---: |
+| ![RenderDoc Pipeline State Bindings](images/profiling/05_renderdoc_pipeline_state_bindings.webp) |
+| *Validation des liaisons de textures (slots 0-17), du SSBO binding 2 et de la conformité UBO std140 512 octets.* |
 
 ## Key Observations
 

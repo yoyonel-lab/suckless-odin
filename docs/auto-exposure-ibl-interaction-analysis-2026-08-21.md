@@ -98,6 +98,11 @@ postfx.pipeline_begin(&s.postfx_pipeline)
 | **Régime Permanent** (*Steady State*) | `.Idle` | `false` | **Non (Bypass)** | **0 compute dispatch, 0 bascule de pipeline, 0 overhead CPU/GPU.** |
 | **Changement d'Env HDR** | `!= .Idle` (transition) | `true` | **Oui (1x1x1)** | Synchronise les tranches de la nouvelle map automatiquement. |
 
+| Courbe d'Adaptation Temporelle de l'Auto-Exposition HDR (Compute Shader) |
+| :---: |
+| ![Auto-Exposure Adaptation Curve](images/ibl/03_auto_exposure_histogram.webp) |
+| *Modélisation de l'œil virtuel : convergence exponentielle douce de la luminance moyenne $L_{\text{adapt}}$ lors des transitions de scène.* |
+
 ---
 
 ## 5. ✅ Preuves de Validation Technique
