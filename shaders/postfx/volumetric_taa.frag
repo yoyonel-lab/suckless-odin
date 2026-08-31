@@ -67,12 +67,12 @@ void main()
     float depth = texture(u_current_depth, TexCoords).r;
     float linear_dist = (depth > 0.0) ? depth : u_far_plane;
 
-    // 1. Reconstruct Current World-Space Position
+    // 1. Reconstruct Current World-Space Position (exact linear planar depth projection)
     vec4 clip_pos = vec4(TexCoords * 2.0 - 1.0, 1.0, 1.0);
     vec4 world_h  = u_inv_view_proj * clip_pos;
     vec3 world_pos_far = world_h.xyz / world_h.w;
-    vec3 ray_dir = normalize(world_pos_far - u_cam_pos);
-    vec3 world_pos = u_cam_pos + ray_dir * linear_dist;
+    vec3 ray_vector_to_far = world_pos_far - u_cam_pos;
+    vec3 world_pos = u_cam_pos + ray_vector_to_far * (linear_dist / u_far_plane);
 
     // 2. Project into Previous Frame Screen Space (UV)
     vec4 prev_clip = u_prev_view_proj * vec4(world_pos, 1.0);

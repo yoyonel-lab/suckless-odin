@@ -15,7 +15,7 @@ flat layout(location = 8) in vec3 PrevSphereCenter;
 
 uniform mat4 u_view;
 uniform mat4 u_projection;
-uniform mat4 u_previousViewProj;
+uniform mat4 u_prev_view_proj;
 uniform vec3 u_cam_pos;
 uniform vec2 u_screen_size;
 uniform int u_edge_aa_mode; // 0=off, 1=on, 2=debug
@@ -40,6 +40,20 @@ layout(binding = 15) uniform sampler2D irradianceMap;
 layout(binding = 16) uniform sampler2D prefilterMap;
 layout(binding = 17) uniform sampler2D brdfLUT;
 layout(binding = 18) uniform samplerCube u_point_shadow_cubemap;
+
+// -------------------------------------------------------------------
+// Split-Screen Line Helper
+// -------------------------------------------------------------------
+vec4 apply_split_line(vec4 color, float edgeFactor)
+{
+    if (u_specular_aa_split_enabled) {
+        float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
+        if (dist < 1.5) {
+            return vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
+        }
+    }
+    return color;
+}
 
 // -------------------------------------------------------------------
 // Constants
@@ -231,39 +245,14 @@ void main()
                                   Albedo, Metallic, roughness, AO);
 
     if (u_specular_aa_debug_mode == 1 && !bypass_specular_aa) {
-        FragColor = vec4(vec3(spec_aa_variance * 10.0), edgeFactor);
-
-        // Draw split line if active and close to position
-        if (u_specular_aa_split_enabled) {
-            float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
-            if (dist < 1.5) {
-                FragColor = vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
-            }
-        }
+        FragColor = apply_split_line(vec4(vec3(spec_aa_variance * 10.0), edgeFactor), edgeFactor);
         return;
     } else if (u_specular_aa_debug_mode == 2 && !bypass_specular_aa) {
         float roughness_no_aa = max(Roughness, 0.04);
         vec3 color_no_aa = compute_IBL_PBR(N, V, R, F0, NdotV,
                                              Albedo, Metallic, roughness_no_aa, AO);
-        FragColor = vec4(abs(color - color_no_aa) * 10.0, edgeFactor);
-
-        // Draw split line if active and close to position
-        if (u_specular_aa_split_enabled) {
-            float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
-            if (dist < 1.5) {
-                FragColor = vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
-            }
-        }
+        FragColor = apply_split_line(vec4(abs(color - color_no_aa) * 10.0, edgeFactor), edgeFactor);
         return;
-    }
-
-    // Draw split line for PBR view
-    if (u_specular_aa_split_enabled) {
-        float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
-        if (dist < 1.5) {
-            FragColor = vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
-            return;
-        }
     }
 
     // Shadow Mapping visibility attenuation (subtle darkening of base IBL when occluded)
@@ -298,7 +287,7 @@ void main()
         // Interior (edgeFactor ~1.0): dim the scene to make edges pop
         // Transition zone (edgeFactor < 0.99): red→yellow→green heatmap
         if (edgeFactor >= 0.99) {
-            FragColor = vec4(color * 0.25, 1.0);
+            FragColor = apply_split_line(vec4(color * 0.25, 1.0), edgeFactor);
         } else {
             // Heatmap: 0.0 = red, 0.5 = yellow, 1.0 = green
             vec3 heatmap;
@@ -307,12 +296,12 @@ void main()
             } else {
                 heatmap = mix(vec3(1.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), (edgeFactor - 0.5) * 2.0);
             }
-            FragColor = vec4(heatmap, 1.0);
+            FragColor = apply_split_line(vec4(heatmap, 1.0), edgeFactor);
         }
     } else {
         // Alpha carries edge factor for blending (GL_BLEND on attachment 0).
         // RGB stays full intensity — the blend equation handles compositing.
-        FragColor = vec4(color, edgeFactor);
+        FragColor = apply_split_line(vec4(color, edgeFactor), edgeFactor);
     }
 
     // Motion blur: per-pixel velocity from raytraced hit position
@@ -322,7 +311,7 @@ void main()
 
     // B. Previous NDC: reconstruct previous hit using offset from sphere center
     vec3 prevHitPos = PrevSphereCenter + (hitPos - SphereCenter);
-    vec4 previousClip = u_previousViewProj * vec4(prevHitPos, 1.0);
+    vec4 previousClip = u_prev_view_proj * vec4(prevHitPos, 1.0);
     vec2 previousPosNDC = previousClip.xy / previousClip.w;
 
     // C. Delta (0.5 converts NDC [-1,1] to UV [0,1] space)

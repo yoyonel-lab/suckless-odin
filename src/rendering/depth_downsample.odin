@@ -7,14 +7,6 @@ import log "../core/log"
 import gl_state "../core/gl_state"
 import shader "./shader"
 
-// Fullscreen triangle for downsampling pass
-@(private, rodata)
-fullscreen_quad_verts := [6]f32{
-	-1.0, -1.0,
-	 3.0, -1.0,
-	-1.0,  3.0,
-}
-
 // Depth downsample state: produces half-resolution linear depth and geometric edge mask
 Depth_Downsample :: struct {
 	fbo:                [2]u32,
@@ -25,7 +17,7 @@ Depth_Downsample :: struct {
 	full_height:        i32,
 	width:              i32, // Low-res width (W / 2)
 	height:             i32, // Low-res height (H / 2)
-	edge_threshold:     f32, // Discontinuity threshold in meters (default 0.25)
+	edge_threshold:     f32, // Relative depth discontinuity threshold epsilon (default 0.030 = 3%)
 
 	// Downsample program & uniforms
 	program:            u32,
@@ -33,8 +25,7 @@ Depth_Downsample :: struct {
 	loc_near_plane:     i32,
 	loc_far_plane:      i32,
 	loc_edge_threshold: i32,
-	vao:                u32,
-	vbo:                u32,
+	triangle:           Fullscreen_Triangle,
 
 	// Preview RGBA texture for Dear ImGui Inspector
 	preview_fbo:        u32,
@@ -55,33 +46,31 @@ depth_downsample_create :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 	dd.full_height = max(2, full_height)
 	dd.width = max(1, full_width / 2)
 	dd.height = max(1, full_height / 2)
-	dd.edge_threshold = 0.25 // 25 cm depth step
+	dd.edge_threshold = 0.030 // 3% relative depth step
 	dd.preview_mode = 0 // Turbo Heatmap
 	dd.preview_min_depth = 0.5
 	dd.preview_max_depth = 35.0
 	dd.depth_idx = 0
 
-	// 1. Shaders
+	// 1. Shaders & static sampler uniforms
 	dd.program = shader.load_program("shaders/postfx/postfx.vert", "shaders/depth_downsample.frag") or_return
 	dd.loc_texel_size = gl.GetUniformLocation(dd.program, "u_texel_size")
 	dd.loc_near_plane = gl.GetUniformLocation(dd.program, "u_near_plane")
 	dd.loc_far_plane = gl.GetUniformLocation(dd.program, "u_far_plane")
 	dd.loc_edge_threshold = gl.GetUniformLocation(dd.program, "u_edge_threshold")
+	gl.UseProgram(dd.program)
+	gl.Uniform1i(gl.GetUniformLocation(dd.program, "u_full_depth_tex"), 0)
 
 	dd.preview_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/debug_depth_preview.frag") or_return
 	dd.preview_loc_mode = gl.GetUniformLocation(dd.preview_program, "u_mode")
 	dd.preview_loc_min = gl.GetUniformLocation(dd.preview_program, "u_min_depth")
 	dd.preview_loc_max = gl.GetUniformLocation(dd.preview_program, "u_max_depth")
+	gl.UseProgram(dd.preview_program)
+	gl.Uniform1i(gl.GetUniformLocation(dd.preview_program, "u_tex"), 0)
+	gl.UseProgram(0)
 
 	// 2. Fullscreen Triangle VAO
-	gl.GenVertexArrays(1, &dd.vao)
-	gl.GenBuffers(1, &dd.vbo)
-	gl.BindVertexArray(dd.vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, dd.vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, size_of(fullscreen_quad_verts), &fullscreen_quad_verts, gl.STATIC_DRAW)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, 2 * size_of(f32), 0)
-	gl.BindVertexArray(0)
+	fullscreen_triangle_create(&dd.triangle)
 
 	// 3. Create Textures and FBO
 	create_fbo(dd) or_return
@@ -223,17 +212,14 @@ depth_downsample_render :: proc(dd: ^Depth_Downsample, full_depth_tex: u32, near
 	gl.UseProgram(dd.program)
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, full_depth_tex)
-	gl.Uniform1i(gl.GetUniformLocation(dd.program, "u_full_depth_tex"), 0)
 
 	gl.Uniform2f(dd.loc_texel_size, 1.0 / f32(dd.full_width), 1.0 / f32(dd.full_height))
 	gl.Uniform1f(dd.loc_near_plane, near_plane)
 	gl.Uniform1f(dd.loc_far_plane, far_plane)
 	gl.Uniform1f(dd.loc_edge_threshold, dd.edge_threshold)
 
-	gl.BindVertexArray(dd.vao)
-	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	fullscreen_triangle_draw(&dd.triangle)
 
-	gl.BindVertexArray(0)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 	gl.UseProgram(0)
 
@@ -282,15 +268,12 @@ depth_downsample_update_preview :: proc(dd: ^Depth_Downsample) {
 	} else {
 		gl.BindTexture(gl.TEXTURE_2D, dd.low_res_depth_tex[dd.depth_idx])
 	}
-	gl.Uniform1i(gl.GetUniformLocation(dd.preview_program, "u_tex"), 0)
 	gl.Uniform1i(dd.preview_loc_mode, dd.preview_mode)
 	gl.Uniform1f(dd.preview_loc_min, dd.preview_min_depth)
 	gl.Uniform1f(dd.preview_loc_max, dd.preview_max_depth)
 
-	gl.BindVertexArray(dd.vao)
-	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	fullscreen_triangle_draw(&dd.triangle)
 
-	gl.BindVertexArray(0)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 	gl.UseProgram(0)
 
@@ -305,15 +288,8 @@ depth_downsample_update_preview :: proc(dd: ^Depth_Downsample) {
 // Releases all GPU resources
 depth_downsample_destroy :: proc(dd: ^Depth_Downsample) {
 	destroy_fbo(dd)
+	fullscreen_triangle_destroy(&dd.triangle)
 
-	if dd.vao != 0 {
-		gl.DeleteVertexArrays(1, &dd.vao)
-		dd.vao = 0
-	}
-	if dd.vbo != 0 {
-		gl.DeleteBuffers(1, &dd.vbo)
-		dd.vbo = 0
-	}
 	if dd.program != 0 {
 		gl.DeleteProgram(dd.program)
 		dd.program = 0

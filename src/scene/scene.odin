@@ -162,7 +162,7 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_view       = gl.GetUniformLocation(s.pbr_program, "u_view")
 	s.loc_projection = gl.GetUniformLocation(s.pbr_program, "u_projection")
 	s.loc_cam_pos    = gl.GetUniformLocation(s.pbr_program, "u_cam_pos")
-	s.loc_prev_view_proj = gl.GetUniformLocation(s.pbr_program, "u_previousViewProj")
+	s.loc_prev_view_proj = gl.GetUniformLocation(s.pbr_program, "u_prev_view_proj")
 	s.loc_screen_size = gl.GetUniformLocation(s.pbr_program, "u_screen_size")
 	s.loc_edge_aa_mode = gl.GetUniformLocation(s.pbr_program, "u_edge_aa_mode")
 	s.loc_specular_aa_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_enabled")
@@ -282,7 +282,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
 
 	// 1. Skybox (drawn first, depth <= 1.0)
-	if s.skybox_visible && (!s.volumetric.enabled || !s.volumetric.isolate_in_scene) {
+	if s.skybox_visible && (!s.volumetric.params.enabled || !s.volumetric.params.isolate_in_scene) {
 		dbg.push_group("Skybox_Pass")
 		rendering.skybox_render(&s.skybox, view, proj, s.specular_aa_split_enabled, s.specular_aa_split_position)
 		dbg.pop_group()
@@ -395,7 +395,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// 2.6 Volumetric Lighting: Raymarching & TAA Reprojection passes (Phase 3 & 4)
 	vp := proj * view
 	inv_vp := mt.mat4_inverse(vp)
-	if s.point_light.enabled && s.volumetric.enabled {
+	if s.point_light.enabled && s.volumetric.params.enabled {
 		rendering.volumetric_render(
 			&s.volumetric,
 			rendering.depth_downsample_get_current_depth(&s.depth_downsample),
@@ -406,23 +406,24 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 			s.camera.position,
 			settings.NEAR_PLANE,
 			settings.FAR_PLANE,
-			light_pos,
-			s.point_light.radius,
-			s.point_light.color,
-			s.point_light.intensity,
-			s.point_light.shadow_bias,
-			s.volumetric.shadows_enabled,
+			&s.point_light,
 			i32(s.frame_count),
 		)
 
 		// Direct additive composite into 3D scene viewport HDR buffer
-		if s.volumetric.isolate_in_scene {
+		if s.volumetric.params.isolate_in_scene {
 			gl.BindFramebuffer(gl.FRAMEBUFFER, s.postfx_pipeline.scene_fbo)
 			gl.ColorMask(true, true, true, true)
 			gl.ClearColor(0.0, 0.0, 0.0, 0.0)
 			gl.Clear(gl.COLOR_BUFFER_BIT)
 		}
-		rendering.volumetric_composite_to_scene(&s.volumetric, s.postfx_pipeline.scene_fbo, width, height)
+		rendering.volumetric_composite_to_scene(
+			&s.volumetric,
+			s.postfx_pipeline.scene_fbo,
+			width, height,
+			s.depth_downsample.discontinuity_tex,
+			rendering.depth_downsample_get_current_depth(&s.depth_downsample),
+		)
 	}
 
 	// 3. End post-processing (composite to screen)

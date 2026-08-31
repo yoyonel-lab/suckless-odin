@@ -88,17 +88,8 @@ Shadow_Cubemap :: struct {
 	preview_w:            i32,
 	preview_h:            i32,
 	preview_program:      u32,
-	preview_vao:          u32,
-	preview_vbo:          u32,
+	preview_triangle:     Fullscreen_Triangle,
 	preview_dirty:        bool,
-}
-
-// Fullscreen triangle for preview atlas rendering
-@(private, rodata)
-preview_fullscreen_verts := [6]f32{
-	-1.0, -1.0,
-	 3.0, -1.0,
-	-1.0,  3.0,
 }
 
 // Generates view matrix for a specific cubemap face in OpenGL convention
@@ -120,11 +111,9 @@ cubemap_face_view_matrix :: proc(face: Shadow_Cubemap_Face, eye: mt.Vec3) -> mt.
 	return mt.MAT4_IDENTITY
 }
 
-// Creates shadow cubemap textures, FBO and shaders
-shadow_cubemap_create :: proc(sc: ^Shadow_Cubemap, resolution: i32 = 512) -> (ok: bool) {
+@(private)
+shadow_cubemap_create_fbo_textures :: proc(sc: ^Shadow_Cubemap, resolution: i32) -> bool {
 	sc.resolution = resolution
-	sc.near_plane = 0.01
-	sc.far_plane  = 25.0
 
 	// 1. Create Depth Cubemap (GL_DEPTH_COMPONENT32F)
 	gl.GenTextures(1, &sc.depth_cubemap)
@@ -189,14 +178,59 @@ shadow_cubemap_create :: proc(sc: ^Shadow_Cubemap, resolution: i32 = 512) -> (ok
 	}
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
-	// 4. Load Shadow Shader
+	dbg.object_label(gl.FRAMEBUFFER, sc.fbo, "Shadow_Cubemap_FBO")
+	dbg.object_label(gl.TEXTURE, sc.depth_cubemap, "Shadow_Depth_Cubemap")
+	dbg.object_label(gl.TEXTURE, sc.linear_depth_cubemap, "Shadow_Linear_Cubemap")
+	return true
+}
+
+@(private)
+shadow_cubemap_destroy_fbo_textures :: proc(sc: ^Shadow_Cubemap) {
+	if sc.fbo != 0 {
+		gl.DeleteFramebuffers(1, &sc.fbo)
+		sc.fbo = 0
+	}
+	if sc.depth_cubemap != 0 {
+		gl.DeleteTextures(1, &sc.depth_cubemap)
+		sc.depth_cubemap = 0
+	}
+	if sc.linear_depth_cubemap != 0 {
+		gl.DeleteTextures(1, &sc.linear_depth_cubemap)
+		sc.linear_depth_cubemap = 0
+	}
+}
+
+// Resizes the shadow cubemap resolution dynamically (256, 512, 1024, 2048)
+shadow_cubemap_resize :: proc(sc: ^Shadow_Cubemap, new_resolution: i32) -> bool {
+	if sc.resolution == new_resolution && sc.fbo != 0 do return true
+	shadow_cubemap_destroy_fbo_textures(sc)
+	if !shadow_cubemap_create_fbo_textures(sc, new_resolution) {
+		return false
+	}
+	for i in 0..<CUBEMAP_FACES {
+		sc.cached_faces[i] = false
+	}
+	sc.preview_dirty = true
+	log.log_info("suckless-odin.shadow", "Shadow cubemap resized to %dx%d", new_resolution, new_resolution)
+	return true
+}
+
+// Creates shadow cubemap textures, FBO and shaders
+shadow_cubemap_create :: proc(sc: ^Shadow_Cubemap, resolution: i32 = 512) -> (ok: bool) {
+	sc.near_plane = 0.01
+	sc.far_plane  = 25.0
+
+	// 1. Create FBO & textures
+	if !shadow_cubemap_create_fbo_textures(sc, resolution) do return false
+
+	// 2. Load Shadow Shader
 	sc.program = shader.load_program("shaders/shadow_cube.vert", "shaders/shadow_cube.frag") or_return
 	sc.loc_view         = gl.GetUniformLocation(sc.program, "u_view")
 	sc.loc_projection   = gl.GetUniformLocation(sc.program, "u_projection")
 	sc.loc_light_pos    = gl.GetUniformLocation(sc.program, "u_light_pos")
 	sc.loc_light_radius = gl.GetUniformLocation(sc.program, "u_light_radius")
 
-	// 5. Create ImGui Preview Atlas Resources (768 x 512)
+	// 3. Create ImGui Preview Atlas Resources (768 x 512)
 	sc.preview_w = 768
 	sc.preview_h = 512
 	gl.GenTextures(1, &sc.preview_tex)
@@ -214,24 +248,17 @@ shadow_cubemap_create :: proc(sc: ^Shadow_Cubemap, resolution: i32 = 512) -> (ok
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
 	sc.preview_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/debug_shadow_cube_preview.frag") or_return
+	gl.UseProgram(sc.preview_program)
+	gl.Uniform1i(gl.GetUniformLocation(sc.preview_program, "u_shadow_cubemap"), 0)
+	gl.UseProgram(0)
 
-	gl.GenVertexArrays(1, &sc.preview_vao)
-	gl.GenBuffers(1, &sc.preview_vbo)
-	gl.BindVertexArray(sc.preview_vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, sc.preview_vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, size_of(preview_fullscreen_verts), &preview_fullscreen_verts, gl.STATIC_DRAW)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, 2 * size_of(f32), 0)
-	gl.BindVertexArray(0)
+	fullscreen_triangle_create(&sc.preview_triangle)
 
-	dbg.object_label(gl.FRAMEBUFFER, sc.fbo, "Shadow_Cubemap_FBO")
-	dbg.object_label(gl.TEXTURE, sc.depth_cubemap, "Shadow_Depth_Cubemap")
-	dbg.object_label(gl.TEXTURE, sc.linear_depth_cubemap, "Shadow_Linear_Cubemap")
 	dbg.object_label(gl.TEXTURE, sc.preview_tex, "Shadow_Preview_Atlas_Tex")
 
 	sc.preview_dirty = true
 
-	// 5. Load Light Bulb Emissive Gizmo Shader
+	// 4. Load Light Bulb Emissive Gizmo Shader
 	sc.bulb_program = shader.load_program("shaders/light_bulb.vert", "shaders/light_bulb.frag") or_return
 	sc.bulb_loc_view = gl.GetUniformLocation(sc.bulb_program, "u_view")
 	sc.bulb_loc_proj = gl.GetUniformLocation(sc.bulb_program, "u_projection")
@@ -378,12 +405,9 @@ shadow_cubemap_update_preview_atlas :: proc(sc: ^Shadow_Cubemap) {
 	gl.UseProgram(sc.preview_program)
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, sc.linear_depth_cubemap)
-	gl.Uniform1i(gl.GetUniformLocation(sc.preview_program, "u_shadow_cubemap"), 0)
 
-	gl.BindVertexArray(sc.preview_vao)
-	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	fullscreen_triangle_draw(&sc.preview_triangle)
 
-	gl.BindVertexArray(0)
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
 	gl.UseProgram(0)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
@@ -396,14 +420,8 @@ shadow_cubemap_update_preview_atlas :: proc(sc: ^Shadow_Cubemap) {
 
 // Destroys all GPU resources
 shadow_cubemap_destroy :: proc(sc: ^Shadow_Cubemap) {
-	if sc.preview_vao != 0 {
-		gl.DeleteVertexArrays(1, &sc.preview_vao)
-		sc.preview_vao = 0
-	}
-	if sc.preview_vbo != 0 {
-		gl.DeleteBuffers(1, &sc.preview_vbo)
-		sc.preview_vbo = 0
-	}
+	fullscreen_triangle_destroy(&sc.preview_triangle)
+
 	if sc.preview_fbo != 0 {
 		gl.DeleteFramebuffers(1, &sc.preview_fbo)
 		sc.preview_fbo = 0
@@ -424,16 +442,5 @@ shadow_cubemap_destroy :: proc(sc: ^Shadow_Cubemap) {
 		gl.DeleteProgram(sc.bulb_program)
 		sc.bulb_program = 0
 	}
-	if sc.fbo != 0 {
-		gl.DeleteFramebuffers(1, &sc.fbo)
-		sc.fbo = 0
-	}
-	if sc.depth_cubemap != 0 {
-		gl.DeleteTextures(1, &sc.depth_cubemap)
-		sc.depth_cubemap = 0
-	}
-	if sc.linear_depth_cubemap != 0 {
-		gl.DeleteTextures(1, &sc.linear_depth_cubemap)
-		sc.linear_depth_cubemap = 0
-	}
+	shadow_cubemap_destroy_fbo_textures(sc)
 }

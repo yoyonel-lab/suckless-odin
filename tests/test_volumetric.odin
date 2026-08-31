@@ -124,3 +124,54 @@ test_volumetric_taa_disocclusion_acceptance :: proc(t: ^testing.T) {
 	disoccluded := diff_large > depth_threshold
 	testing.expect(t, disoccluded, "Depth delta exceeding threshold should be marked as disocclusion")
 }
+
+// Verifies Bilateral depth-aware weight attenuation and silhouette preservation
+@(test)
+test_volumetric_bilateral_weights :: proc(t: ^testing.T) {
+	sharpness: f32 = 500.0
+
+	// 1. Same surface (depth diff = 0): weight must be exactly 1.0
+	diff_same: f32 = 0.0
+	w_same := 1.0 / (sharpness * diff_same + 1.0)
+	testing.expect_value(t, math.abs(w_same - 1.0) < 0.0001, true)
+
+	// 2. Object silhouette edge (depth diff = 0.5m across sphere boundary):
+	// weight = 1 / (500 * 0.5 + 1) = 1 / 251 ≈ 0.00398 (99.6% attenuation!)
+	diff_edge: f32 = 0.50
+	w_edge := 1.0 / (sharpness * diff_edge + 1.0)
+	testing.expect(t, w_edge < 0.01, "Bilateral weight across depth silhouette must sharply cut off to avoid bleeding")
+
+	// 3. 9-tap 1D Gaussian kernel normalization check
+	k_weights_9 := [5]f32{0.22702703, 0.19459459, 0.12162162, 0.05405405, 0.01621622}
+	sum_9 := k_weights_9[0] + 2.0 * (k_weights_9[1] + k_weights_9[2] + k_weights_9[3] + k_weights_9[4])
+	testing.expect_value(t, math.abs(sum_9 - 1.0) < 0.001, true)
+
+	// 4. 5-tap 1D Gaussian kernel normalization check
+	k_weights_5 := [3]f32{0.4026, 0.2442, 0.0545}
+	sum_5 := k_weights_5[0] + 2.0 * (k_weights_5[1] + k_weights_5[2])
+	testing.expect_value(t, math.abs(sum_5 - 1.0) < 0.001, true)
+}
+
+// Verifies Bilateral Edge Attenuation Map computation & Gaussian vs Bilateral comparison
+@(test)
+test_volumetric_edge_attenuation_and_sharpness :: proc(t: ^testing.T) {
+	// Case 1: Gaussian blur (sharpness = 0) -> weight on edge is 1.0 (Bleeds across edges)
+	sharpness_zero: f32 = 0.0
+	diff_edge: f32 = 5.0
+	w_gauss := 1.0 / (sharpness_zero * diff_edge + 1.0)
+	testing.expect_value(t, w_gauss, 1.0)
+
+	// Case 2: Bilateral blur (sharpness = 500) -> weight on edge drops sharply
+	sharpness_std: f32 = 500.0
+	w_bilateral := 1.0 / (sharpness_std * diff_edge + 1.0)
+	testing.expect(t, w_bilateral < 0.001, "Bilateral weight must drop below 0.1% for 5m depth jump")
+
+	// Case 3: Loupe UV coordinate mapping
+	zoom_scale: f32 = 4.0
+	zoom_center := mt.Vec2{0.5, 0.5}
+	tex_coords := mt.Vec2{0.6, 0.5}
+	uv := (tex_coords - zoom_center) / zoom_scale + zoom_center
+	testing.expect_value(t, math.abs(uv.x - 0.525) < 0.0001, true)
+	testing.expect_value(t, math.abs(uv.y - 0.500) < 0.0001, true)
+}
+

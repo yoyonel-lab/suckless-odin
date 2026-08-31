@@ -9,17 +9,55 @@ import gl_state "../core/gl_state"
 import mt "../core/math_types"
 import shader "./shader"
 
-// Fullscreen quad vertices for volumetric raymarching
-@(private, rodata)
-volumetric_quad_verts := [6]f32{
-	-1.0, -1.0,
-	 3.0, -1.0,
-	-1.0,  3.0,
+// Debug view enumeration for volumetric lighting pipeline inspection
+Volumetric_Debug_View :: enum u32 {
+	Disabled               = 0,
+	Shadow_Cubemap_Cross   = 1, // Phase 1: Shadow cubemap unfolded inspection
+	Low_Res_Depth          = 2, // Phase 2: Downsampled linear depth map
+	Depth_Discontinuities  = 3, // Phase 2: Silhouette edge discontinuity mask
+	Raw_Raymarching        = 4, // Phase 3: Raw in-scattering without TAA/blur
+	TAA_Acceptance_Map     = 5, // Phase 4: History reprojection validity RGB map
+	Bilateral_Blur_Diff    = 6, // Phase 5: Blur delta map (|blurred - raw|)
+	Volumetric_Only        = 7, // Phase 6: Isolated in-scattering buffer
+	AB_Split_Comparison    = 8, // Phase 6: A/B interactive split comparison
 }
 
-// Phase 3 & 4: Volumetric Lighting & TAA Reprojection State
+// Tunable volumetric medium & filtering parameters (serializable for presets)
+Volumetric_Params :: struct {
+	enabled:                      bool,
+	composite_in_scene:           bool, // Additively blend in-scattering into scene HDR
+	isolate_in_scene:             bool, // Debug mode: Isolate volumetric lighting (black background / no IBL)
+	shadows_enabled:              bool, // Cast volumetric shadow shafts (God Rays) via shadow cubemap
+
+	// Physical medium parameters
+	step_count:                   i32,  // Raymarching steps (default 16, range 4..64)
+	scattering_coeff:             f32,  // Scattering coefficient sigma_s (default 0.025)
+	extinction_coeff:             f32,  // Extinction coefficient sigma_t (default 0.05)
+	anisotropy_g:                 f32,  // Henyey-Greenstein eccentricity g (default 0.55)
+	intensity_mult:               f32,  // Volumetric master intensity multiplier (default 1.0)
+	jitter_enabled:               bool, // Spatial/temporal ray jittering
+
+	// Phase 4: TAA Temporal Reprojection parameters
+	taa_mode:                     i32,  // 0: Off, 1: Simple EMA Blend, 2: Motion-Aware TAA Reprojection
+	taa_alpha:                    f32,  // Current frame blend weight (default 0.20, range 0.02..1.0)
+	taa_depth_threshold:          f32,  // Disocclusion depth tolerance in meters (default 0.80)
+	taa_clamping_enabled:         bool, // 3x3 color neighborhood bounding box clamping
+
+	// Phase 5: Separable Joint Bilateral Blur parameters
+	blur_mode:                    i32,  // 0: None, 1: 5-tap Bilateral, 2: 9-tap Bilateral
+	blur_sharpness:               f32,  // Depth falloff sharpness (default 500.0)
+	viewport_debug_mode:          i32,  // 0: Normal Scene, 1: Neon Silhouette Highlight, 2: Isolated Silhouettes
+
+	// Preview / Inspector tools
+	preview_mode:                 i32,  // 0..9 preview visualization modes
+	preview_exposure_boost:       f32,  // default 1.0 (range 1.0..10.0)
+	zoom_scale:                   f32,  // Loupe zoom (1.0 to 16.0)
+	zoom_center:                  mt.Vec2, // (0.5, 0.5)
+}
+
+// Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
 Volumetric_Renderer :: struct {
-	enabled:                bool,
+	params:                 Volumetric_Params,
 	fbo:                    u32, // Raw raymarching FBO
 	raw_tex:                u32, // GL_RGBA16F, W/2 x H/2 (Raw newly raymarched in-scattering)
 	width:                  i32, // Low-res width (W / 2)
@@ -27,25 +65,10 @@ Volumetric_Renderer :: struct {
 	full_width:             i32,
 	full_height:            i32,
 
-	// Physical medium parameters
-	step_count:             i32,  // Raymarching steps (default 16, range 4..64)
-	scattering_coeff:       f32,  // Scattering coefficient sigma_s (default 0.025)
-	extinction_coeff:       f32,  // Extinction coefficient sigma_t (default 0.05)
-	anisotropy_g:           f32,  // Henyey-Greenstein eccentricity g (default 0.55)
-	intensity_mult:         f32,  // Volumetric master intensity multiplier (default 1.0)
-	jitter_enabled:         bool, // Spatial/temporal ray jittering
-	composite_in_scene:     bool, // Additively blend in-scattering directly into 3D scene viewport
-	shadows_enabled:        bool, // Cast volumetric shadow shafts (God Rays) via shadow cubemap
-	isolate_in_scene:       bool, // Debug mode: Isolate volumetric lighting (black background / no IBL)
-
-	// Phase 4: TAA Temporal Reprojection & History Blending State
-	taa_mode:               i32,  // 0: Off (Raw Jitter Grain), 1: Simple Blend (EMA), 2: TAA Reprojection
-	taa_alpha:              f32,  // Current frame blend weight (default 0.20, range 0.05..1.0)
-	taa_depth_threshold:    f32,  // Disocclusion depth tolerance in meters (default 0.80)
-	taa_clamping_enabled:   bool, // 3x3 color neighborhood bounding box clamping
+	// TAA Temporal Accumulation Ping-Pong Buffers
 	history_valid:          bool, // False on reset / resize / camera teleport
 	history_fbo:            [2]u32,
-	history_tex:            [2]u32, // GL_RGBA16F, W/2 x H/2 (Ping-pong accumulated TAA buffer)
+	history_tex:            [2]u32, // GL_RGBA16F, W/2 x H/2
 	history_idx:            int,
 	acceptance_tex:         u32,    // GL_RGBA8, W/2 x H/2 (Debug view: Green/Red/Blue)
 	prev_view_proj:         mt.Mat4,
@@ -87,19 +110,42 @@ Volumetric_Renderer :: struct {
 	loc_taa_clamping_enabled: i32,
 	loc_taa_history_valid:  i32,
 
-	// Preview RGBA texture & FBO for Dear ImGui Inspector
-	preview_fbo:            u32,
-	preview_tex:            u32, // GL_RGBA8, W/2 x H/2
-	preview_program:        u32,
-	preview_loc_boost:      i32,
-	preview_loc_mode:       i32,
-	preview_mode:           i32, // 0: Final In-Scattering, 1: Raw Pre-TAA Grain, 2: Heatmap, 3: TAA Acceptance, 4: Transmittance
-	preview_exposure_boost: f32, // default 1.0 (range 1.0..10.0)
-	preview_dirty:          bool,
+	// Phase 5: Separable Joint Bilateral Blur State
+	blur_fbo:               [2]u32, // FBO 0: Horizontal pass, FBO 1: Vertical pass
+	blur_tex:               [2]u32, // GL_RGBA16F, W/2 x H/2
+	blur_program:           u32,
+	loc_blur_dir_step:      i32,
+	loc_blur_mode:          i32,
+	loc_blur_sharpness:     i32,
 
-	// Fullscreen Triangle VAO
-	vao:                    u32,
-	vbo:                    u32,
+	// Preview RGBA texture & FBO for Dear ImGui Inspector
+	preview_fbo:                   u32,
+	preview_tex:                   u32, // GL_RGBA8, W/2 x H/2
+	preview_program:               u32,
+	preview_loc_volumetric_tex:    i32,
+	preview_loc_unblurred_tex:     i32,
+	preview_loc_depth_tex:         i32,
+	preview_loc_discontinuity_tex: i32,
+	preview_loc_boost:             i32,
+	preview_loc_mode:              i32,
+	preview_loc_sharpness:         i32,
+	preview_loc_texel_size:        i32,
+	preview_loc_zoom_scale:        i32,
+	preview_loc_zoom_center:       i32,
+	preview_dirty:                 bool,
+
+	// Composite Shader Uniforms
+	loc_comp_volumetric_tex:       i32,
+	loc_comp_unblurred_tex:        i32,
+	loc_comp_discontinuity_tex:    i32,
+	loc_comp_depth_tex:            i32,
+	loc_comp_composite_mode:       i32,
+	loc_comp_exposure_boost:       i32,
+	loc_comp_sharpness:            i32,
+	loc_comp_texel_size:           i32,
+
+	// Fullscreen Triangle
+	triangle:                      Fullscreen_Triangle,
 }
 
 // Henyey-Greenstein Normalized Phase Function (phase == 1.0 when g == 0.0, ISO legacy)
@@ -131,34 +177,39 @@ volumetric_intersect_ray_sphere :: proc(
 
 // Initializes the volumetric lighting pipeline and GPU resources
 volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32) -> bool {
-	vr.enabled = true
+	vr.params = Volumetric_Params{
+		enabled                = true,
+		composite_in_scene     = true,
+		isolate_in_scene       = false,
+		shadows_enabled        = true,
+		step_count             = 16,
+		scattering_coeff       = 0.025,
+		extinction_coeff       = 0.05,
+		anisotropy_g           = 0.55,
+		intensity_mult         = 1.0,
+		jitter_enabled         = true,
+		taa_mode               = 2, // TAA Reprojection
+		taa_alpha              = 0.20,
+		taa_depth_threshold    = 0.80,
+		taa_clamping_enabled   = true,
+		blur_mode              = 2, // 9-tap Bilateral (Smooth ISO legacy)
+		blur_sharpness         = 500.0,
+		viewport_debug_mode    = 0,
+		preview_mode           = 0,
+		preview_exposure_boost = 1.0,
+		zoom_scale             = 1.0,
+		zoom_center            = mt.Vec2{0.5, 0.5},
+	}
+
 	vr.full_width = max(2, full_width)
 	vr.full_height = max(2, full_height)
 	vr.width = max(1, full_width / 2)
 	vr.height = max(1, full_height / 2)
-
-	vr.step_count = 16
-	vr.scattering_coeff = 0.025
-	vr.extinction_coeff = 0.05
-	vr.anisotropy_g = 0.55
-	vr.intensity_mult = 1.0
-	vr.jitter_enabled = true
-	vr.composite_in_scene = true
-	vr.shadows_enabled = true
-
-	// Phase 4 Defaults
-	vr.taa_mode = 2 // TAA Reprojection
-	vr.taa_alpha = 0.20
-	vr.taa_depth_threshold = 0.80
-	vr.taa_clamping_enabled = true
 	vr.history_valid = false
 	vr.history_idx = 0
-
-	vr.preview_mode = 0
-	vr.preview_exposure_boost = 1.0
 	vr.preview_dirty = true
 
-	// 1. Load Shaders
+	// 1. Load Shaders & static sampler uniforms
 	vr.program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_raymarch.frag") or_return
 	vr.loc_inv_view_proj    = gl.GetUniformLocation(vr.program, "u_inv_view_proj")
 	vr.loc_cam_pos          = gl.GetUniformLocation(vr.program, "u_cam_pos")
@@ -177,6 +228,9 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_anisotropy_g     = gl.GetUniformLocation(vr.program, "u_anisotropy_g")
 	vr.loc_intensity_mult   = gl.GetUniformLocation(vr.program, "u_intensity_mult")
 	vr.loc_jitter_enabled   = gl.GetUniformLocation(vr.program, "u_jitter_enabled")
+	gl.UseProgram(vr.program)
+	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_low_res_depth"), 0)
+	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_shadow_cubemap"), 1)
 
 	// TAA Reprojection Program
 	vr.taa_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_taa.frag") or_return
@@ -191,22 +245,58 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_taa_depth_threshold = gl.GetUniformLocation(vr.taa_program, "u_depth_threshold")
 	vr.loc_taa_clamping_enabled = gl.GetUniformLocation(vr.taa_program, "u_clamping_enabled")
 	vr.loc_taa_history_valid   = gl.GetUniformLocation(vr.taa_program, "u_history_valid")
+	gl.UseProgram(vr.taa_program)
+	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_current_volumetric"), 0)
+	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_history_volumetric"), 1)
+	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_current_depth"), 2)
+	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_history_depth"), 3)
 
+	// Bilateral Blur Program
+	vr.blur_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_bilateral_blur.frag") or_return
+	vr.loc_blur_dir_step  = gl.GetUniformLocation(vr.blur_program, "u_blur_dir_step")
+	vr.loc_blur_mode      = gl.GetUniformLocation(vr.blur_program, "u_blur_mode")
+	vr.loc_blur_sharpness = gl.GetUniformLocation(vr.blur_program, "u_sharpness")
+	gl.UseProgram(vr.blur_program)
+	gl.Uniform1i(gl.GetUniformLocation(vr.blur_program, "u_source_tex"), 0)
+	gl.Uniform1i(gl.GetUniformLocation(vr.blur_program, "u_depth_tex"), 1)
+
+	// Preview Program
 	vr.preview_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_preview.frag") or_return
-	vr.preview_loc_boost = gl.GetUniformLocation(vr.preview_program, "u_exposure_boost")
-	vr.preview_loc_mode  = gl.GetUniformLocation(vr.preview_program, "u_preview_mode")
+	vr.preview_loc_volumetric_tex    = gl.GetUniformLocation(vr.preview_program, "u_volumetric_tex")
+	vr.preview_loc_unblurred_tex     = gl.GetUniformLocation(vr.preview_program, "u_unblurred_tex")
+	vr.preview_loc_depth_tex         = gl.GetUniformLocation(vr.preview_program, "u_depth_tex")
+	vr.preview_loc_discontinuity_tex = gl.GetUniformLocation(vr.preview_program, "u_discontinuity_tex")
+	vr.preview_loc_boost             = gl.GetUniformLocation(vr.preview_program, "u_exposure_boost")
+	vr.preview_loc_mode              = gl.GetUniformLocation(vr.preview_program, "u_preview_mode")
+	vr.preview_loc_sharpness         = gl.GetUniformLocation(vr.preview_program, "u_sharpness")
+	vr.preview_loc_texel_size        = gl.GetUniformLocation(vr.preview_program, "u_texel_size")
+	vr.preview_loc_zoom_scale        = gl.GetUniformLocation(vr.preview_program, "u_zoom_scale")
+	vr.preview_loc_zoom_center       = gl.GetUniformLocation(vr.preview_program, "u_zoom_center")
+	gl.UseProgram(vr.preview_program)
+	gl.Uniform1i(vr.preview_loc_volumetric_tex, 0)
+	gl.Uniform1i(vr.preview_loc_unblurred_tex, 1)
+	gl.Uniform1i(vr.preview_loc_depth_tex, 2)
+	gl.Uniform1i(vr.preview_loc_discontinuity_tex, 3)
 
+	// Composite Program
 	vr.composite_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_composite_simple.frag") or_return
+	vr.loc_comp_volumetric_tex    = gl.GetUniformLocation(vr.composite_program, "u_volumetric_tex")
+	vr.loc_comp_unblurred_tex     = gl.GetUniformLocation(vr.composite_program, "u_unblurred_tex")
+	vr.loc_comp_discontinuity_tex = gl.GetUniformLocation(vr.composite_program, "u_discontinuity_tex")
+	vr.loc_comp_depth_tex         = gl.GetUniformLocation(vr.composite_program, "u_depth_tex")
+	vr.loc_comp_composite_mode    = gl.GetUniformLocation(vr.composite_program, "u_composite_mode")
+	vr.loc_comp_exposure_boost    = gl.GetUniformLocation(vr.composite_program, "u_exposure_boost")
+	vr.loc_comp_sharpness         = gl.GetUniformLocation(vr.composite_program, "u_sharpness")
+	vr.loc_comp_texel_size        = gl.GetUniformLocation(vr.composite_program, "u_texel_size")
+	gl.UseProgram(vr.composite_program)
+	gl.Uniform1i(vr.loc_comp_volumetric_tex, 0)
+	gl.Uniform1i(vr.loc_comp_unblurred_tex, 1)
+	gl.Uniform1i(vr.loc_comp_discontinuity_tex, 2)
+	gl.Uniform1i(vr.loc_comp_depth_tex, 3)
+	gl.UseProgram(0)
 
 	// 2. Fullscreen Triangle VAO
-	gl.GenVertexArrays(1, &vr.vao)
-	gl.GenBuffers(1, &vr.vbo)
-	gl.BindVertexArray(vr.vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vr.vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, size_of(volumetric_quad_verts), &volumetric_quad_verts, gl.STATIC_DRAW)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, 2 * size_of(f32), 0)
-	gl.BindVertexArray(0)
+	fullscreen_triangle_create(&vr.triangle)
 
 	// 3. FBO & Textures
 	create_volumetric_fbo(vr) or_return
@@ -284,7 +374,30 @@ create_volumetric_fbo :: proc(vr: ^Volumetric_Renderer) -> bool {
 		}
 	}
 
-	// 4. Preview RGBA texture & FBO
+	// 4. Double-buffered Bilateral Blur FBOs & Textures (GL_RGBA16F)
+	for i in 0..<2 {
+		gl.GenTextures(1, &vr.blur_tex[i])
+		gl.BindTexture(gl.TEXTURE_2D, vr.blur_tex[i])
+		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, vr.width, vr.height, 0, gl.RGBA, gl.FLOAT, nil)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+
+		gl.GenFramebuffers(1, &vr.blur_fbo[i])
+		gl.BindFramebuffer(gl.FRAMEBUFFER, vr.blur_fbo[i])
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, vr.blur_tex[i], 0)
+		gl.DrawBuffers(1, &draw_buf[0])
+
+		b_status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
+		if b_status != gl.FRAMEBUFFER_COMPLETE {
+			log.log_error("suckless-odin.volumetric", "Volumetric Blur FBO %d incomplete: 0x%X", i, b_status)
+			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+			return false
+		}
+	}
+
+	// 5. Preview RGBA texture & FBO
 	gl.GenTextures(1, &vr.preview_tex)
 	gl.BindTexture(gl.TEXTURE_2D, vr.preview_tex)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, vr.width, vr.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
@@ -328,6 +441,14 @@ destroy_volumetric_fbo :: proc(vr: ^Volumetric_Renderer) {
 			gl.DeleteTextures(1, &vr.history_tex[i])
 			vr.history_tex[i] = 0
 		}
+		if vr.blur_fbo[i] != 0 {
+			gl.DeleteFramebuffers(1, &vr.blur_fbo[i])
+			vr.blur_fbo[i] = 0
+		}
+		if vr.blur_tex[i] != 0 {
+			gl.DeleteTextures(1, &vr.blur_tex[i])
+			vr.blur_tex[i] = 0
+		}
 	}
 	if vr.acceptance_tex != 0 {
 		gl.DeleteTextures(1, &vr.acceptance_tex)
@@ -367,15 +488,10 @@ volumetric_render :: proc(
 	view_proj: ^mt.Mat4,
 	cam_pos: mt.Vec3,
 	near_plane, far_plane: f32,
-	light_pos: mt.Vec3,
-	light_radius: f32,
-	light_color: mt.Vec3,
-	light_intensity: f32,
-	shadow_bias: f32,
-	shadows_enabled: bool,
+	light: ^Point_Light,
 	frame_idx: i32,
 ) {
-	if !vr.enabled || vr.fbo == 0 || vr.program == 0 do return
+	if !vr.params.enabled || vr.fbo == 0 || vr.program == 0 do return
 
 	dbg.push_group("Volumetric_Pipeline")
 
@@ -395,15 +511,12 @@ volumetric_render :: proc(
 
 	gl.UseProgram(vr.program)
 
-	// Bind Low-Res Depth (unit 0)
+	// Bind Low-Res Depth (unit 0) & Shadow Cubemap (unit 1)
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
-	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_low_res_depth"), 0)
 
-	// Bind Omnidirectional Shadow Cubemap (unit 1)
 	gl.ActiveTexture(gl.TEXTURE1)
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, shadow_cubemap_tex)
-	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_shadow_cubemap"), 1)
 
 	// Upload Camera & Medium Uniforms
 	gl.UniformMatrix4fv(vr.loc_inv_view_proj, 1, false, &inv_view_proj[0][0])
@@ -412,7 +525,14 @@ volumetric_render :: proc(
 	gl.Uniform1f(vr.loc_far_plane, far_plane)
 	gl.Uniform1i(vr.loc_frame_idx, frame_idx)
 
-	// Upload Point Light Uniforms
+	// Upload Point Light Uniforms (from Point_Light aggregate)
+	light_pos := point_light_get_position(light, f32(frame_idx) * 0.016) if light != nil else mt.Vec3{}
+	light_radius := light.radius if light != nil else 10.0
+	light_color := light.color if light != nil else mt.Vec3{1, 1, 1}
+	light_intensity := light.intensity if light != nil else 1.0
+	shadow_bias := light.shadow_bias if light != nil else 0.001
+	shadows_enabled := (light != nil && light.enabled && vr.params.shadows_enabled)
+
 	gl.Uniform3f(vr.loc_light_pos, light_pos.x, light_pos.y, light_pos.z)
 	gl.Uniform1f(vr.loc_light_radius, light_radius)
 	gl.Uniform3f(vr.loc_light_color, light_color.x, light_color.y, light_color.z)
@@ -421,17 +541,15 @@ volumetric_render :: proc(
 	gl.Uniform1i(vr.loc_shadows_enabled, 1 if shadows_enabled else 0)
 
 	// Upload Raymarching parameters
-	gl.Uniform1i(vr.loc_step_count, vr.step_count)
-	gl.Uniform1f(vr.loc_scattering_coeff, vr.scattering_coeff)
-	gl.Uniform1f(vr.loc_extinction_coeff, vr.extinction_coeff)
-	gl.Uniform1f(vr.loc_anisotropy_g, vr.anisotropy_g)
-	gl.Uniform1f(vr.loc_intensity_mult, vr.intensity_mult)
-	gl.Uniform1i(vr.loc_jitter_enabled, 1 if vr.jitter_enabled else 0)
+	gl.Uniform1i(vr.loc_step_count, vr.params.step_count)
+	gl.Uniform1f(vr.loc_scattering_coeff, vr.params.scattering_coeff)
+	gl.Uniform1f(vr.loc_extinction_coeff, vr.params.extinction_coeff)
+	gl.Uniform1f(vr.loc_anisotropy_g, vr.params.anisotropy_g)
+	gl.Uniform1f(vr.loc_intensity_mult, vr.params.intensity_mult)
+	gl.Uniform1i(vr.loc_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
 
-	gl.BindVertexArray(vr.vao)
-	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	fullscreen_triangle_draw(&vr.triangle)
 
-	gl.BindVertexArray(0)
 	gl.ActiveTexture(gl.TEXTURE1)
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
 	gl.ActiveTexture(gl.TEXTURE0)
@@ -442,7 +560,7 @@ volumetric_render :: proc(
 	// =========================================================================
 	// Pass 2: Phase 4 TAA Reprojection & History Blending
 	// =========================================================================
-	if vr.taa_mode > 0 && vr.taa_program != 0 {
+	if vr.params.taa_mode > 0 && vr.taa_program != 0 {
 		dbg.push_group("Volumetric_TAA_Reprojection_Pass")
 
 		dest_fbo := vr.history_fbo[vr.history_idx]
@@ -458,22 +576,18 @@ volumetric_render :: proc(
 		// Unit 0: Current Volumetric Raw Texture
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, vr.raw_tex)
-		gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_current_volumetric"), 0)
 
 		// Unit 1: History Volumetric Texture
 		gl.ActiveTexture(gl.TEXTURE1)
 		gl.BindTexture(gl.TEXTURE_2D, prev_tex)
-		gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_history_volumetric"), 1)
 
 		// Unit 2: Current Low-Res Depth
 		gl.ActiveTexture(gl.TEXTURE2)
 		gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
-		gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_current_depth"), 2)
 
 		// Unit 3: History Low-Res Depth
 		gl.ActiveTexture(gl.TEXTURE3)
 		gl.BindTexture(gl.TEXTURE_2D, prev_low_res_depth_tex)
-		gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_history_depth"), 3)
 
 		// Matrix and Camera Uniforms
 		gl.UniformMatrix4fv(vr.loc_taa_inv_view_proj, 1, false, &inv_view_proj[0][0])
@@ -484,16 +598,14 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_taa_far_plane, far_plane)
 
 		// TAA parameters
-		gl.Uniform1i(vr.loc_taa_mode, vr.taa_mode)
-		gl.Uniform1f(vr.loc_taa_alpha, vr.taa_alpha)
-		gl.Uniform1f(vr.loc_taa_depth_threshold, vr.taa_depth_threshold)
-		gl.Uniform1i(vr.loc_taa_clamping_enabled, 1 if vr.taa_clamping_enabled else 0)
+		gl.Uniform1i(vr.loc_taa_mode, vr.params.taa_mode)
+		gl.Uniform1f(vr.loc_taa_alpha, vr.params.taa_alpha)
+		gl.Uniform1f(vr.loc_taa_depth_threshold, vr.params.taa_depth_threshold)
+		gl.Uniform1i(vr.loc_taa_clamping_enabled, 1 if vr.params.taa_clamping_enabled else 0)
 		gl.Uniform1i(vr.loc_taa_history_valid, 1 if vr.history_valid else 0)
 
-		gl.BindVertexArray(vr.vao)
-		gl.DrawArrays(gl.TRIANGLES, 0, 3)
+		fullscreen_triangle_draw(&vr.triangle)
 
-		gl.BindVertexArray(0)
 		for u in u32(0)..=3 {
 			gl.ActiveTexture(gl.TEXTURE0 + u)
 			gl.BindTexture(gl.TEXTURE_2D, 0)
@@ -516,6 +628,52 @@ volumetric_render :: proc(
 		vr.prev_cam_pos = cam_pos
 	}
 
+	// =========================================================================
+	// Pass 3: Phase 5 Separable Joint Bilateral Blur (5-tap & 9-tap)
+	// =========================================================================
+	if vr.params.blur_mode > 0 && vr.blur_program != 0 {
+		dbg.push_group("Volumetric_Bilateral_Blur_Pass")
+
+		blur_src_tex := vr.history_tex[1 - vr.history_idx] if (vr.params.taa_mode > 0 && vr.history_valid) else vr.raw_tex
+
+		gl.UseProgram(vr.blur_program)
+		gl.Uniform1i(vr.loc_blur_mode, vr.params.blur_mode)
+		gl.Uniform1f(vr.loc_blur_sharpness, vr.params.blur_sharpness)
+
+		// 1. Horizontal Pass: blur_src_tex -> vr.blur_fbo[0]
+		gl.BindFramebuffer(gl.FRAMEBUFFER, vr.blur_fbo[0])
+		gl.Viewport(0, 0, vr.width, vr.height)
+		gl.Disable(gl.DEPTH_TEST)
+		gl.Disable(gl.BLEND)
+
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, blur_src_tex)
+
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
+
+		gl.Uniform2f(vr.loc_blur_dir_step, 1.0 / f32(max(1, vr.width)), 0.0)
+
+		fullscreen_triangle_draw(&vr.triangle)
+
+		// 2. Vertical Pass: vr.blur_tex[0] -> vr.blur_fbo[1]
+		gl.BindFramebuffer(gl.FRAMEBUFFER, vr.blur_fbo[1])
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, vr.blur_tex[0])
+
+		gl.Uniform2f(vr.loc_blur_dir_step, 0.0, 1.0 / f32(max(1, vr.height)))
+
+		fullscreen_triangle_draw(&vr.triangle)
+
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+		gl.UseProgram(0)
+
+		dbg.pop_group()
+	}
+
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
 	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
 	gl_state.reset()
@@ -524,17 +682,33 @@ volumetric_render :: proc(
 	vr.preview_dirty = true
 }
 
-// Returns the active volumetric texture (Filtered TAA texture if active, or Raw Raymarched texture)
+// Returns the active volumetric texture (Bilateral Blurred if active, TAA Filtered if active, or Raw)
 volumetric_get_active_texture :: proc(vr: ^Volumetric_Renderer) -> u32 {
 	if vr == nil do return 0
-	if vr.taa_mode > 0 && vr.history_valid {
+	if vr.params.blur_mode > 0 {
+		return vr.blur_tex[1]
+	}
+	if vr.params.taa_mode > 0 && vr.history_valid {
 		return vr.history_tex[1 - vr.history_idx]
 	}
 	return vr.raw_tex
 }
 
-// Updates the Dear ImGui RGBA preview texture on-demand
-volumetric_update_preview :: proc(vr: ^Volumetric_Renderer) {
+// Returns the volumetric texture BEFORE the bilateral blur stage (either TAA filtered or Raw)
+volumetric_get_unblurred_texture :: proc(vr: ^Volumetric_Renderer) -> u32 {
+	if vr == nil do return 0
+	if vr.params.taa_mode > 0 && vr.history_valid {
+		return vr.history_tex[1 - vr.history_idx]
+	}
+	return vr.raw_tex
+}
+
+// Updates the Dear ImGui RGBA preview texture on-demand with multi-texture edge debugging support
+volumetric_update_preview :: proc(
+	vr: ^Volumetric_Renderer,
+	low_res_depth_tex: u32 = 0,
+	discontinuity_tex: u32 = 0,
+) {
 	if vr.preview_fbo == 0 || vr.preview_program == 0 do return
 
 	dbg.push_group("Volumetric_Preview_Pass")
@@ -550,35 +724,45 @@ volumetric_update_preview :: proc(vr: ^Volumetric_Renderer) {
 	gl.Disable(gl.BLEND)
 
 	gl.UseProgram(vr.preview_program)
-	gl.ActiveTexture(gl.TEXTURE0)
 
-	// Bind preview source texture based on selected mode
-	switch vr.preview_mode {
-	case 1: // Raw Pre-TAA Grain
+	// Unit 0: Active volumetric texture
+	gl.ActiveTexture(gl.TEXTURE0)
+	if vr.params.preview_mode == 1 {
 		gl.BindTexture(gl.TEXTURE_2D, vr.raw_tex)
-		gl.Uniform1i(vr.preview_loc_mode, 0)
-	case 2: // Heatmap
-		gl.BindTexture(gl.TEXTURE_2D, volumetric_get_active_texture(vr))
-		gl.Uniform1i(vr.preview_loc_mode, 2)
-	case 3: // TAA Acceptance Map
+	} else if vr.params.preview_mode == 3 {
 		gl.BindTexture(gl.TEXTURE_2D, vr.acceptance_tex)
-		gl.Uniform1i(vr.preview_loc_mode, 0)
-	case 4: // Transmittance
+	} else if vr.params.preview_mode == 4 {
+		gl.BindTexture(gl.TEXTURE_2D, vr.blur_tex[1] if vr.params.blur_mode > 0 else volumetric_get_active_texture(vr))
+	} else {
 		gl.BindTexture(gl.TEXTURE_2D, volumetric_get_active_texture(vr))
-		gl.Uniform1i(vr.preview_loc_mode, 1)
-	case: // 0: Final In-Scattering
-		gl.BindTexture(gl.TEXTURE_2D, volumetric_get_active_texture(vr))
-		gl.Uniform1i(vr.preview_loc_mode, 0)
 	}
 
-	gl.Uniform1i(gl.GetUniformLocation(vr.preview_program, "u_volumetric_tex"), 0)
-	gl.Uniform1f(vr.preview_loc_boost, vr.preview_exposure_boost)
+	// Unit 1: Unblurred volumetric texture
+	gl.ActiveTexture(gl.TEXTURE1)
+	gl.BindTexture(gl.TEXTURE_2D, volumetric_get_unblurred_texture(vr))
 
-	gl.BindVertexArray(vr.vao)
-	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	// Unit 2: Low-res linear depth
+	gl.ActiveTexture(gl.TEXTURE2)
+	gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
 
-	gl.BindVertexArray(0)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+	// Unit 3: Edge discontinuity mask
+	gl.ActiveTexture(gl.TEXTURE3)
+	gl.BindTexture(gl.TEXTURE_2D, discontinuity_tex)
+
+	// Uniforms
+	gl.Uniform1f(vr.preview_loc_boost, vr.params.preview_exposure_boost)
+	gl.Uniform1i(vr.preview_loc_mode, vr.params.preview_mode)
+	gl.Uniform1f(vr.preview_loc_sharpness, vr.params.blur_sharpness)
+	gl.Uniform2f(vr.preview_loc_texel_size, 1.0 / f32(max(1, vr.width)), 1.0 / f32(max(1, vr.height)))
+	gl.Uniform1f(vr.preview_loc_zoom_scale, vr.params.zoom_scale)
+	gl.Uniform2f(vr.preview_loc_zoom_center, vr.params.zoom_center.x, vr.params.zoom_center.y)
+
+	fullscreen_triangle_draw(&vr.triangle)
+
+	for u in u32(0)..=3 {
+		gl.ActiveTexture(gl.TEXTURE0 + u)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+	}
 	gl.UseProgram(0)
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
@@ -589,10 +773,16 @@ volumetric_update_preview :: proc(vr: ^Volumetric_Renderer) {
 	vr.preview_dirty = false
 }
 
-// Additively composites volumetric in-scattering into the scene HDR buffer
-volumetric_composite_to_scene :: proc(vr: ^Volumetric_Renderer, target_fbo: u32, width, height: i32) {
+// Additively composites volumetric in-scattering into the scene HDR buffer (with optional edge debug overlays)
+volumetric_composite_to_scene :: proc(
+	vr: ^Volumetric_Renderer,
+	target_fbo: u32,
+	width, height: i32,
+	discontinuity_tex: u32 = 0,
+	low_res_depth_tex: u32 = 0,
+) {
 	active_tex := volumetric_get_active_texture(vr)
-	if !vr.enabled || !vr.composite_in_scene || vr.composite_program == 0 || active_tex == 0 do return
+	if !vr.params.enabled || !vr.params.composite_in_scene || vr.composite_program == 0 || active_tex == 0 do return
 
 	dbg.push_group("Volumetric_Composite_Direct")
 
@@ -608,15 +798,34 @@ volumetric_composite_to_scene :: proc(vr: ^Volumetric_Renderer, target_fbo: u32,
 	gl.BlendFunc(gl.ONE, gl.ONE) // Pure additive in-scattering into scene HDR
 
 	gl.UseProgram(vr.composite_program)
+
+	// Unit 0: Active volumetric texture
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, active_tex)
-	gl.Uniform1i(gl.GetUniformLocation(vr.composite_program, "u_volumetric_tex"), 0)
 
-	gl.BindVertexArray(vr.vao)
-	gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	// Unit 1: Unblurred volumetric texture
+	gl.ActiveTexture(gl.TEXTURE1)
+	gl.BindTexture(gl.TEXTURE_2D, volumetric_get_unblurred_texture(vr))
 
-	gl.BindVertexArray(0)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+	// Unit 2: Edge discontinuity mask
+	gl.ActiveTexture(gl.TEXTURE2)
+	gl.BindTexture(gl.TEXTURE_2D, discontinuity_tex)
+
+	// Unit 3: Low-res linear depth
+	gl.ActiveTexture(gl.TEXTURE3)
+	gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
+
+	gl.Uniform1i(vr.loc_comp_composite_mode, vr.params.viewport_debug_mode)
+	gl.Uniform1f(vr.loc_comp_exposure_boost, vr.params.preview_exposure_boost)
+	gl.Uniform1f(vr.loc_comp_sharpness, vr.params.blur_sharpness)
+	gl.Uniform2f(vr.loc_comp_texel_size, 1.0 / f32(max(1, vr.width)), 1.0 / f32(max(1, vr.height)))
+
+	fullscreen_triangle_draw(&vr.triangle)
+
+	for u in u32(0)..=3 {
+		gl.ActiveTexture(gl.TEXTURE0 + u)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+	}
 	gl.UseProgram(0)
 	gl.Disable(gl.BLEND)
 
@@ -629,15 +838,8 @@ volumetric_composite_to_scene :: proc(vr: ^Volumetric_Renderer, target_fbo: u32,
 // Releases all GPU resources
 volumetric_destroy :: proc(vr: ^Volumetric_Renderer) {
 	destroy_volumetric_fbo(vr)
+	fullscreen_triangle_destroy(&vr.triangle)
 
-	if vr.vao != 0 {
-		gl.DeleteVertexArrays(1, &vr.vao)
-		vr.vao = 0
-	}
-	if vr.vbo != 0 {
-		gl.DeleteBuffers(1, &vr.vbo)
-		vr.vbo = 0
-	}
 	if vr.program != 0 {
 		gl.DeleteProgram(vr.program)
 		vr.program = 0

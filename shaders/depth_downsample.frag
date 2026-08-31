@@ -47,11 +47,10 @@ void main()
     // Output 0: Conservative / median linear depth
     out_linear_depth = median_d;
 
-    // Output 1: Geometric depth discontinuity mask
+    // Output 1: Geometric depth discontinuity mask (scale-invariant relative depth step)
     float depth_delta = max_d - min_d;
-    // Relative depth step threshold to handle perspective foreshortening at distance
-    float rel_threshold = max(u_edge_threshold, min_d * 0.02);
-    float is_edge = (depth_delta > rel_threshold && min_d < (u_far_plane * 0.99)) ? 1.0 : 0.0;
+    float rel_diff = depth_delta / max(min_d, u_near_plane);
+    float is_edge = (rel_diff > u_edge_threshold && min_d < (u_far_plane * 0.99)) ? 1.0 : 0.0;
 
     out_discontinuity = is_edge;
 }
