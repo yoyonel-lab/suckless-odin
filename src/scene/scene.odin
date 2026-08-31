@@ -39,6 +39,10 @@ Scene :: struct {
 	// Post-processing pipeline
 	postfx_pipeline: postfx.Pipeline,
 
+	// Point light & Shadow Cubemap (Phase 1)
+	point_light:    rendering.Point_Light,
+	shadow_cubemap: rendering.Shadow_Cubemap,
+
 	// Text overlay (F1)
 	overlay:     rendering.Text_Overlay,
 
@@ -54,6 +58,14 @@ Scene :: struct {
 	loc_specular_aa_debug_mode: i32,
 	loc_specular_aa_split_enabled:  i32,
 	loc_specular_aa_split_position: i32,
+	loc_point_light_pos:         i32,
+	loc_point_light_radius:      i32,
+	loc_point_light_color:       i32,
+	loc_point_light_intensity:   i32,
+	loc_point_shadows_enabled:   i32,
+	loc_point_shadow_bias:       i32,
+	loc_point_shadow_darkening:  i32,
+	loc_point_shadow_debug_mask: i32,
 
 	// Cached uniform values to filter redundant driver uploads
 	cached_screen_w:             i32,
@@ -154,6 +166,14 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_specular_aa_debug_mode = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_debug_mode")
 	s.loc_specular_aa_split_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_enabled")
 	s.loc_specular_aa_split_position = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_position")
+	s.loc_point_light_pos = gl.GetUniformLocation(s.pbr_program, "u_point_light_pos")
+	s.loc_point_light_radius = gl.GetUniformLocation(s.pbr_program, "u_point_light_radius")
+	s.loc_point_light_color = gl.GetUniformLocation(s.pbr_program, "u_point_light_color")
+	s.loc_point_light_intensity = gl.GetUniformLocation(s.pbr_program, "u_point_light_intensity")
+	s.loc_point_shadows_enabled = gl.GetUniformLocation(s.pbr_program, "u_point_shadows_enabled")
+	s.loc_point_shadow_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_bias")
+	s.loc_point_shadow_darkening = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_darkening")
+	s.loc_point_shadow_debug_mask = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_debug_mask")
 
 	s.cached_screen_w = -1
 	s.cached_screen_h = -1
@@ -184,16 +204,50 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		return false
 	}
 
+	// Initialize default dynamic point light & shadow cubemap (Phase 1)
+	s.point_light = rendering.Point_Light{
+		position               = mt.Vec3{0.0, 4.0, 0.0},
+		radius                 = 25.0,
+		color                  = mt.Vec3{1.0, 0.95, 0.8},
+		intensity              = 3.0,
+		enabled                = false,
+		direct_shadows_enabled = true,
+		shadow_bias            = 0.005,
+		shadow_darkening       = 0.5,
+		shadow_debug_mask      = false,
+		show_bulb              = true,
+		bulb_radius            = 0.35,
+		is_dirty               = true,
+		is_animated            = true,
+		orbit_speed            = 0.25,
+		orbit_radius           = 5.0,
+		orbit_center           = mt.Vec3{0.0, 4.0, 0.0},
+		phase_g                = 0.55,
+	}
+	if !rendering.shadow_cubemap_create(&s.shadow_cubemap, 512) {
+		log.log_error("suckless-odin.scene", "Failed to create shadow cubemap")
+		return false
+	}
+
 	// Text overlay
 	if !rendering.overlay_create(&s.overlay) {
 		log.log_warning("suckless-odin.scene", "Failed to create text overlay (non-fatal)")
 	}
 
-	log.log_info("suckless-odin.scene", "Scene created (%d spheres, PBR/IBL active)", s.spheres.count)
+	log.log_info("suckless-odin.scene", "Scene created (%d spheres, PBR/IBL/Shadows active)", s.spheres.count)
 	return true
 }
 
 scene_render :: proc(s: ^Scene, width, height: i32) {
+	// Ensure viewport is set to full window dimensions
+	gl.Viewport(0, 0, width, height)
+
+	// 0. Shadow cubemap pass (Point light shadows from instanced spheres)
+	if s.point_light.enabled {
+		rendering.shadow_cubemap_render_spheres(&s.shadow_cubemap, &s.point_light, &s.spheres, &s.billboard, f32(s.frame_count) * 0.016)
+	}
+
+	gl.Viewport(0, 0, width, height)
 	gl_state.reset()
 	dbg.push_group("Scene_Render")
 	defer dbg.pop_group()
@@ -284,9 +338,30 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// Bind IBL textures (units 15, 16, 17)
 	rendering.ibl_bind(&s.ibl)
 
+	// Upload point light & shadow map uniforms
+	light_pos := rendering.point_light_get_position(&s.point_light, f32(s.frame_count) * 0.016)
+	gl.Uniform3f(s.loc_point_light_pos, light_pos.x, light_pos.y, light_pos.z)
+	gl.Uniform1f(s.loc_point_light_radius, s.point_light.radius)
+	gl.Uniform3f(s.loc_point_light_color, s.point_light.color.x, s.point_light.color.y, s.point_light.color.z)
+	gl.Uniform1f(s.loc_point_light_intensity, s.point_light.intensity if s.point_light.enabled else 0.0)
+	gl.Uniform1i(s.loc_point_shadows_enabled, 1 if (s.point_light.enabled && s.point_light.direct_shadows_enabled) else 0)
+	gl.Uniform1f(s.loc_point_shadow_bias, s.point_light.shadow_bias)
+	gl.Uniform1f(s.loc_point_shadow_darkening, s.point_light.shadow_darkening)
+	gl.Uniform1i(s.loc_point_shadow_debug_mask, 1 if s.point_light.shadow_debug_mask else 0)
+
+	// Bind Shadow Cubemap (unit 18)
+	if s.point_light.enabled {
+		gl.ActiveTexture(gl.TEXTURE18)
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.shadow_cubemap.linear_depth_cubemap)
+	}
+	gl.ActiveTexture(gl.TEXTURE0)
+
 	// Bind SSBO and draw all instances
 	rendering.instanced_bind(&s.spheres)
 	rendering.instanced_draw(&s.spheres, &s.billboard)
+
+	// 2. Render Emissive Light Bulb Sphere Gizmo (so user can visually track light position)
+	rendering.shadow_cubemap_render_light_bulb(&s.shadow_cubemap, &s.point_light, &s.billboard, &view, &proj, f32(s.frame_count) * 0.016)
 
 	if edge_mode > 0 {
 		gl.Disablei(gl.BLEND, 0)
@@ -478,6 +553,7 @@ scene_destroy :: proc(s: ^Scene) {
 	delete(s.hdr_files)
 
 	env_manager_destroy(&s.env_mgr)
+	rendering.shadow_cubemap_destroy(&s.shadow_cubemap)
 	postfx.pipeline_destroy(&s.postfx_pipeline)
 	rendering.overlay_destroy(&s.overlay)
 	if s.pbr_program != 0 {

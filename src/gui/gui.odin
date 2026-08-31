@@ -45,6 +45,10 @@ Scene_State :: struct {
 	// Performance mode (optional — nil if not available)
 	perf: ^perf_mode.Perf_Mode,
 
+	// Point Light & Shadows (Phase 1)
+	point_light:    ^rendering.Point_Light,
+	shadow_cubemap: ^rendering.Shadow_Cubemap,
+
 	// Smoothed frame time from overlay (single source of truth)
 	frame_time_ms: f32,
 
@@ -238,6 +242,11 @@ update :: proc(g: ^Gui, state: Scene_State) {
 				if imgui.BeginTabItem("Compute Tuning", flags = tab_flags(g, 8)) {
 					if !restoring { g.active_tab = 8 }
 					draw_tab_compute_tuning(g, state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("Volumetric & Shadows", flags = tab_flags(g, 9)) {
+					if !restoring { g.active_tab = 9 }
+					draw_tab_volumetric_shadows(g, state)
 					imgui.EndTabItem()
 				}
 				if g.restore_tab > 0 {

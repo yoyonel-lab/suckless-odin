@@ -390,6 +390,8 @@ run :: proc(application: ^App) {
 				env_texture_height  = application.scene.env_texture.height,
 				postfx              = &application.scene.postfx_pipeline,
 				perf                = &application.perf,
+				point_light         = &application.scene.point_light,
+				shadow_cubemap      = &application.scene.shadow_cubemap,
 				frame_time_ms       = application.scene.overlay.frame_time_display,
 				live_compute_tuning = &application.scene.env_mgr.compute_tuning,
 				apply_compute_tuning = apply_compute_tuning_callback,

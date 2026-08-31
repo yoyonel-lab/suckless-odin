@@ -25,10 +25,21 @@ uniform int u_specular_aa_debug_mode; // 0=off, 1=grayscale-variance, 2=color-di
 uniform bool u_specular_aa_split_enabled;
 uniform float u_specular_aa_split_position;
 
+// Point Light & Omnidirectional Shadow Mapping
+uniform vec3  u_point_light_pos;
+uniform float u_point_light_radius;
+uniform vec3  u_point_light_color;
+uniform float u_point_light_intensity;
+uniform bool  u_point_shadows_enabled;
+uniform float u_point_shadow_bias;
+uniform float u_point_shadow_darkening;
+uniform bool  u_point_shadow_debug_mask;
+
 // IBL textures (equirectangular 2D, same binding as suckless-ogl)
 layout(binding = 15) uniform sampler2D irradianceMap;
 layout(binding = 16) uniform sampler2D prefilterMap;
 layout(binding = 17) uniform sampler2D brdfLUT;
+layout(binding = 18) uniform samplerCube u_point_shadow_cubemap;
 
 // -------------------------------------------------------------------
 // Constants
@@ -252,6 +263,33 @@ void main()
         if (dist < 1.5) {
             FragColor = vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
             return;
+        }
+    }
+
+    // Shadow Mapping visibility attenuation (subtle darkening of base IBL when occluded)
+    if (u_point_shadows_enabled) {
+        vec3 lightToPos = hitPos - u_point_light_pos;
+        float distToLight = length(lightToPos);
+
+        if (distToLight < u_point_light_radius && distToLight > 0.001) {
+            vec3 L = -lightToPos / distToLight;
+            float NdotL = max(dot(N, L), 0.0);
+
+            // Sample cubemap with direction from light to hit position
+            float sampledDepth = texture(u_point_shadow_cubemap, lightToPos).r;
+            float normalizedDist = distToLight / max(0.001, u_point_light_radius);
+
+            float shadow = (normalizedDist - u_point_shadow_bias <= sampledDepth) ? 1.0 : 0.0;
+
+            if (u_point_shadow_debug_mask) {
+                // Debug mode: highlight shadow mask (Green = Lit, Red = Occluded)
+                color = mix(vec3(0.8, 0.1, 0.1), vec3(0.1, 0.9, 0.1), shadow);
+            } else {
+                // Subtly darken base IBL in shadowed zones (no extra lighting added)
+                float lightInfluence = clamp(1.0 - (distToLight / u_point_light_radius), 0.0, 1.0);
+                float occlusion = (1.0 - shadow) * lightInfluence * u_point_shadow_darkening;
+                color *= (1.0 - occlusion);
+            }
         }
     }
 

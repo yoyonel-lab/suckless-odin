@@ -16,6 +16,8 @@ EXCLUDED_GUI_FIELDS = {
     "postfx",  # Handled via postfx_active and postfx_settings
     "perf",  # Handled via perf_mode_active
     "live_compute_tuning",  # Temporary runtime tuning parameters
+    "point_light",  # Handled via volumetric/light settings subsystem
+    "shadow_cubemap",  # Transient GPU framebuffer resource
 }
 
 # Fields in Session_State that are handled directly in app initialization rather than restore_session_state
