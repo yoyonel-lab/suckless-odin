@@ -392,14 +392,17 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// 2.5 Volumetric Lighting: Rank/Median 4-tap Depth Downsample pass
 	rendering.depth_downsample_render(&s.depth_downsample, s.postfx_pipeline.depth_tex, settings.NEAR_PLANE, settings.FAR_PLANE)
 
-	// 2.6 Volumetric Lighting: Raymarching & Henyey-Greenstein Scattering pass (Phase 3)
-	inv_vp := mt.mat4_inverse(proj * view)
+	// 2.6 Volumetric Lighting: Raymarching & TAA Reprojection passes (Phase 3 & 4)
+	vp := proj * view
+	inv_vp := mt.mat4_inverse(vp)
 	if s.point_light.enabled && s.volumetric.enabled {
 		rendering.volumetric_render(
 			&s.volumetric,
-			s.depth_downsample.low_res_depth_tex,
+			rendering.depth_downsample_get_current_depth(&s.depth_downsample),
+			rendering.depth_downsample_get_previous_depth(&s.depth_downsample),
 			s.shadow_cubemap.linear_depth_cubemap,
 			&inv_vp,
+			&vp,
 			s.camera.position,
 			settings.NEAR_PLANE,
 			settings.FAR_PLANE,
@@ -438,7 +441,6 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	env_manager_render_overlay(&s.env_mgr, s)
 
 	// Store current view*proj as previous for next frame's motion blur
-	vp := proj * view
 	if !s.prev_vp_initialized {
 		// First frame: init to current VP to avoid velocity flash
 		s.prev_view_proj = vp

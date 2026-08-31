@@ -17,9 +17,10 @@ fullscreen_quad_verts := [6]f32{
 
 // Depth downsample state: produces half-resolution linear depth and geometric edge mask
 Depth_Downsample :: struct {
-	fbo:                u32,
-	low_res_depth_tex:  u32, // GL_R32F, W/2 x H/2 (Linear view space depth in meters)
-	discontinuity_tex:  u32, // GL_R8,   W/2 x H/2 (0 or 1 edge mask)
+	fbo:                [2]u32,
+	low_res_depth_tex:  [2]u32, // GL_R32F, W/2 x H/2 (Linear view space depth in meters, ping-pong)
+	discontinuity_tex:  u32,    // GL_R8,   W/2 x H/2 (0 or 1 edge mask)
+	depth_idx:          int,
 	full_width:         i32,
 	full_height:        i32,
 	width:              i32, // Low-res width (W / 2)
@@ -58,6 +59,7 @@ depth_downsample_create :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 	dd.preview_mode = 0 // Turbo Heatmap
 	dd.preview_min_depth = 0.5
 	dd.preview_max_depth = 35.0
+	dd.depth_idx = 0
 
 	// 1. Shaders
 	dd.program = shader.load_program("shaders/postfx/postfx.vert", "shaders/depth_downsample.frag") or_return
@@ -84,8 +86,10 @@ depth_downsample_create :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 	// 3. Create Textures and FBO
 	create_fbo(dd) or_return
 
-	dbg.object_label(gl.FRAMEBUFFER, dd.fbo, "Depth_Downsample_FBO")
-	dbg.object_label(gl.TEXTURE, dd.low_res_depth_tex, "Low_Res_Depth_Tex")
+	dbg.object_label(gl.FRAMEBUFFER, dd.fbo[0], "Depth_Downsample_FBO_0")
+	dbg.object_label(gl.FRAMEBUFFER, dd.fbo[1], "Depth_Downsample_FBO_1")
+	dbg.object_label(gl.TEXTURE, dd.low_res_depth_tex[0], "Low_Res_Depth_Tex_0")
+	dbg.object_label(gl.TEXTURE, dd.low_res_depth_tex[1], "Low_Res_Depth_Tex_1")
 	dbg.object_label(gl.TEXTURE, dd.discontinuity_tex, "Depth_Discontinuity_Tex")
 	dbg.object_label(gl.TEXTURE, dd.preview_tex, "Depth_Preview_Tex")
 
@@ -95,15 +99,6 @@ depth_downsample_create :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 
 @(private)
 create_fbo :: proc(dd: ^Depth_Downsample) -> bool {
-	// Low-res linear depth texture (GL_R32F)
-	gl.GenTextures(1, &dd.low_res_depth_tex)
-	gl.BindTexture(gl.TEXTURE_2D, dd.low_res_depth_tex)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R32F, dd.width, dd.height, 0, gl.RED, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-
 	// Low-res geometric discontinuity mask (GL_R8)
 	gl.GenTextures(1, &dd.discontinuity_tex)
 	gl.BindTexture(gl.TEXTURE_2D, dd.discontinuity_tex)
@@ -113,20 +108,31 @@ create_fbo :: proc(dd: ^Depth_Downsample) -> bool {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
-	// FBO with 2 color attachments
-	gl.GenFramebuffers(1, &dd.fbo)
-	gl.BindFramebuffer(gl.FRAMEBUFFER, dd.fbo)
-	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, dd.low_res_depth_tex, 0)
-	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, dd.discontinuity_tex, 0)
+	// Double-buffered Low-res linear depth textures (GL_R32F)
+	for i in 0..<2 {
+		gl.GenTextures(1, &dd.low_res_depth_tex[i])
+		gl.BindTexture(gl.TEXTURE_2D, dd.low_res_depth_tex[i])
+		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R32F, dd.width, dd.height, 0, gl.RED, gl.FLOAT, nil)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
-	draw_buffers := [2]u32{gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1}
-	gl.DrawBuffers(2, &draw_buffers[0])
+		// FBO with 2 color attachments
+		gl.GenFramebuffers(1, &dd.fbo[i])
+		gl.BindFramebuffer(gl.FRAMEBUFFER, dd.fbo[i])
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, dd.low_res_depth_tex[i], 0)
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, dd.discontinuity_tex, 0)
 
-	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
-	if status != gl.FRAMEBUFFER_COMPLETE {
-		log.log_error("suckless-odin.volumetric", "Depth downsample FBO incomplete: 0x%X", status)
-		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		return false
+		draw_buffers := [2]u32{gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1}
+		gl.DrawBuffers(2, &draw_buffers[0])
+
+		status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
+		if status != gl.FRAMEBUFFER_COMPLETE {
+			log.log_error("suckless-odin.volumetric", "Depth downsample FBO %d incomplete: 0x%X", i, status)
+			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+			return false
+		}
 	}
 
 	// Preview RGBA texture & FBO
@@ -158,13 +164,15 @@ create_fbo :: proc(dd: ^Depth_Downsample) -> bool {
 
 @(private)
 destroy_fbo :: proc(dd: ^Depth_Downsample) {
-	if dd.fbo != 0 {
-		gl.DeleteFramebuffers(1, &dd.fbo)
-		dd.fbo = 0
-	}
-	if dd.low_res_depth_tex != 0 {
-		gl.DeleteTextures(1, &dd.low_res_depth_tex)
-		dd.low_res_depth_tex = 0
+	for i in 0..<2 {
+		if dd.fbo[i] != 0 {
+			gl.DeleteFramebuffers(1, &dd.fbo[i])
+			dd.fbo[i] = 0
+		}
+		if dd.low_res_depth_tex[i] != 0 {
+			gl.DeleteTextures(1, &dd.low_res_depth_tex[i])
+			dd.low_res_depth_tex[i] = 0
+		}
 	}
 	if dd.discontinuity_tex != 0 {
 		gl.DeleteTextures(1, &dd.discontinuity_tex)
@@ -195,16 +203,19 @@ depth_downsample_resize :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 
 // Executes the Rank/Median 4-tap depth downsample pass
 depth_downsample_render :: proc(dd: ^Depth_Downsample, full_depth_tex: u32, near_plane, far_plane: f32) {
-	if dd.fbo == 0 || full_depth_tex == 0 do return
+	if dd.fbo[0] == 0 || full_depth_tex == 0 do return
 
 	dbg.push_group("Depth_Downsample_Pass")
+
+	// Advance ping-pong buffer index so previous frame depth is preserved in 1 - depth_idx
+	dd.depth_idx = 1 - dd.depth_idx
 
 	prev_fbo: i32
 	prev_viewport: [4]i32
 	gl.GetIntegerv(gl.FRAMEBUFFER_BINDING, &prev_fbo)
 	gl.GetIntegerv(gl.VIEWPORT, &prev_viewport[0])
 
-	gl.BindFramebuffer(gl.FRAMEBUFFER, dd.fbo)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, dd.fbo[dd.depth_idx])
 	gl.Viewport(0, 0, dd.width, dd.height)
 	gl.Disable(gl.DEPTH_TEST)
 	gl.Disable(gl.BLEND)
@@ -234,6 +245,18 @@ depth_downsample_render :: proc(dd: ^Depth_Downsample, full_depth_tex: u32, near
 	dd.preview_dirty = true
 }
 
+// Returns the current frame's downsampled depth texture
+depth_downsample_get_current_depth :: proc(dd: ^Depth_Downsample) -> u32 {
+	if dd == nil do return 0
+	return dd.low_res_depth_tex[dd.depth_idx]
+}
+
+// Returns the previous frame's downsampled depth texture
+depth_downsample_get_previous_depth :: proc(dd: ^Depth_Downsample) -> u32 {
+	if dd == nil do return 0
+	return dd.low_res_depth_tex[1 - dd.depth_idx]
+}
+
 // Updates the Dear ImGui RGBA preview texture on-demand
 depth_downsample_update_preview :: proc(dd: ^Depth_Downsample) {
 	if dd.preview_fbo == 0 || dd.preview_program == 0 do return
@@ -257,7 +280,7 @@ depth_downsample_update_preview :: proc(dd: ^Depth_Downsample) {
 	if dd.preview_mode == 2 {
 		gl.BindTexture(gl.TEXTURE_2D, dd.discontinuity_tex)
 	} else {
-		gl.BindTexture(gl.TEXTURE_2D, dd.low_res_depth_tex)
+		gl.BindTexture(gl.TEXTURE_2D, dd.low_res_depth_tex[dd.depth_idx])
 	}
 	gl.Uniform1i(gl.GetUniformLocation(dd.preview_program, "u_tex"), 0)
 	gl.Uniform1i(dd.preview_loc_mode, dd.preview_mode)

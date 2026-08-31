@@ -268,6 +268,15 @@ test_volumetric_composite_simple_program_links :: proc(t: ^testing.T) {
 	if ok { gl.DeleteProgram(program) }
 }
 
+@(test)
+test_volumetric_taa_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_taa.frag")
+	testing.expect(t, ok, "volumetric_taa program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
 // --- GL context validation ---
 
 @(test)

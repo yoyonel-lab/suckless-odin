@@ -207,18 +207,22 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 				imgui.Vec2{min(avail_w, 400.0), 60.0},
 			)
 
-			// 2D Raw In-Scattering Buffer Preview
+			// 2D Volumetric Buffer Preview
 			imgui.Spacing()
 			imgui.Separator()
-			imgui.Text("Raw In-Scattering HDR Buffer (%dx%d):", vr.width, vr.height)
+			imgui.Text("Volumetric In-Scattering Buffer (%dx%d):", vr.width, vr.height)
 
 			imgui.Text("Preview Mode:")
 			imgui.SameLine()
-			if imgui.RadioButton("RGB In-Scattering##vol", vr.preview_mode == 0) { vr.preview_mode = 0 }
+			if imgui.RadioButton("Final Filtered##vol", vr.preview_mode == 0) { vr.preview_mode = 0 }
 			imgui.SameLine()
-			if imgui.RadioButton("Transmittance##vol", vr.preview_mode == 1) { vr.preview_mode = 1 }
+			if imgui.RadioButton("Raw Grain (Pre-TAA)##vol", vr.preview_mode == 1) { vr.preview_mode = 1 }
 			imgui.SameLine()
 			if imgui.RadioButton("Heatmap##vol", vr.preview_mode == 2) { vr.preview_mode = 2 }
+			imgui.SameLine()
+			if imgui.RadioButton("TAA Acceptance##vol", vr.preview_mode == 3) { vr.preview_mode = 3 }
+			imgui.SameLine()
+			if imgui.RadioButton("Transmittance##vol", vr.preview_mode == 4) { vr.preview_mode = 4 }
 
 			imgui.SliderFloat("Exposure Boost##vol", &vr.preview_exposure_boost, 1.0, 10.0, "%.1fx")
 
@@ -236,8 +240,57 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 			)
 
 			if imgui.IsItemHovered() {
-				imgui.SetTooltip("Raw Volumetric In-Scattering Buffer (GL_RGBA16F, W/2 x H/2)\nCalculated via analytical ray-sphere raymarching + shadow cubemap.")
+				if vr.preview_mode == 3 {
+					imgui.SetTooltip("TAA Acceptance Map (GL_RGBA8, W/2 x H/2):\n🟩 Green: Valid reprojected history pixel\n🟥 Red: Geometric disocclusion (depth delta > threshold)\n🟦 Blue: Offscreen reprojection outside viewport.")
+				} else if vr.preview_mode == 1 {
+					imgui.SetTooltip("Raw Raymarching buffer before temporal filtering.\nPreserves spatial Interleaved Gradient Noise (IGN) grain.")
+				} else {
+					imgui.SetTooltip("Volumetric In-Scattering Buffer (GL_RGBA16F, W/2 x H/2)\nCalculated via analytical ray-sphere raymarching + shadow cubemap.")
+				}
 			}
+		}
+	}
+
+	// 5. Phase 4: TAA Temporal Reprojection & History Blending Inspector
+	if state.volumetric != nil && imgui.CollapsingHeader("TAA Reprojection & History Blending (Phase 4)", imgui.TreeNodeFlags{.DefaultOpen}) {
+		vr := state.volumetric
+		if vr.enabled {
+			imgui.TextColored({0.2, 0.9, 0.4, 1.0}, "Temporal Filtering Mode:")
+			if imgui.RadioButton("Off (Raw Jitter Grain)##taa", vr.taa_mode == 0) {
+				vr.taa_mode = 0
+			}
+			imgui.SameLine()
+			if imgui.RadioButton("Simple Blend (Static EMA)##taa", vr.taa_mode == 1) {
+				vr.taa_mode = 1
+			}
+			imgui.SameLine()
+			if imgui.RadioButton("TAA Reprojection (Motion-Aware)##taa", vr.taa_mode == 2) {
+				vr.taa_mode = 2
+			}
+
+			if vr.taa_mode > 0 {
+				imgui.SliderFloat("Current Frame Weight (Alpha)", &vr.taa_alpha, 0.02, 1.0, "%.2f (Lower = Smoother)")
+				if vr.taa_mode == 2 {
+					imgui.SliderFloat("Disocclusion Depth Threshold", &vr.taa_depth_threshold, 0.05, 3.0, "%.2f m")
+				}
+				imgui.Checkbox("3x3 Color Neighborhood Clamping", &vr.taa_clamping_enabled)
+				imgui.SameLine()
+				imgui.Checkbox("Spatial Ray Jitter (IGN Grain)", &vr.jitter_enabled)
+			} else {
+				imgui.TextDisabled("Temporal accumulation disabled. Spatial ray jittering grain is active.")
+				imgui.Checkbox("Spatial Ray Jitter (IGN Grain)##raw", &vr.jitter_enabled)
+			}
+
+			imgui.Spacing()
+			imgui.Text("TAA Diagnostics:")
+			imgui.BulletText("History Valid: %s", "TRUE (Accumulating)" if vr.history_valid else "FALSE (Resetting/Starting)")
+			imgui.BulletText("Ping-Pong Buffer Index: %d", vr.history_idx)
+			imgui.BulletText("Acceptance Map Color Coding:")
+			imgui.TextColored({0.1, 1.0, 0.2, 1.0}, "  [GREEN] Reprojected pixel accepted (EMA blend)")
+			imgui.TextColored({1.0, 0.2, 0.2, 1.0}, "  [RED]   Geometric disocclusion (|depth delta| > threshold)")
+			imgui.TextColored({0.2, 0.5, 1.0, 1.0}, "  [BLUE]  Offscreen / Outside viewport UV")
+		} else {
+			imgui.TextDisabled("Volumetric Lighting is disabled.")
 		}
 	}
 }

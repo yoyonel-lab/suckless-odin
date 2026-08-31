@@ -84,3 +84,43 @@ test_ray_sphere_intersection :: proc(t: ^testing.T) {
 	testing.expect(t, in_t0 < 0.0, "t0 should be negative when camera inside")
 	testing.expect(t, in_t1 > 0.0, "t1 should be positive when camera inside")
 }
+
+// Verifies TAA Exponential Moving Average (EMA) mathematical convergence
+@(test)
+test_volumetric_taa_ema_blend :: proc(t: ^testing.T) {
+	// If input is static 1.0 and history starts at 0.0 with alpha = 0.20
+	alpha: f32 = 0.20
+	history: f32 = 0.0
+	current: f32 = 1.0
+
+	// Step through 16 frames
+	for _ in 0..<16 {
+		history = math.lerp(history, current, alpha)
+	}
+
+	// After 16 frames: (1 - 0.2)^16 = 0.028 => history = 0.972
+	testing.expect(t, history > 0.95, "EMA blend should rapidly converge to steady-state value")
+	testing.expect(t, history <= 1.0, "EMA blend should never exceed source value")
+}
+
+// Verifies TAA Depth Disocclusion Rejection
+@(test)
+test_volumetric_taa_disocclusion_acceptance :: proc(t: ^testing.T) {
+	depth_threshold: f32 = 0.80
+
+	// Case 1: Identical depth (0 delta) -> 100% acceptance
+	diff_0: f32 = 0.0
+	scale: f32 = 2.0 / depth_threshold
+	accept_0 := math.exp(-diff_0 * scale)
+	testing.expect_value(t, math.abs(accept_0 - 1.0) < 0.001, true)
+
+	// Case 2: Small delta (0.1m) -> High acceptance (>75%)
+	diff_small: f32 = 0.10
+	accept_small := math.exp(-diff_small * scale)
+	testing.expect(t, accept_small > 0.75, "Small depth delta should maintain high history acceptance")
+
+	// Case 3: Large delta (>0.80m) -> Disocclusion (0% acceptance)
+	diff_large: f32 = 1.20
+	disoccluded := diff_large > depth_threshold
+	testing.expect(t, disoccluded, "Depth delta exceeding threshold should be marked as disocclusion")
+}
