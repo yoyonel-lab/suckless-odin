@@ -423,6 +423,9 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 			width, height,
 			s.depth_downsample.discontinuity_tex,
 			rendering.depth_downsample_get_current_depth(&s.depth_downsample),
+			s.postfx_pipeline.depth_tex,
+			settings.NEAR_PLANE,
+			settings.FAR_PLANE,
 		)
 	}
 

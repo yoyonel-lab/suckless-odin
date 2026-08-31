@@ -134,18 +134,23 @@ flowchart TD
 
 ### Phase 6 : Composite & Joint Bilateral Upsampling (Pass Finale)
 
-- **Description** : Réintégration de la lumière volumétrique basse résolution dans le buffer HDR haute résolution de la scène (`scene_color_tex`) avec upsampling bilatéral guidé $2 \times 2$.
+- **Description** : Réintégration de la lumière volumétrique basse résolution dans le buffer HDR haute résolution de la scène (`scene_color_tex`) avec upsampling guidé par la profondeur pleine résolution pour éliminer tout aliasing / crénelage demi-résolution sur les silhouettes des objets opaques (sphères).
+- **Algorithmes & Modes d'Upsampling** :
+  1. **Mode 0 : Bilinéaire Standard (Legacy / Baseline)** : Échantillonnage matériel standard `texture(u_volumetric, uv)`. Rapide mais crée des bavures et un crénelage demi-résolution ($W/2 \times H/2$) sur les arêtes des sphères où la profondeur varie brusquement.
+  2. **Mode 1 : Nearest-Depth Heuristic (Fast JBU / Vulkan & Unreal style)** : Compare la profondeur pleine résolution $Z_{\text{full}}$ aux 4 profondeurs demi-résolution voisines $Z_0..Z_3$. Si une discontinuité est détectée, sélectionne directement le tap volumétrique dont la profondeur est la plus proche de $Z_{\text{full}}$, évitant tout mélange entre avant-plan et arrière-plan.
+  3. **Mode 2 : Joint Bilateral Upsampling (JBU 2x2 Depth-Guided)** : Calcule pour les 4 taps voisins un poids combinant l'interpolation spatiale bilinéaire et l'écart relatif de profondeur :
+     $$w_i = w_{\text{spatial}, i} \cdot \frac{1.0}{1.0 + k_{\text{upsample}} \cdot \frac{|Z_{\text{full}} - Z_i|}{\max(Z_{\text{full}}, Z_{\text{near}})}}$$
+     Avec normalisation $\frac{\sum w_i C_i}{\sum w_i}$ et fallback automatique sur Nearest-Depth si la somme des poids est nulle.
 - **Composants** :
-  - Intégration dans `shaders/postfx/postfx.frag` (ou passe dédiée avant le tone mapping).
-  - Support de l'accumulation additive d'éclairage direct + ambiant + volumétrique.
+  - Shaders : `shaders/postfx/volumetric_composite_simple.frag`.
+  - Modules Odin : `src/rendering/volumetric.odin`, `src/scene/scene.odin`, `src/gui/gui_volumetric.odin`.
 - **Contrôle Programmatique** :
-  - Test de validation du format pixel HDR (aucun clamp à $1.0$ avant tone mapping).
-  - Validation du pipeline postfx global (interaction avec Bloom, DOF, Motion Blur et Tonemapping ACES).
+  - Test de non-régression numérique : Validation des poids bilatéraux unitaires sur surface plane et rejet strict à travers une discontinuité de profondeur.
 - **Intégration & Contrôle Visuel ImGui** :
   - **Widget `ImGui_Composite_Upsample_Inspector`** :
-    - **A/B Split Screen Interactif** : Ligne de séparation déplaçable à la souris ou via slider ImGui (Gauche = Scène Finale Complète, Droite = Scène Brute sans volumétrique).
-    - **Loupe Grossissante Silhouettes ($4\times / 8\times$)** : Fenêtre zoomée centrée sur le curseur pour inspecter au pixel près les arêtes des sphères et vérifier l'absence d'artefacts d'escalier ou de halo sombre.
-    - Toggle comparatif : `Bilinear Standard` vs `Joint Bilateral Upsampling`.
+    - Sélecteur de mode d'upsampling : `[Bilinear Standard]`, `[Nearest-Depth Fast JBU]`, `[Joint Bilateral Upsampling 2x2]`.
+    - Slider de raideur de l'upsampling bilatéral $k_{\text{upsample}} \in [10.0, 2000.0]$.
+    - A/B Split Screen et loupe grossissante ($1\times..16\times$) sur les silhouettes.
 
 ---
 

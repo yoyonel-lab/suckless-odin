@@ -48,6 +48,10 @@ Volumetric_Params :: struct {
 	blur_sharpness:               f32,  // Depth falloff sharpness (default 500.0)
 	viewport_debug_mode:          i32,  // 0: Normal Scene, 1: Neon Silhouette Highlight, 2: Isolated Silhouettes
 
+	// Phase 6: Joint Bilateral Upsampling (JBU) parameters
+	upsample_mode:                i32,  // 0: Bilinear Standard, 1: Nearest-Depth Fast JBU, 2: Joint Bilateral Upsampling 2x2
+	upsample_sharpness:           f32,  // Sharpness for JBU depth guidance (default 200.0)
+
 	// Preview / Inspector tools
 	preview_mode:                 i32,  // 0..9 preview visualization modes
 	preview_exposure_boost:       f32,  // default 1.0 (range 1.0..10.0)
@@ -139,6 +143,12 @@ Volumetric_Renderer :: struct {
 	loc_comp_unblurred_tex:        i32,
 	loc_comp_discontinuity_tex:    i32,
 	loc_comp_depth_tex:            i32,
+	loc_comp_full_depth_tex:       i32,
+	loc_comp_upsample_mode:        i32,
+	loc_comp_upsample_sharpness:   i32,
+	loc_comp_near_plane:           i32,
+	loc_comp_far_plane:            i32,
+	loc_comp_low_res_size:         i32,
 	loc_comp_composite_mode:       i32,
 	loc_comp_exposure_boost:       i32,
 	loc_comp_sharpness:            i32,
@@ -195,6 +205,8 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		blur_mode              = 2, // 9-tap Bilateral (Smooth ISO legacy)
 		blur_sharpness         = 500.0,
 		viewport_debug_mode    = 0,
+		upsample_mode          = 2, // Joint Bilateral Upsampling (JBU 2x2 Depth-Guided)
+		upsample_sharpness     = 200.0,
 		preview_mode           = 0,
 		preview_exposure_boost = 1.0,
 		zoom_scale             = 1.0,
@@ -228,37 +240,43 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_anisotropy_g     = gl.GetUniformLocation(vr.program, "u_anisotropy_g")
 	vr.loc_intensity_mult   = gl.GetUniformLocation(vr.program, "u_intensity_mult")
 	vr.loc_jitter_enabled   = gl.GetUniformLocation(vr.program, "u_jitter_enabled")
+
 	gl.UseProgram(vr.program)
 	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_low_res_depth"), 0)
 	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_shadow_cubemap"), 1)
+	gl.UseProgram(0)
 
-	// TAA Reprojection Program
+	// TAA Program
 	vr.taa_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_taa.frag") or_return
-	vr.loc_taa_inv_view_proj   = gl.GetUniformLocation(vr.taa_program, "u_inv_view_proj")
-	vr.loc_taa_prev_view_proj  = gl.GetUniformLocation(vr.taa_program, "u_prev_view_proj")
-	vr.loc_taa_cam_pos         = gl.GetUniformLocation(vr.taa_program, "u_cam_pos")
-	vr.loc_taa_prev_cam_pos    = gl.GetUniformLocation(vr.taa_program, "u_prev_cam_pos")
-	vr.loc_taa_near_plane      = gl.GetUniformLocation(vr.taa_program, "u_near_plane")
-	vr.loc_taa_far_plane       = gl.GetUniformLocation(vr.taa_program, "u_far_plane")
-	vr.loc_taa_mode            = gl.GetUniformLocation(vr.taa_program, "u_taa_mode")
-	vr.loc_taa_alpha           = gl.GetUniformLocation(vr.taa_program, "u_alpha")
-	vr.loc_taa_depth_threshold = gl.GetUniformLocation(vr.taa_program, "u_depth_threshold")
+	vr.loc_taa_inv_view_proj    = gl.GetUniformLocation(vr.taa_program, "u_inv_view_proj")
+	vr.loc_taa_prev_view_proj   = gl.GetUniformLocation(vr.taa_program, "u_prev_view_proj")
+	vr.loc_taa_cam_pos          = gl.GetUniformLocation(vr.taa_program, "u_cam_pos")
+	vr.loc_taa_prev_cam_pos     = gl.GetUniformLocation(vr.taa_program, "u_prev_cam_pos")
+	vr.loc_taa_near_plane       = gl.GetUniformLocation(vr.taa_program, "u_near_plane")
+	vr.loc_taa_far_plane        = gl.GetUniformLocation(vr.taa_program, "u_far_plane")
+	vr.loc_taa_mode             = gl.GetUniformLocation(vr.taa_program, "u_taa_mode")
+	vr.loc_taa_alpha            = gl.GetUniformLocation(vr.taa_program, "u_alpha")
+	vr.loc_taa_depth_threshold  = gl.GetUniformLocation(vr.taa_program, "u_depth_threshold")
 	vr.loc_taa_clamping_enabled = gl.GetUniformLocation(vr.taa_program, "u_clamping_enabled")
-	vr.loc_taa_history_valid   = gl.GetUniformLocation(vr.taa_program, "u_history_valid")
+	vr.loc_taa_history_valid    = gl.GetUniformLocation(vr.taa_program, "u_history_valid")
+
 	gl.UseProgram(vr.taa_program)
 	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_current_volumetric"), 0)
 	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_history_volumetric"), 1)
 	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_current_depth"), 2)
 	gl.Uniform1i(gl.GetUniformLocation(vr.taa_program, "u_history_depth"), 3)
+	gl.UseProgram(0)
 
-	// Bilateral Blur Program
+	// Phase 5 Bilateral Blur Program
 	vr.blur_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_bilateral_blur.frag") or_return
 	vr.loc_blur_dir_step  = gl.GetUniformLocation(vr.blur_program, "u_blur_dir_step")
 	vr.loc_blur_mode      = gl.GetUniformLocation(vr.blur_program, "u_blur_mode")
 	vr.loc_blur_sharpness = gl.GetUniformLocation(vr.blur_program, "u_sharpness")
+
 	gl.UseProgram(vr.blur_program)
 	gl.Uniform1i(gl.GetUniformLocation(vr.blur_program, "u_source_tex"), 0)
 	gl.Uniform1i(gl.GetUniformLocation(vr.blur_program, "u_depth_tex"), 1)
+	gl.UseProgram(0)
 
 	// Preview Program
 	vr.preview_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_preview.frag") or_return
@@ -272,27 +290,37 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.preview_loc_texel_size        = gl.GetUniformLocation(vr.preview_program, "u_texel_size")
 	vr.preview_loc_zoom_scale        = gl.GetUniformLocation(vr.preview_program, "u_zoom_scale")
 	vr.preview_loc_zoom_center       = gl.GetUniformLocation(vr.preview_program, "u_zoom_center")
+
 	gl.UseProgram(vr.preview_program)
 	gl.Uniform1i(vr.preview_loc_volumetric_tex, 0)
 	gl.Uniform1i(vr.preview_loc_unblurred_tex, 1)
 	gl.Uniform1i(vr.preview_loc_depth_tex, 2)
 	gl.Uniform1i(vr.preview_loc_discontinuity_tex, 3)
+	gl.UseProgram(0)
 
-	// Composite Program
+	// Composite Program (Phase 6 Joint Bilateral Upsampling)
 	vr.composite_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_composite_simple.frag") or_return
 	vr.loc_comp_volumetric_tex    = gl.GetUniformLocation(vr.composite_program, "u_volumetric_tex")
 	vr.loc_comp_unblurred_tex     = gl.GetUniformLocation(vr.composite_program, "u_unblurred_tex")
 	vr.loc_comp_discontinuity_tex = gl.GetUniformLocation(vr.composite_program, "u_discontinuity_tex")
-	vr.loc_comp_depth_tex         = gl.GetUniformLocation(vr.composite_program, "u_depth_tex")
+	vr.loc_comp_depth_tex         = gl.GetUniformLocation(vr.composite_program, "u_low_depth_tex")
+	vr.loc_comp_full_depth_tex    = gl.GetUniformLocation(vr.composite_program, "u_full_depth_tex")
+	vr.loc_comp_upsample_mode     = gl.GetUniformLocation(vr.composite_program, "u_upsample_mode")
+	vr.loc_comp_upsample_sharpness= gl.GetUniformLocation(vr.composite_program, "u_upsample_sharpness")
+	vr.loc_comp_near_plane        = gl.GetUniformLocation(vr.composite_program, "u_near_plane")
+	vr.loc_comp_far_plane         = gl.GetUniformLocation(vr.composite_program, "u_far_plane")
+	vr.loc_comp_low_res_size      = gl.GetUniformLocation(vr.composite_program, "u_low_res_size")
 	vr.loc_comp_composite_mode    = gl.GetUniformLocation(vr.composite_program, "u_composite_mode")
 	vr.loc_comp_exposure_boost    = gl.GetUniformLocation(vr.composite_program, "u_exposure_boost")
 	vr.loc_comp_sharpness         = gl.GetUniformLocation(vr.composite_program, "u_sharpness")
 	vr.loc_comp_texel_size        = gl.GetUniformLocation(vr.composite_program, "u_texel_size")
+
 	gl.UseProgram(vr.composite_program)
 	gl.Uniform1i(vr.loc_comp_volumetric_tex, 0)
 	gl.Uniform1i(vr.loc_comp_unblurred_tex, 1)
 	gl.Uniform1i(vr.loc_comp_discontinuity_tex, 2)
 	gl.Uniform1i(vr.loc_comp_depth_tex, 3)
+	gl.Uniform1i(vr.loc_comp_full_depth_tex, 4)
 	gl.UseProgram(0)
 
 	// 2. Fullscreen Triangle VAO
@@ -773,13 +801,16 @@ volumetric_update_preview :: proc(
 	vr.preview_dirty = false
 }
 
-// Additively composites volumetric in-scattering into the scene HDR buffer (with optional edge debug overlays)
+// Additively composites volumetric in-scattering into the scene HDR buffer with Phase 6 Joint Bilateral Upsampling
 volumetric_composite_to_scene :: proc(
 	vr: ^Volumetric_Renderer,
 	target_fbo: u32,
 	width, height: i32,
 	discontinuity_tex: u32 = 0,
 	low_res_depth_tex: u32 = 0,
+	full_res_depth_tex: u32 = 0,
+	near_plane: f32 = 0.1,
+	far_plane: f32 = 100.0,
 ) {
 	active_tex := volumetric_get_active_texture(vr)
 	if !vr.params.enabled || !vr.params.composite_in_scene || vr.composite_program == 0 || active_tex == 0 do return
@@ -815,6 +846,17 @@ volumetric_composite_to_scene :: proc(
 	gl.ActiveTexture(gl.TEXTURE3)
 	gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
 
+	// Unit 4: Full-res non-linear depth
+	gl.ActiveTexture(gl.TEXTURE4)
+	gl.BindTexture(gl.TEXTURE_2D, full_res_depth_tex)
+
+	// JBU Depth-Guided Upsampling Uniforms
+	gl.Uniform1i(vr.loc_comp_upsample_mode, vr.params.upsample_mode)
+	gl.Uniform1f(vr.loc_comp_upsample_sharpness, vr.params.upsample_sharpness)
+	gl.Uniform1f(vr.loc_comp_near_plane, near_plane)
+	gl.Uniform1f(vr.loc_comp_far_plane, far_plane)
+	gl.Uniform2f(vr.loc_comp_low_res_size, f32(max(1, vr.width)), f32(max(1, vr.height)))
+
 	gl.Uniform1i(vr.loc_comp_composite_mode, vr.params.viewport_debug_mode)
 	gl.Uniform1f(vr.loc_comp_exposure_boost, vr.params.preview_exposure_boost)
 	gl.Uniform1f(vr.loc_comp_sharpness, vr.params.blur_sharpness)
@@ -822,7 +864,7 @@ volumetric_composite_to_scene :: proc(
 
 	fullscreen_triangle_draw(&vr.triangle)
 
-	for u in u32(0)..=3 {
+	for u in u32(0)..=4 {
 		gl.ActiveTexture(gl.TEXTURE0 + u)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 	}

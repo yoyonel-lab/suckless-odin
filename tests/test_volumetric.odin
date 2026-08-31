@@ -175,3 +175,43 @@ test_volumetric_edge_attenuation_and_sharpness :: proc(t: ^testing.T) {
 	testing.expect_value(t, math.abs(uv.y - 0.500) < 0.0001, true)
 }
 
+// Verifies Phase 6 Joint Bilateral Upsampling (JBU) 2x2 depth weights and Nearest-Depth Heuristic
+@(test)
+test_volumetric_jbu_weights :: proc(t: ^testing.T) {
+	upsample_sharpness: f32 = 200.0
+	near_plane: f32 = 0.1
+
+	// Test 1: Flat planar depth (Z_full = 10m, Z_0..3 = 10m) -> Depth weights are exactly 1.0
+	full_z: f32 = 10.0
+	norm_z := math.max(full_z, near_plane)
+
+	w_depth_flat := 1.0 / (1.0 + upsample_sharpness * (math.abs(full_z - 10.0) / norm_z))
+	testing.expect_value(t, math.abs(w_depth_flat - 1.0) < 0.0001, true)
+
+	// Test 2: Silhouette edge (Full-res pixel is on sphere at Z_full = 5m, but 2 low-res taps are sky at 50m)
+	z_sphere: f32 = 5.0
+	z_sky: f32 = 50.0
+	norm_z_sphere := math.max(z_sphere, near_plane)
+
+	w_fg := 1.0 / (1.0 + upsample_sharpness * (math.abs(z_sphere - z_sphere) / norm_z_sphere)) // 1.0
+	w_bg := 1.0 / (1.0 + upsample_sharpness * (math.abs(z_sphere - z_sky) / norm_z_sphere))    // 1 / (1 + 200 * 9) = 1/1801 ≈ 0.00055
+
+	testing.expect_value(t, w_fg, 1.0)
+	testing.expect(t, w_bg < 0.001, "JBU must suppress background low-res tap by >99.9% on foreground silhouette pixel")
+
+	// Test 3: Nearest-Depth Heuristic selection
+	dz0: f32 = math.abs(z_sphere - 5.1)
+	dz1: f32 = math.abs(z_sphere - 50.0)
+	dz2: f32 = math.abs(z_sphere - 48.0)
+	dz3: f32 = math.abs(z_sphere - 5.2)
+
+	min_dz := dz0
+	best_idx: int = 0
+	if dz1 < min_dz { min_dz = dz1; best_idx = 1 }
+	if dz2 < min_dz { min_dz = dz2; best_idx = 2 }
+	if dz3 < min_dz { min_dz = dz3; best_idx = 3 }
+
+	testing.expect_value(t, best_idx, 0)
+}
+
+

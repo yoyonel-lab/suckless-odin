@@ -413,5 +413,49 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 			imgui.TextDisabled("Volumetric Lighting is disabled.")
 		}
 	}
+
+	// 7. Phase 6: Composite & Joint Bilateral Upsampling Inspector
+	if state.volumetric != nil && imgui.CollapsingHeader("Composite & Joint Bilateral Upsampling (Phase 6)", imgui.TreeNodeFlags{.DefaultOpen}) {
+		vr := state.volumetric
+		if vr.params.enabled {
+			imgui.TextColored({0.2, 0.9, 0.7, 1.0}, "Full-Resolution Depth-Guided Upsampling Mode:")
+			if imgui.RadioButton("Bilinear Standard (Naive Baseline)##upsample", vr.params.upsample_mode == 0) {
+				vr.params.upsample_mode = 0
+			}
+			imgui.SameLine()
+			if imgui.RadioButton("Nearest-Depth Fast JBU##upsample", vr.params.upsample_mode == 1) {
+				vr.params.upsample_mode = 1
+			}
+			imgui.SameLine()
+			if imgui.RadioButton("Joint Bilateral 2x2 (JBU)##upsample", vr.params.upsample_mode == 2) {
+				vr.params.upsample_mode = 2
+			}
+
+			if vr.params.upsample_mode == 2 {
+				imgui.SliderFloat("JBU Sharpness", &vr.params.upsample_sharpness, 10.0, 1000.0, "%.0f (Higher = Sharper Silhouettes)")
+
+				imgui.Text("JBU Presets:")
+				imgui.SameLine()
+				if imgui.Button("Soft (50)##jbu") { vr.params.upsample_sharpness = 50.0 }
+				imgui.SameLine()
+				if imgui.Button("Standard (200)##jbu") { vr.params.upsample_sharpness = 200.0 }
+				imgui.SameLine()
+				if imgui.Button("Strict (500)##jbu") { vr.params.upsample_sharpness = 500.0 }
+			}
+
+			imgui.Spacing()
+			switch vr.params.upsample_mode {
+			case 0:
+				imgui.TextColored({1.0, 0.4, 0.4, 1.0}, "⚠️ Bilinear: Bleeds low-res fog across sphere silhouettes (visible half-res jagged staircasing).")
+			case 1:
+				imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "⚡ Nearest-Depth: Snaps to the foreground/background depth tap. Zero bleed, low ALU cost.")
+			case 2:
+				imgui.TextColored({0.2, 1.0, 0.4, 1.0}, "✨ Joint Bilateral Upsampling: 2x2 depth-weighted bilateral filter. Eliminates edge fringing while preserving sub-pixel smoothness.")
+			}
+		} else {
+			imgui.TextDisabled("Volumetric Lighting is disabled.")
+		}
+	}
 }
+
 
