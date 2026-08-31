@@ -1,5 +1,6 @@
 package gui
 
+import "core:math"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
 import mt "../core/math_types"
@@ -63,7 +64,7 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 	}
 
 	// 2. Shadow Cubemap Live Preview
-	if imgui.CollapsingHeader("Shadow Cubemap Inspector (3x2 Atlas)", imgui.TreeNodeFlags{.DefaultOpen}) {
+	if imgui.CollapsingHeader("Shadow Cubemap Inspector (3x2 Atlas)", imgui.TreeNodeFlags{}) {
 		imgui.Text("Resolution: %dx%d per face | Near: %.2f | Far: %.2f", sc.resolution, sc.resolution, sc.near_plane, sc.far_plane)
 
 		// 6 Face status indicators
@@ -97,6 +98,130 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 
 		if imgui.IsItemHovered() {
 			imgui.SetTooltip("Unfolded Cubemap 3x2 Grid:\nTop: +X (Right), +Y (Top), +Z (Front)\nBottom: -X (Left), -Y (Bottom), -Z (Back)\nColor: Radial Distance to Sphere Surface")
+		}
+	}
+
+	// 3. Phase 2: Depth Downsample & Edge Discontinuity Inspector
+	if state.depth_downsample != nil && imgui.CollapsingHeader("Depth Downsample & Discontinuities (Phase 2)", imgui.TreeNodeFlags{}) {
+		dd := state.depth_downsample
+		imgui.Text("Full: %dx%d -> Half: %dx%d (Rank/Median 4-tap Filter)", dd.full_width, dd.full_height, dd.width, dd.height)
+
+		imgui.SliderFloat("Edge Step Threshold", &dd.edge_threshold, 0.01, 2.0, "%.2f m")
+
+		// Preview display modes
+		imgui.Text("Preview Mode:")
+		imgui.SameLine()
+		if imgui.RadioButton("Turbo Heatmap", dd.preview_mode == 0) { dd.preview_mode = 0 }
+		imgui.SameLine()
+		if imgui.RadioButton("Linear Grayscale", dd.preview_mode == 1) { dd.preview_mode = 1 }
+		imgui.SameLine()
+		if imgui.RadioButton("Discontinuity Mask", dd.preview_mode == 2) { dd.preview_mode = 2 }
+
+		if dd.preview_mode != 2 {
+			imgui.SliderFloat("Min Depth Range", &dd.preview_min_depth, 0.1, 10.0, "%.1f m")
+			imgui.SliderFloat("Max Depth Range", &dd.preview_max_depth, 5.0, 100.0, "%.1f m")
+		}
+
+		// Update preview texture on-demand
+		rendering.depth_downsample_update_preview(dd)
+
+		imgui.Spacing()
+		avail_w := imgui.GetContentRegionAvail().x
+		preview_w := max(256.0, min(avail_w, 600.0))
+		aspect := f32(dd.height) / f32(max(1, dd.width))
+		preview_h := preview_w * aspect
+
+		imgui.Image(
+			gl_tex_ref(dd.preview_tex),
+			imgui.Vec2{preview_w, preview_h},
+			imgui.Vec2{0, 1}, // Flip Y for OpenGL
+			imgui.Vec2{1, 0},
+		)
+
+		if imgui.IsItemHovered() {
+			if dd.preview_mode == 2 {
+				imgui.SetTooltip("Depth Discontinuity Mask:\nRed = Silhouette Edge (High Depth Step)\nDark Blue = Continuous Geometry / Sky")
+			} else {
+				imgui.SetTooltip("Downsampled Linear Camera Depth (Median 4-tap filtered)")
+			}
+		}
+	}
+
+	// 4. Phase 3: Volumetric Raymarching & Henyey-Greenstein Inspector
+	if state.volumetric != nil && imgui.CollapsingHeader("Volumetric Raymarching & Henyey-Greenstein (Phase 3)", imgui.TreeNodeFlags{.DefaultOpen}) {
+		vr := state.volumetric
+		avail_w := imgui.GetContentRegionAvail().x
+
+		imgui.Checkbox("Enable Volumetric Raymarching", &vr.enabled)
+		imgui.SameLine()
+		imgui.Checkbox("Direct In-Scene Viewport", &vr.composite_in_scene)
+		imgui.SameLine()
+		imgui.Checkbox("Isolate Volumetric (No IBL)", &vr.isolate_in_scene)
+
+		if vr.enabled {
+			imgui.SliderInt("Raymarch Steps (N)", &vr.step_count, 4, 64)
+			imgui.SliderFloat("Scattering Coeff (sigma_s)", &vr.scattering_coeff, 0.01, 2.0, "%.3f")
+			imgui.SliderFloat("Extinction Coeff (sigma_t)", &vr.extinction_coeff, 0.00, 1.0, "%.3f")
+			imgui.SliderFloat("Anisotropy (g)", &vr.anisotropy_g, -0.90, 0.90, "%.2f")
+			imgui.SliderFloat("Intensity Multiplier", &vr.intensity_mult, 0.0, 10.0, "%.2f")
+			imgui.Checkbox("Volumetric Shadows (God Rays)", &vr.shadows_enabled)
+			imgui.SameLine()
+			imgui.Checkbox("Spatial Ray Jittering (IGN)", &vr.jitter_enabled)
+
+			// Henyey-Greenstein Phase Plot
+			imgui.Spacing()
+			imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "Henyey-Greenstein Phase Function P(theta, g):")
+			phase_samples: [64]f32
+			max_p: f32 = 0.001
+			for i in 0..<64 {
+				theta := (f32(i) / 63.0) * math.PI
+				cos_theta := math.cos(theta)
+				p := rendering.volumetric_henyey_greenstein(cos_theta, vr.anisotropy_g)
+				phase_samples[i] = p
+				if p > max_p do max_p = p
+			}
+			imgui.PlotLines(
+				"##HG_Plot",
+				&phase_samples[0],
+				64,
+				0,
+				"Forward (0 deg) -> Backward (180 deg)",
+				0.0,
+				max_p * 1.05,
+				imgui.Vec2{min(avail_w, 400.0), 60.0},
+			)
+
+			// 2D Raw In-Scattering Buffer Preview
+			imgui.Spacing()
+			imgui.Separator()
+			imgui.Text("Raw In-Scattering HDR Buffer (%dx%d):", vr.width, vr.height)
+
+			imgui.Text("Preview Mode:")
+			imgui.SameLine()
+			if imgui.RadioButton("RGB In-Scattering##vol", vr.preview_mode == 0) { vr.preview_mode = 0 }
+			imgui.SameLine()
+			if imgui.RadioButton("Transmittance##vol", vr.preview_mode == 1) { vr.preview_mode = 1 }
+			imgui.SameLine()
+			if imgui.RadioButton("Heatmap##vol", vr.preview_mode == 2) { vr.preview_mode = 2 }
+
+			imgui.SliderFloat("Exposure Boost##vol", &vr.preview_exposure_boost, 1.0, 10.0, "%.1fx")
+
+			rendering.volumetric_update_preview(vr)
+
+			preview_w := max(256.0, min(avail_w, 600.0))
+			aspect := f32(vr.height) / f32(max(1, vr.width))
+			preview_h := preview_w * aspect
+
+			imgui.Image(
+				gl_tex_ref(vr.preview_tex),
+				imgui.Vec2{preview_w, preview_h},
+				imgui.Vec2{0, 1}, // Flip Y for OpenGL
+				imgui.Vec2{1, 0},
+			)
+
+			if imgui.IsItemHovered() {
+				imgui.SetTooltip("Raw Volumetric In-Scattering Buffer (GL_RGBA16F, W/2 x H/2)\nCalculated via analytical ray-sphere raymarching + shadow cubemap.")
+			}
 		}
 	}
 }

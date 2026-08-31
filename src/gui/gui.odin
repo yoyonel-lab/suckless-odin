@@ -49,6 +49,10 @@ Scene_State :: struct {
 	point_light:    ^rendering.Point_Light,
 	shadow_cubemap: ^rendering.Shadow_Cubemap,
 
+	// Volumetric Lighting & Depth Downsampling (Phase 2 & 3)
+	depth_downsample: ^rendering.Depth_Downsample,
+	volumetric:       ^rendering.Volumetric_Renderer,
+
 	// Smoothed frame time from overlay (single source of truth)
 	frame_time_ms: f32,
 

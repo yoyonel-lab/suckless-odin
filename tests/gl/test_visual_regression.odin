@@ -343,6 +343,10 @@ test_visual_scene_multi_view :: proc(t: ^testing.T) {
 	}
 	defer sc.scene_destroy(&s)
 
+	// Baseline visual test: isolate base PBR scene
+	s.point_light.enabled = false
+	s.volumetric.enabled = false
+
 	// Wait for async IBL pipeline to complete (first load)
 	for _ in 0..<5000 {
 		sc.scene_update(&s, 0.016)

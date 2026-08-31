@@ -392,6 +392,8 @@ run :: proc(application: ^App) {
 				perf                = &application.perf,
 				point_light         = &application.scene.point_light,
 				shadow_cubemap      = &application.scene.shadow_cubemap,
+				depth_downsample    = &application.scene.depth_downsample,
+				volumetric          = &application.scene.volumetric,
 				frame_time_ms       = application.scene.overlay.frame_time_display,
 				live_compute_tuning = &application.scene.env_mgr.compute_tuning,
 				apply_compute_tuning = apply_compute_tuning_callback,

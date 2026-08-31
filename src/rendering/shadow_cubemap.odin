@@ -286,7 +286,7 @@ shadow_cubemap_render_light_bulb :: proc(
 shadow_cubemap_update_matrices :: proc(sc: ^Shadow_Cubemap, light_pos: mt.Vec3, radius: f32, near_plane: f32 = 0.01) {
 	sc.near_plane = near_plane
 	sc.far_plane  = max(0.1, radius)
-	
+
 	// Perspective: 90 deg FOV, 1.0 aspect ratio
 	sc.proj_matrix = mt.perspective(mt.radians(90.0), 1.0, sc.near_plane, sc.far_plane)
 

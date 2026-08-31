@@ -43,6 +43,10 @@ Scene :: struct {
 	point_light:    rendering.Point_Light,
 	shadow_cubemap: rendering.Shadow_Cubemap,
 
+	// Volumetric Lighting Depth Downsampling (Phase 2)
+	depth_downsample: rendering.Depth_Downsample,
+	volumetric:       rendering.Volumetric_Renderer,
+
 	// Text overlay (F1)
 	overlay:     rendering.Text_Overlay,
 
@@ -210,8 +214,8 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		radius                 = 25.0,
 		color                  = mt.Vec3{1.0, 0.95, 0.8},
 		intensity              = 3.0,
-		enabled                = false,
-		direct_shadows_enabled = true,
+		enabled                = true,
+		direct_shadows_enabled = false,
 		shadow_bias            = 0.005,
 		shadow_darkening       = 0.5,
 		shadow_debug_mask      = false,
@@ -229,12 +233,24 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		return false
 	}
 
+	// Initialize depth downsampler (Phase 2)
+	if !rendering.depth_downsample_create(&s.depth_downsample, width, height) {
+		log.log_error("suckless-odin.scene", "Failed to create depth downsampler")
+		return false
+	}
+
+	// Initialize volumetric renderer (Phase 3)
+	if !rendering.volumetric_create(&s.volumetric, width, height) {
+		log.log_error("suckless-odin.scene", "Failed to create volumetric renderer")
+		return false
+	}
+
 	// Text overlay
 	if !rendering.overlay_create(&s.overlay) {
 		log.log_warning("suckless-odin.scene", "Failed to create text overlay (non-fatal)")
 	}
 
-	log.log_info("suckless-odin.scene", "Scene created (%d spheres, PBR/IBL/Shadows active)", s.spheres.count)
+	log.log_info("suckless-odin.scene", "Scene created (%d spheres, PBR/IBL/Shadows/Volumetric active)", s.spheres.count)
 	return true
 }
 
@@ -266,7 +282,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
 
 	// 1. Skybox (drawn first, depth <= 1.0)
-	if s.skybox_visible {
+	if s.skybox_visible && (!s.volumetric.enabled || !s.volumetric.isolate_in_scene) {
 		dbg.push_group("Skybox_Pass")
 		rendering.skybox_render(&s.skybox, view, proj, s.specular_aa_split_enabled, s.specular_aa_split_position)
 		dbg.pop_group()
@@ -373,9 +389,41 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 
 	dbg.pop_group()
 
+	// 2.5 Volumetric Lighting: Rank/Median 4-tap Depth Downsample pass
+	rendering.depth_downsample_render(&s.depth_downsample, s.postfx_pipeline.depth_tex, settings.NEAR_PLANE, settings.FAR_PLANE)
+
+	// 2.6 Volumetric Lighting: Raymarching & Henyey-Greenstein Scattering pass (Phase 3)
+	inv_vp := mt.mat4_inverse(proj * view)
+	if s.point_light.enabled && s.volumetric.enabled {
+		rendering.volumetric_render(
+			&s.volumetric,
+			s.depth_downsample.low_res_depth_tex,
+			s.shadow_cubemap.linear_depth_cubemap,
+			&inv_vp,
+			s.camera.position,
+			settings.NEAR_PLANE,
+			settings.FAR_PLANE,
+			light_pos,
+			s.point_light.radius,
+			s.point_light.color,
+			s.point_light.intensity,
+			s.point_light.shadow_bias,
+			s.volumetric.shadows_enabled,
+			i32(s.frame_count),
+		)
+
+		// Direct additive composite into 3D scene viewport HDR buffer
+		if s.volumetric.isolate_in_scene {
+			gl.BindFramebuffer(gl.FRAMEBUFFER, s.postfx_pipeline.scene_fbo)
+			gl.ColorMask(true, true, true, true)
+			gl.ClearColor(0.0, 0.0, 0.0, 0.0)
+			gl.Clear(gl.COLOR_BUFFER_BIT)
+		}
+		rendering.volumetric_composite_to_scene(&s.volumetric, s.postfx_pipeline.scene_fbo, width, height)
+	}
+
 	// 3. End post-processing (composite to screen)
 	// Inject camera data for fog depth reconstruction (invViewProj + world cam pos)
-	inv_vp := mt.mat4_inverse(proj * view)
 	cam_pos_v4 := [4]f32{s.camera.position.x, s.camera.position.y, s.camera.position.z, 1.0}
 	inv_vp_flat := [16]f32{
 		inv_vp[0][0], inv_vp[0][1], inv_vp[0][2], inv_vp[0][3],
@@ -488,6 +536,8 @@ scene_adjust_exposure :: proc(s: ^Scene, delta: f32) {
 // Resize postfx pipeline (call from framebuffer callback).
 scene_resize :: proc(s: ^Scene, width, height: i32) {
 	postfx.pipeline_resize(&s.postfx_pipeline, width, height)
+	rendering.depth_downsample_resize(&s.depth_downsample, width, height)
+	rendering.volumetric_resize(&s.volumetric, width, height)
 }
 
 // Trigger an asynchronous environment map change.
@@ -554,6 +604,8 @@ scene_destroy :: proc(s: ^Scene) {
 
 	env_manager_destroy(&s.env_mgr)
 	rendering.shadow_cubemap_destroy(&s.shadow_cubemap)
+	rendering.depth_downsample_destroy(&s.depth_downsample)
+	rendering.volumetric_destroy(&s.volumetric)
 	postfx.pipeline_destroy(&s.postfx_pipeline)
 	rendering.overlay_destroy(&s.overlay)
 	if s.pbr_program != 0 {

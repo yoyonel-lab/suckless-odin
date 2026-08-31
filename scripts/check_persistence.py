@@ -18,6 +18,8 @@ EXCLUDED_GUI_FIELDS = {
     "live_compute_tuning",  # Temporary runtime tuning parameters
     "point_light",  # Handled via volumetric/light settings subsystem
     "shadow_cubemap",  # Transient GPU framebuffer resource
+    "depth_downsample",  # Transient GPU depth downsampler resource
+    "volumetric",  # Transient GPU volumetric lighting resource
 }
 
 # Fields in Session_State that are handled directly in app initialization rather than restore_session_state
