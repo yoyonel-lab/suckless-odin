@@ -42,14 +42,14 @@ float interleaved_gradient_noise(vec2 screen_pos, int frame)
     return fract(magic.z * fract(dot(screen_pos + float(frame % 16) * 5.588238, magic.xy)));
 }
 
-// Henyey-Greenstein Phase Function
-// P(theta, g) = (1 - g^2) / (4 * PI * (1 + g^2 - 2*g*cos(theta))^(3/2))
+// Henyey-Greenstein Normalized Phase Function (phase == 1.0 when g == 0.0, ISO legacy)
+// P(theta, g) = (1 - g^2) / (1 + g^2 - 2*g*cos(theta))^(3/2)
 float henyey_greenstein(float cos_theta, float g)
 {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cos_theta;
-    denom = max(denom, 0.0001); // Prevent division by zero
-    return (1.0 - g2) / (4.0 * PI * pow(denom, 1.5));
+    denom = max(denom, 0.0001);
+    return (1.0 - g2) / (denom * sqrt(denom));
 }
 
 // Analytic Ray-Sphere Intersection
@@ -102,35 +102,34 @@ void main()
         return;
     }
 
-    // 2. Raymarching Setup
+    // 2. Raymarching Setup (ISO legacy: stepLenWorld & dithering)
     int steps = clamp(u_step_count, 4, 64);
     float step_size = (t_end - t_start) / float(steps);
 
-    // Jitter starting offset along ray to break slicing banding
+    // Spatial/temporal ray jittering
     float jitter = 0.5;
     if (u_jitter_enabled) {
         jitter = interleaved_gradient_noise(gl_FragCoord.xy, u_frame_idx);
     }
     float t_current = t_start + jitter * step_size;
 
-    vec3  accum_in_scatter = vec3(0.0);
-    float accum_transmittance = 1.0;
-    float step_transmittance = exp(-u_extinction_coeff * step_size);
-
+    float scattered_amount = 0.0;
     vec3 light_color_intensity = u_light_color * (u_light_intensity * u_intensity_mult);
 
-    // 3. Raymarching Loop
+    // 3. Raymarching Loop (ISO legacy formula)
     for (int i = 0; i < steps; ++i) {
         vec3 sample_pos = u_cam_pos + ray_dir * t_current;
-        vec3 to_light   = u_light_pos - sample_pos;
-        float dist_light = length(to_light);
+        vec3 light_dir  = u_light_pos - sample_pos;
+        float dist_light = length(light_dir);
 
         if (dist_light < u_light_radius && dist_light > 0.001) {
-            vec3 light_dir = to_light / dist_light;
+            // ISO legacy linear attenuation: smooth boundary without 1/d^2 blowup
+            float linear_attenuation = clamp((u_light_radius - dist_light) / u_light_radius, 0.0, 1.0);
+            float step_energy = linear_attenuation * step_size * u_scattering_coeff;
 
-            // Phase function: angle between view ray and incoming light ray (-light_dir)
-            float cos_theta = dot(ray_dir, -light_dir);
-            float phase     = henyey_greenstein(cos_theta, u_anisotropy_g);
+            // Phase function
+            float cos_theta = dot(light_dir / dist_light, ray_dir);
+            float phase = (abs(u_anisotropy_g) < 0.001) ? 1.0 : henyey_greenstein(cos_theta, u_anisotropy_g);
 
             // Shadow test from light to sample point
             float shadow_factor = 1.0;
@@ -142,24 +141,11 @@ void main()
                 }
             }
 
-            // Smooth cubic distance falloff to zero at radius boundary
-            float norm_dist = dist_light / u_light_radius;
-            float falloff   = clamp(1.0 - norm_dist * norm_dist, 0.0, 1.0);
-            falloff = falloff * falloff / max(dist_light * dist_light, 0.01);
-
-            // In-scattering contribution for this step
-            vec3 step_light = light_color_intensity * (falloff * shadow_factor * phase * u_scattering_coeff);
-
-            accum_in_scatter += step_light * (accum_transmittance * step_size);
-            accum_transmittance *= step_transmittance;
-
-            if (accum_transmittance < 0.01) {
-                break; // Early exit on opaque medium
-            }
+            scattered_amount += step_energy * shadow_factor * phase;
         }
 
         t_current += step_size;
     }
 
-    FragColor = vec4(accum_in_scatter, accum_transmittance);
+    FragColor = vec4(scattered_amount * light_color_intensity, 1.0);
 }

@@ -208,24 +208,24 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		return false
 	}
 
-	// Initialize default dynamic point light & shadow cubemap (Phase 1)
+	// Initialize default dynamic point light & shadow cubemap (Phase 1 & 3 ISO proportional scale)
 	s.point_light = rendering.Point_Light{
-		position               = mt.Vec3{0.0, 4.0, 0.0},
-		radius                 = 25.0,
-		color                  = mt.Vec3{1.0, 0.95, 0.8},
-		intensity              = 3.0,
+		position               = mt.Vec3{0.0, 2.0, -3.0},
+		radius                 = 22.0,
+		color                  = mt.Vec3{1.0, 0.50, 0.25},
+		intensity              = 2.8,
 		enabled                = true,
 		direct_shadows_enabled = false,
 		shadow_bias            = 0.005,
 		shadow_darkening       = 0.5,
 		shadow_debug_mask      = false,
 		show_bulb              = true,
-		bulb_radius            = 0.35,
+		bulb_radius            = 0.45,
 		is_dirty               = true,
 		is_animated            = true,
 		orbit_speed            = 0.25,
 		orbit_radius           = 5.0,
-		orbit_center           = mt.Vec3{0.0, 4.0, 0.0},
+		orbit_center           = mt.Vec3{0.0, 2.0, -3.0},
 		phase_g                = 0.55,
 	}
 	if !rendering.shadow_cubemap_create(&s.shadow_cubemap, 512) {

@@ -160,13 +160,29 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 
 		if vr.enabled {
 			imgui.SliderInt("Raymarch Steps (N)", &vr.step_count, 4, 64)
-			imgui.SliderFloat("Scattering Coeff (sigma_s)", &vr.scattering_coeff, 0.01, 2.0, "%.3f")
-			imgui.SliderFloat("Extinction Coeff (sigma_t)", &vr.extinction_coeff, 0.00, 1.0, "%.3f")
+			imgui.SliderFloat("Scattering Coeff (sigma_s)", &vr.scattering_coeff, 0.01, 1.0, "%.3f")
 			imgui.SliderFloat("Anisotropy (g)", &vr.anisotropy_g, -0.90, 0.90, "%.2f")
 			imgui.SliderFloat("Intensity Multiplier", &vr.intensity_mult, 0.0, 10.0, "%.2f")
 			imgui.Checkbox("Volumetric Shadows (God Rays)", &vr.shadows_enabled)
 			imgui.SameLine()
 			imgui.Checkbox("Spatial Ray Jittering (IGN)", &vr.jitter_enabled)
+
+			// Atmosphere Scattering Presets (ISO legacy Volumetric_Dynamic_Lights)
+			imgui.Spacing()
+			imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Atmospheric & Cinematic Presets:")
+			if imgui.Button("Isotropic (g=0.0)") { vr.anisotropy_g = 0.0 }
+			imgui.SameLine()
+			if imgui.Button("Dust / Sand (g=0.35)") { vr.anisotropy_g = 0.35 }
+			imgui.SameLine()
+			if imgui.Button("Morning Fog (g=0.55)") { vr.anisotropy_g = 0.55 }
+			imgui.SameLine()
+			if imgui.Button("God Rays (g=0.70)") { vr.anisotropy_g = 0.70 }
+
+			if imgui.Button("Alan Wake Torch (g=0.80)") { vr.anisotropy_g = 0.80 }
+			imgui.SameLine()
+			if imgui.Button("Car Headlights (g=0.88)") { vr.anisotropy_g = 0.88 }
+			imgui.SameLine()
+			if imgui.Button("Backscatter (g=-0.35)") { vr.anisotropy_g = -0.35 }
 
 			// Henyey-Greenstein Phase Plot
 			imgui.Spacing()

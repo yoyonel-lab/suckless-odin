@@ -6,10 +6,10 @@ import "core:math"
 import mt "../src/core/math_types"
 import rendering "../src/rendering"
 
-// Verifies that Henyey-Greenstein produces isotropic scattering for g = 0
+// Verifies that Henyey-Greenstein produces normalized isotropic value 1.0 for g = 0 (ISO legacy)
 @(test)
 test_henyey_greenstein_isotropic :: proc(t: ^testing.T) {
-	expected_iso: f32 = 1.0 / (4.0 * math.PI)
+	expected_iso: f32 = 1.0
 
 	for angle_deg in 0..=180 {
 		theta := math.to_radians(f32(angle_deg))
@@ -34,7 +34,7 @@ test_henyey_greenstein_anisotropy_peaks :: proc(t: ^testing.T) {
 	testing.expect(t, p_backward_neg > p_forward_neg * 10.0, "Backward scattering should heavily exceed forward scattering for g < 0")
 }
 
-// Verifies energy conservation of Henyey-Greenstein across the sphere: \int_0^\pi P(theta, g) * 2*pi*sin(theta) d_theta == 1.0
+// Verifies normalization of Henyey-Greenstein across the sphere: \int_0^\pi P(theta, g) * 0.5*sin(theta) d_theta == 1.0
 @(test)
 test_henyey_greenstein_energy_conservation :: proc(t: ^testing.T) {
 	g_values := [5]f32{ -0.75, -0.35, 0.0, 0.40, 0.80 }
@@ -50,7 +50,7 @@ test_henyey_greenstein_energy_conservation :: proc(t: ^testing.T) {
 			sin_theta := math.sin(theta)
 
 			p := rendering.volumetric_henyey_greenstein(cos_theta, g)
-			integral += p * (2.0 * math.PI * sin_theta) * d_theta
+			integral += p * (0.5 * sin_theta) * d_theta
 		}
 
 		testing.expect_value(t, math.abs(integral - 1.0) < 0.01, true)

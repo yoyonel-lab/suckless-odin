@@ -74,12 +74,13 @@ Volumetric_Renderer :: struct {
 	vbo:                    u32,
 }
 
-// Henyey-Greenstein Phase Function calculation (CPU analytic)
+// Henyey-Greenstein Normalized Phase Function (phase == 1.0 when g == 0.0, ISO legacy)
+// P(theta, g) = (1 - g^2) / (1 + g^2 - 2*g*cos(theta))^(3/2)
 volumetric_henyey_greenstein :: proc(cos_theta, g: f32) -> f32 {
 	g2 := g * g
 	denom := 1.0 + g2 - 2.0 * g * cos_theta
 	denom = max(denom, 0.0001)
-	return (1.0 - g2) / (4.0 * math.PI * math.pow(denom, 1.5))
+	return (1.0 - g2) / (denom * math.sqrt(denom))
 }
 
 // Ray-Sphere intersection calculation (CPU analytic)
@@ -108,10 +109,10 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.width = max(1, full_width / 2)
 	vr.height = max(1, full_height / 2)
 
-	vr.step_count = 24
-	vr.scattering_coeff = 0.25
+	vr.step_count = 16
+	vr.scattering_coeff = 0.025
 	vr.extinction_coeff = 0.05
-	vr.anisotropy_g = 0.65
+	vr.anisotropy_g = 0.55
 	vr.intensity_mult = 1.0
 	vr.jitter_enabled = true
 	vr.composite_in_scene = true
