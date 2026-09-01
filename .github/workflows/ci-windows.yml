@@ -70,3 +70,49 @@ jobs:
           path: |
             build-release/suckless-odin-windows-*.tar.zst
             build-release/suckless-odin-windows-*.zip
+
+  # ─── 3. STEAM DEPLOYMENT & HEADLESS RUNTIME VALIDATION ─────────────────────
+  steam-deployment:
+    name: Steam Deployment & Headless Runtime
+    needs: [package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Odin compiler
+        uses: ./.github/actions/setup-odin
+
+      - name: Setup Windows toolchain & Wine
+        uses: ./.github/actions/setup-windows-toolchain
+        with:
+          with-packaging: "true"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Windows Dependencies
+        run: task build-win-deps
+
+      - name: Download Windows Packages Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: suckless-odin-windows-packages
+          path: build-release/
+
+      - name: Extract Windows Package
+        run: |
+          mkdir -p build-release/suckless-odin-windows-v0.1.0
+          tar -I zstd -xf build-release/suckless-odin-windows-*.tar.zst -C build-release/suckless-odin-windows-v0.1.0 --strip-components=1
+
+      - name: Run Steam Deployment & Headless Benchmark Suite
+        run: task test-steam-ci
+
+      - name: Upload Steam CI Artifacts (Artworks & Render Proof)
+        uses: actions/upload-artifact@v4
+        with:
+          name: suckless-odin-steam-ci-artifacts
+          path: |
+            assets/steam_grid/
+            /tmp/benchmark_frame.png
+          if-no-files-found: warn
+
