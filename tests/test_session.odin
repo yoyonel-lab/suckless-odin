@@ -92,6 +92,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 		enabled                = true,
 		direct_shadows_enabled = true,
 		shadow_bias            = 0.002,
+		shadow_normal_bias     = 0.025,
+		shadow_slope_bias      = 0.0010,
 		shadow_darkening       = 0.75,
 		shadow_debug_mask      = false,
 		phase_g                = 0.75,
@@ -173,6 +175,9 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.point_light.enabled, true)
 	testing.expect_value(t, loaded_state.point_light.intensity, 2.5)
 	testing.expect_value(t, loaded_state.point_light.radius, 15.0)
+	testing.expect_value(t, loaded_state.point_light.shadow_bias, 0.002)
+	testing.expect_value(t, loaded_state.point_light.shadow_normal_bias, 0.025)
+	testing.expect_value(t, loaded_state.point_light.shadow_slope_bias, 0.0010)
 	testing.expect_value(t, loaded_state.point_light.phase_g, 0.75)
 	testing.expect_value(t, loaded_state.point_light.is_animated, true)
 }

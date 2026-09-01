@@ -39,6 +39,8 @@ Point_Light :: struct {
 	enabled:                bool,
 	direct_shadows_enabled: bool,
 	shadow_bias:            f32,
+	shadow_normal_bias:     f32,
+	shadow_slope_bias:      f32,
 	shadow_darkening:       f32,
 	shadow_debug_mask:      bool,
 	show_bulb:              bool,

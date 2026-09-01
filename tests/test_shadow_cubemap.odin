@@ -113,3 +113,31 @@ test_point_light_orbit_animation :: proc(t: ^testing.T) {
 	testing.expect(t, math.abs(p1.y - 5.0) < EPSILON, "t=PI/2 Y should be 5.0")
 	testing.expect(t, math.abs(p1.z - 4.0) < EPSILON, "t=PI/2 Z should be 4.0")
 }
+
+@(test)
+test_shadow_normal_offset_and_slope_bias :: proc(t: ^testing.T) {
+	// 1. Normal Offset Bias on perpendicular surface (NdotL = 1.0)
+	// Normal offset should be 0 (no offset needed on front-facing surface)
+	normal_bias: f32 = 0.025
+	ndotl_front: f32 = 1.0
+	offset_front := normal_bias * (1.0 - ndotl_front)
+	testing.expect_value(t, offset_front, 0.0)
+
+	// 2. Normal Offset Bias on grazing angle (NdotL = 0.0)
+	// Normal offset should be maximal (0.025m) to push sample point away from surface
+	ndotl_grazing: f32 = 0.0
+	offset_grazing := normal_bias * (1.0 - ndotl_grazing)
+	testing.expect_value(t, math.abs(offset_grazing - normal_bias) < EPSILON, true)
+
+	// 3. Slope-Scaled Depth Bias: increases tolerance on grazing angles
+	base_bias: f32 = 0.0015
+	slope_bias: f32 = 0.0010
+	slope_factor_front := math.sqrt(math.clamp(1.0 - ndotl_front * ndotl_front, 0.0, 1.0)) / math.max(ndotl_front, 0.05)
+	bias_front := base_bias + slope_bias * slope_factor_front
+	testing.expect_value(t, math.abs(bias_front - base_bias) < EPSILON, true)
+
+	ndotl_edge: f32 = 0.10
+	slope_factor_edge := math.sqrt(math.clamp(1.0 - ndotl_edge * ndotl_edge, 0.0, 1.0)) / math.max(ndotl_edge, 0.05)
+	bias_edge := base_bias + slope_bias * slope_factor_edge
+	testing.expect(t, bias_edge > base_bias * 5.0, "Slope-scaled bias must significantly increase on grazing angle edges")
+}

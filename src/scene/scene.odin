@@ -67,9 +67,11 @@ Scene :: struct {
 	loc_point_light_color:       i32,
 	loc_point_light_intensity:   i32,
 	loc_point_shadows_enabled:   i32,
-	loc_point_shadow_bias:       i32,
-	loc_point_shadow_darkening:  i32,
-	loc_point_shadow_debug_mask: i32,
+	loc_point_shadow_bias:        i32,
+	loc_point_shadow_normal_bias: i32,
+	loc_point_shadow_slope_bias:  i32,
+	loc_point_shadow_darkening:   i32,
+	loc_point_shadow_debug_mask:  i32,
 
 	// Cached uniform values to filter redundant driver uploads
 	cached_screen_w:             i32,
@@ -177,6 +179,8 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_point_light_intensity = gl.GetUniformLocation(s.pbr_program, "u_point_light_intensity")
 	s.loc_point_shadows_enabled = gl.GetUniformLocation(s.pbr_program, "u_point_shadows_enabled")
 	s.loc_point_shadow_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_bias")
+	s.loc_point_shadow_normal_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_normal_bias")
+	s.loc_point_shadow_slope_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_slope_bias")
 	s.loc_point_shadow_darkening = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_darkening")
 	s.loc_point_shadow_debug_mask = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_debug_mask")
 
@@ -217,7 +221,9 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		intensity              = 2.8,
 		enabled                = true,
 		direct_shadows_enabled = false,
-		shadow_bias            = 0.005,
+		shadow_bias            = 0.0015,
+		shadow_normal_bias     = 0.025,
+		shadow_slope_bias      = 0.0010,
 		shadow_darkening       = 0.5,
 		shadow_debug_mask      = false,
 		show_bulb              = true,
@@ -365,6 +371,8 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	gl.Uniform1f(s.loc_point_light_intensity, s.point_light.intensity if s.point_light.enabled else 0.0)
 	gl.Uniform1i(s.loc_point_shadows_enabled, 1 if (s.point_light.enabled && s.point_light.direct_shadows_enabled) else 0)
 	gl.Uniform1f(s.loc_point_shadow_bias, s.point_light.shadow_bias)
+	gl.Uniform1f(s.loc_point_shadow_normal_bias, s.point_light.shadow_normal_bias)
+	gl.Uniform1f(s.loc_point_shadow_slope_bias, s.point_light.shadow_slope_bias)
 	gl.Uniform1f(s.loc_point_shadow_darkening, s.point_light.shadow_darkening)
 	gl.Uniform1i(s.loc_point_shadow_debug_mask, 1 if s.point_light.shadow_debug_mask else 0)
 

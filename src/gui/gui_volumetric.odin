@@ -5,132 +5,20 @@ import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
 import mt "../core/math_types"
 
-// Dedicated Dear ImGui panel for Point Light & Shadow Cubemap (Phase 1) and Volumetric Light
-draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
-	if state.point_light == nil || state.shadow_cubemap == nil {
-		imgui.TextDisabled("Point light / Shadow Cubemap resources not initialized.")
+// Dedicated Dear ImGui panel for Volumetric Lighting (Phases 2 to 7)
+draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
+	if state.volumetric == nil {
+		imgui.TextDisabled("Volumetric Lighting resources not initialized.")
 		return
 	}
 
+	vr := state.volumetric
 	light := state.point_light
-	sc := state.shadow_cubemap
 
-	imgui.TextColored({0.2, 0.8, 1.0, 1.0}, "Point Light & Omnidirectional Shadows (Phase 1)")
+	imgui.TextColored({0.2, 0.8, 1.0, 1.0}, "Volumetric Lighting & Atmosphere (Phases 2-7)")
 	imgui.Separator()
 
-	// 1. Point Light Properties
-	if imgui.CollapsingHeader("Point Light Controls", imgui.TreeNodeFlags{.DefaultOpen}) {
-		imgui.Checkbox("Light Enabled", &light.enabled)
-		imgui.SameLine()
-		imgui.Checkbox("Orbit Animation", &light.is_animated)
-
-		if light.is_animated {
-			imgui.SliderFloat("Orbit Speed", &light.orbit_speed, 0.0, 2.0, "%.3f rad/s")
-			imgui.SliderFloat("Orbit Radius", &light.orbit_radius, 0.0, 20.0)
-			pos_arr := [3]f32{light.orbit_center.x, light.orbit_center.y, light.orbit_center.z}
-			if imgui.DragFloat3("Orbit Center", &pos_arr, 0.1) {
-				light.orbit_center = mt.Vec3{pos_arr[0], pos_arr[1], pos_arr[2]}
-			}
-		} else {
-			pos_arr := [3]f32{light.position.x, light.position.y, light.position.z}
-			if imgui.DragFloat3("Position", &pos_arr, 0.1) {
-				light.position = mt.Vec3{pos_arr[0], pos_arr[1], pos_arr[2]}
-				light.is_dirty = true
-			}
-		}
-
-		imgui.SliderFloat("Radius / Influence", &light.radius, 1.0, 50.0)
-		color_arr := [3]f32{light.color.x, light.color.y, light.color.z}
-		if imgui.ColorEdit3("Light Color", &color_arr) {
-			light.color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
-		}
-		imgui.SliderFloat("Intensity", &light.intensity, 0.0, 10.0)
-		imgui.SliderFloat("Phase Anisotropy (g)", &light.phase_g, -0.9, 0.9)
-
-		imgui.Separator()
-		imgui.TextColored({1.0, 0.9, 0.3, 1.0}, "Surface Shadow Mapping Verification (Debug Mode)")
-		imgui.Checkbox("Direct Surface Shadows", &light.direct_shadows_enabled)
-		if light.direct_shadows_enabled {
-			imgui.SliderFloat("Shadow Bias", &light.shadow_bias, 0.0001, 0.05, "%.4f")
-			imgui.SliderFloat("Shadow Darkening", &light.shadow_darkening, 0.0, 1.0, "%.2f")
-			imgui.Checkbox("Shadow Debug Mask (Green=Lit, Red=Occluded)", &light.shadow_debug_mask)
-		}
-
-		imgui.Spacing()
-		imgui.Checkbox("Show Light Bulb Gizmo", &light.show_bulb)
-		if light.show_bulb {
-			imgui.SliderFloat("Bulb Gizmo Radius", &light.bulb_radius, 0.05, 2.0, "%.2f m")
-		}
-	}
-
-	// 2. Shadow Cubemap Live Preview & Resolution Inspector
-	if imgui.CollapsingHeader("Shadow Cubemap Inspector (3x2 Atlas & Controls)", imgui.TreeNodeFlags{}) {
-		// Dynamic Resolution Control (ISO parity: 64, 128, 256, 512)
-		if imgui.Combo("Cube Shadow Map Res", &sc.res_index, "64x64\x00128x128\x00256x256 (Default)\x00512x512 (Ultra HD)\x00\x00") {
-			new_res := rendering.shadow_cubemap_res_for_index(sc.res_index)
-			if new_res != sc.resolution {
-				rendering.shadow_cubemap_resize(sc, new_res)
-				light.is_dirty = true
-			}
-		}
-
-		imgui.Checkbox("Shadow Map Dirty Caching", &sc.shadow_cache)
-		imgui.Combo(
-			"Shadow Time-Slicing",
-			&sc.time_slice_mode,
-			"All 6 faces (Realtime / Max Quality)\x003 faces / frame (2-frame cycle)\x002 faces / frame (3-frame cycle)\x001 face / frame (Max Performance)\x00\x00",
-		)
-
-		imgui.SliderFloat("Near Clip", &sc.near_plane, 0.001, 1.0, "%.3f m")
-		imgui.SliderFloat("Far Clip", &sc.far_plane, 1.0, 50.0, "%.1f m")
-
-		// 6 Face status indicators
-		imgui.Text("Face Cache Status:")
-		imgui.SameLine()
-		face_names := [6]cstring{"+X", "-X", "+Y", "-Y", "+Z", "-Z"}
-		for i in 0..<6 {
-			if sc.cached_faces[i] {
-				imgui.TextColored({0.2, 1.0, 0.2, 1.0}, "[%s: Cached]", face_names[i])
-			} else {
-				imgui.TextColored({1.0, 0.3, 0.3, 1.0}, "[%s: Dirty]", face_names[i])
-			}
-			if i < 5 do imgui.SameLine()
-		}
-
-		// Update 2D preview atlas on-demand when inspector is visible
-		rendering.shadow_cubemap_update_preview_atlas(sc)
-
-		// Render 3x2 unfolded preview
-		imgui.Spacing()
-		avail_w := imgui.GetContentRegionAvail().x
-		preview_w := max(256.0, min(avail_w, 600.0))
-		preview_h := preview_w * (2.0 / 3.0)
-
-		imgui.Image(
-			gl_tex_ref(sc.preview_tex),
-			imgui.Vec2{preview_w, preview_h},
-			imgui.Vec2{0, 1}, // Flip Y for OpenGL
-			imgui.Vec2{1, 0},
-		)
-
-		if imgui.IsItemHovered() {
-			mouse_pos := imgui.GetMousePos()
-			item_min := imgui.GetItemRectMin()
-			item_size := imgui.GetItemRectSize()
-			rel_x := clamp((mouse_pos.x - item_min.x) / item_size.x, 0.0, 1.0)
-			rel_y := clamp((mouse_pos.y - item_min.y) / item_size.y, 0.0, 1.0)
-
-			// Determine which of the 3x2 face is under cursor
-			col := i32(rel_x * 3.0)
-			row := i32(rel_y * 2.0)
-			face_idx := row * 3 + col
-			face_label := face_names[clamp(face_idx, 0, 5)]
-
-			imgui.SetTooltip("Hovered Face: %s (Col %d, Row %d)\nUV: (%.2f, %.2f)\nTop: +X (Right), +Y (Top), +Z (Front)\nBottom: -X (Left), -Y (Bottom), -Z (Back)", face_label, col, row, rel_x, rel_y)
-		}
-	}
-
-	// 3. Phase 2: Depth Downsample & Edge Discontinuity Inspector
+	// 1. Phase 2: Depth Downsample & Edge Discontinuity Inspector
 	if state.depth_downsample != nil && imgui.CollapsingHeader("Depth Downsample & Discontinuities (Phase 2)", imgui.TreeNodeFlags{}) {
 		dd := state.depth_downsample
 		imgui.Text("Full: %dx%d -> Half: %dx%d (Rank/Median 4-tap Filter)", dd.full_width, dd.full_height, dd.width, dd.height)
@@ -176,9 +64,8 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 		}
 	}
 
-	// 4. Phase 3: Volumetric Raymarching & Henyey-Greenstein Inspector
+	// 2. Phase 3: Volumetric Raymarching & Henyey-Greenstein Inspector
 	if state.volumetric != nil && imgui.CollapsingHeader("Volumetric Raymarching & Henyey-Greenstein (Phase 3)", imgui.TreeNodeFlags{.DefaultOpen}) {
-		vr := state.volumetric
 		avail_w := imgui.GetContentRegionAvail().x
 
 		imgui.Checkbox("Enable Volumetric Raymarching", &vr.params.enabled)
@@ -329,9 +216,8 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 		}
 	}
 
-	// 5. Phase 4: TAA Temporal Reprojection & History Blending Inspector
-	if state.volumetric != nil && imgui.CollapsingHeader("TAA Reprojection & History Blending (Phase 4)", imgui.TreeNodeFlags{.DefaultOpen}) {
-		vr := state.volumetric
+	// 3. Phase 4: TAA Temporal Reprojection & History Blending Inspector
+	if imgui.CollapsingHeader("TAA Reprojection & History Blending (Phase 4)", imgui.TreeNodeFlags{.DefaultOpen}) {
 		if vr.params.enabled {
 			imgui.TextColored({0.2, 0.9, 0.4, 1.0}, "Temporal Filtering Mode:")
 			if imgui.RadioButton("Off (Raw Jitter Grain)##taa", vr.params.taa_mode == 0) {
@@ -377,9 +263,8 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 		}
 	}
 
-	// 6. Phase 5: Separable Joint Bilateral Blur & Edge Discontinuity Inspector
-	if state.volumetric != nil && imgui.CollapsingHeader("Separable Joint Bilateral Blur & Edge Inspector (Phase 5)", imgui.TreeNodeFlags{.DefaultOpen}) {
-		vr := state.volumetric
+	// 4. Phase 5: Separable Joint Bilateral Blur & Edge Discontinuity Inspector
+	if imgui.CollapsingHeader("Separable Joint Bilateral Blur & Edge Inspector (Phase 5)", imgui.TreeNodeFlags{.DefaultOpen}) {
 		if vr.params.enabled {
 			imgui.TextColored({0.9, 0.6, 0.2, 1.0}, "Bilateral Edge-Aware Blur:")
 			if imgui.RadioButton("None / Pass-through##blur", vr.params.blur_mode == 0) {
@@ -427,9 +312,8 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 		}
 	}
 
-	// 7. Phase 6: Composite & Joint Bilateral Upsampling Inspector
-	if state.volumetric != nil && imgui.CollapsingHeader("Composite & Joint Bilateral Upsampling (Phase 6)", imgui.TreeNodeFlags{.DefaultOpen}) {
-		vr := state.volumetric
+	// 5. Phase 6: Composite & Joint Bilateral Upsampling Inspector
+	if imgui.CollapsingHeader("Composite & Joint Bilateral Upsampling (Phase 6)", imgui.TreeNodeFlags{.DefaultOpen}) {
 		if vr.params.enabled {
 			imgui.TextColored({0.2, 0.9, 0.7, 1.0}, "Full-Resolution Depth-Guided Upsampling Mode:")
 			if imgui.RadioButton("Bilinear Standard (Naive Baseline)##upsample", vr.params.upsample_mode == 0) {
@@ -470,9 +354,8 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 		}
 	}
 
-	// 8. Phase 7: Atmosphere Presets & GPU Performance Hub
-	if state.volumetric != nil && imgui.CollapsingHeader("Atmosphere Presets & GPU Profiler Hub (Phase 7)", imgui.TreeNodeFlags{.DefaultOpen}) {
-		vr := state.volumetric
+	// 6. Phase 7: Atmosphere Presets & GPU Performance Hub
+	if imgui.CollapsingHeader("Atmosphere Presets & GPU Profiler Hub (Phase 7)", imgui.TreeNodeFlags{.DefaultOpen}) {
 
 		// Atmospheric Presets Selector
 		imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "Atmospheric & Cinematic Presets:")
@@ -538,6 +421,57 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 			imgui.ProgressBar(fraction, imgui.Vec2{bar_w, 14.0}, "")
 		}
 	}
+}
+
+// Search filter widget rendering for Volumetric parameters.
+@(private)
+draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> int {
+	vr := state.volumetric
+	if vr == nil { return 0 }
+	light := state.point_light
+	match_count := 0
+
+	if fuzzy_match(filter, "Volumetric Raymarching", "volumetric light raymarch scattering fog mist atmosphere") {
+		imgui.Checkbox("Enable Volumetric Raymarching##filt", &vr.params.enabled)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Raymarch Steps", "volumetric raymarching steps samples quality performance") {
+		imgui.SliderInt("Raymarch Steps (N)##filt", &vr.params.step_count, 4, 64)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Scattering Coeff", "volumetric scattering sigma_s density fog") {
+		imgui.SliderFloat("Scattering Coeff (sigma_s)##filt", &vr.params.scattering_coeff, 0.001, 0.2, "%.3f")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Extinction Coeff", "volumetric extinction sigma_t absorption fog") {
+		imgui.SliderFloat("Extinction Coeff (sigma_t)##filt", &vr.params.extinction_coeff, 0.001, 0.5, "%.3f")
+		match_count += 1
+	}
+	if light != nil && fuzzy_match(filter, "Phase Anisotropy (g)", "volumetric henyey greenstein anisotropy forward backward scattering phase") {
+		imgui.SliderFloat("Phase Anisotropy (g)##filt", &light.phase_g, -0.9, 0.9, "%.2f")
+		vr.params.anisotropy_g = light.phase_g
+		match_count += 1
+	}
+	if fuzzy_match(filter, "TAA Reprojection", "volumetric taa temporal reprojection history jitter") {
+		taa_enabled := vr.params.taa_mode != 0
+		if imgui.Checkbox("Enable TAA Reprojection##filt", &taa_enabled) {
+			vr.params.taa_mode = 2 if taa_enabled else 0
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Bilateral Blur", "volumetric bilateral blur edge preserving filter smoothing") {
+		blur_enabled := vr.params.blur_mode != 0
+		if imgui.Checkbox("Enable Bilateral Blur##filt", &blur_enabled) {
+			vr.params.blur_mode = 2 if blur_enabled else 0
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Upsample Mode", "volumetric upsample jbu nearest bilateral") {
+		imgui.Combo("JBU Mode##filt", &vr.params.upsample_mode, "Bilinear Standard (Fast)\x00Nearest-Depth Fast JBU\x00Joint Bilateral Upsampling 2x2 (Ultra HD)\x00\x00")
+		match_count += 1
+	}
+
+	return match_count
 }
 
 

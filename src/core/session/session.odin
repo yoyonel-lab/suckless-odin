@@ -50,6 +50,8 @@ Point_Light_Session_Settings :: struct {
 	enabled:                bool    `json:"enabled"`,
 	direct_shadows_enabled: bool    `json:"direct_shadows_enabled"`,
 	shadow_bias:            f32     `json:"shadow_bias"`,
+	shadow_normal_bias:     f32     `json:"shadow_normal_bias"`,
+	shadow_slope_bias:      f32     `json:"shadow_slope_bias"`,
 	shadow_darkening:       f32     `json:"shadow_darkening"`,
 	shadow_debug_mask:      bool    `json:"shadow_debug_mask"`,
 	phase_g:                f32     `json:"phase_g"`,

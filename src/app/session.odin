@@ -110,6 +110,8 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			enabled                = s.point_light.enabled,
 			direct_shadows_enabled = s.point_light.direct_shadows_enabled,
 			shadow_bias            = s.point_light.shadow_bias,
+			shadow_normal_bias     = s.point_light.shadow_normal_bias,
+			shadow_slope_bias      = s.point_light.shadow_slope_bias,
 			shadow_darkening       = s.point_light.shadow_darkening,
 			shadow_debug_mask      = s.point_light.shadow_debug_mask,
 			phase_g                = s.point_light.phase_g,
@@ -255,6 +257,8 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.point_light.enabled                = state.point_light.enabled
 		s.point_light.direct_shadows_enabled = state.point_light.direct_shadows_enabled
 		s.point_light.shadow_bias            = state.point_light.shadow_bias
+		s.point_light.shadow_normal_bias     = state.point_light.shadow_normal_bias
+		s.point_light.shadow_slope_bias      = state.point_light.shadow_slope_bias
 		s.point_light.shadow_darkening       = state.point_light.shadow_darkening
 		s.point_light.shadow_debug_mask      = state.point_light.shadow_debug_mask
 		s.point_light.phase_g                = state.point_light.phase_g

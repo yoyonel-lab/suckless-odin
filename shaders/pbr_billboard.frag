@@ -32,6 +32,8 @@ uniform vec3  u_point_light_color;
 uniform float u_point_light_intensity;
 uniform bool  u_point_shadows_enabled;
 uniform float u_point_shadow_bias;
+uniform float u_point_shadow_normal_bias;
+uniform float u_point_shadow_slope_bias;
 uniform float u_point_shadow_darkening;
 uniform bool  u_point_shadow_debug_mask;
 
@@ -255,7 +257,7 @@ void main()
         return;
     }
 
-    // Shadow Mapping visibility attenuation (subtle darkening of base IBL when occluded)
+    // Shadow Mapping visibility attenuation with Slope-Scaled & Normal-Offset Auto-Bias
     if (u_point_shadows_enabled) {
         vec3 lightToPos = hitPos - u_point_light_pos;
         float distToLight = length(lightToPos);
@@ -264,11 +266,21 @@ void main()
             vec3 L = -lightToPos / distToLight;
             float NdotL = max(dot(N, L), 0.0);
 
-            // Sample cubemap with direction from light to hit position
-            float sampledDepth = texture(u_point_shadow_cubemap, lightToPos).r;
+            // 1. Receiver Normal Offset Bias: shifts sample point outwards along N
+            // Scales with (1.0 - NdotL) to expand offset on grazing angles where acne occurs
+            float normalOffset = u_point_shadow_normal_bias * (1.0 - NdotL);
+            vec3 biasedHitPos = hitPos + N * normalOffset;
+            vec3 lightToBiasedPos = biasedHitPos - u_point_light_pos;
+
+            // 2. Slope-Scaled Depth Bias: increases tolerance on steep surface slopes
+            float slopeFactor = sqrt(clamp(1.0 - NdotL * NdotL, 0.0, 1.0)) / max(NdotL, 0.05);
+            float dynamicBias = u_point_shadow_bias + u_point_shadow_slope_bias * slopeFactor;
+
+            // Sample cubemap along the normal-biased ray direction
+            float sampledDepth = texture(u_point_shadow_cubemap, lightToBiasedPos).r;
             float normalizedDist = distToLight / max(0.001, u_point_light_radius);
 
-            float shadow = (normalizedDist - u_point_shadow_bias <= sampledDepth) ? 1.0 : 0.0;
+            float shadow = (normalizedDist - dynamicBias <= sampledDepth) ? 1.0 : 0.0;
 
             if (u_point_shadow_debug_mask) {
                 // Debug mode: highlight shadow mask (Green = Lit, Red = Occluded)
