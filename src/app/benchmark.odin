@@ -96,9 +96,9 @@ BENCHMARK_SCREENSHOT_PATH :: "/tmp/benchmark_frame.ppm"
 
 @(private)
 dump_benchmark_frame :: proc(application: ^App, width, height: i32) {
-	// Read from scene FBO (COLOR_ATTACHMENT0 is the HDR render target)
-	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, application.scene.postfx_pipeline.scene_fbo)
-	gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
+	// Read from default backbuffer (fully tone-mapped and resolved postfx frame)
+	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
+	gl.ReadBuffer(gl.BACK)
 	defer gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
 
 	pixels := make([]u8, int(width * height * 3))
