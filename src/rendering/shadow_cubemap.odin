@@ -7,7 +7,17 @@ import mt "../core/math_types"
 import log "../core/log"
 import dbg "../core/gl_debug"
 import gl_state "../core/gl_state"
+import tracy "../core/tracy"
 import shader "./shader"
+
+@(private)
+srcloc_shadow_cubemap := tracy.Source_Location_Data{
+	name     = "Shadow_Cubemap_Render",
+	function = "shadow_cubemap_render_spheres",
+	file     = #file,
+	line     = #line,
+	color    = 0xEBCB8B,
+}
 
 CUBEMAP_FACES :: 6
 
@@ -54,6 +64,16 @@ point_light_get_position :: proc(light: ^Point_Light, total_time: f32) -> mt.Vec
 	}
 }
 
+SHADOW_MAP_RESOLUTIONS :: [4]i32{64, 128, 256, 512}
+DEFAULT_SHADOW_RES_INDEX :: 2 // 256x256
+DEFAULT_SHADOW_RESOLUTION :: 256
+
+shadow_cubemap_res_for_index :: proc(index: i32) -> i32 {
+	resolutions := [4]i32{64, 128, 256, 512}
+	idx := clamp(index, 0, 3)
+	return resolutions[idx]
+}
+
 // Manages a 6-face Cubemap Framebuffer for Omnidirectional Point Light Shadows (Modern OpenGL 4.4 Core)
 Shadow_Cubemap :: struct {
 	fbo:                  u32,
@@ -65,6 +85,12 @@ Shadow_Cubemap :: struct {
 	proj_matrix:          mt.Mat4,
 	view_matrices:        [CUBEMAP_FACES]mt.Mat4,
 	cached_faces:         [CUBEMAP_FACES]bool,
+
+	// Dirty Caching & Time-Slicing Strategy
+	shadow_cache:         bool, // Enable dirty caching (skip rendering if light static)
+	time_slice_mode:      i32,  // 0: All 6 faces, 1: 3 faces/frame, 2: 2 faces/frame, 3: 1 face/frame
+	face_offset:          int,  // Rolling face offset for time slicing
+	res_index:            i32,  // Index in SHADOW_MAP_RESOLUTIONS (default 2 = 256x256)
 
 	// Shaders for analytical sphere shadow casting
 	program:              u32,
@@ -216,9 +242,13 @@ shadow_cubemap_resize :: proc(sc: ^Shadow_Cubemap, new_resolution: i32) -> bool 
 }
 
 // Creates shadow cubemap textures, FBO and shaders
-shadow_cubemap_create :: proc(sc: ^Shadow_Cubemap, resolution: i32 = 512) -> (ok: bool) {
+shadow_cubemap_create :: proc(sc: ^Shadow_Cubemap, resolution: i32 = DEFAULT_SHADOW_RESOLUTION) -> (ok: bool) {
 	sc.near_plane = 0.01
 	sc.far_plane  = 25.0
+	sc.shadow_cache = true
+	sc.time_slice_mode = 0 // 0: All 6 faces (Realtime / Max Quality)
+	sc.face_offset = 0
+	sc.res_index = DEFAULT_SHADOW_RES_INDEX // 2 = 256x256
 
 	// 1. Create FBO & textures
 	if !shadow_cubemap_create_fbo_textures(sc, resolution) do return false
@@ -323,7 +353,7 @@ shadow_cubemap_update_matrices :: proc(sc: ^Shadow_Cubemap, light_pos: mt.Vec3, 
 	}
 }
 
-// Renders the scene's instanced spheres into the 6 cubemap faces
+// Renders the scene's instanced spheres into the cubemap faces (with dirty caching and time-slicing)
 shadow_cubemap_render_spheres :: proc(
 	sc: ^Shadow_Cubemap,
 	light: ^Point_Light,
@@ -333,6 +363,15 @@ shadow_cubemap_render_spheres :: proc(
 	force_all_faces: bool = false,
 ) {
 	if !light.enabled || sc.fbo == 0 do return
+
+	update_shadow := true
+	if sc.shadow_cache && !light.is_dirty && !light.is_animated && !force_all_faces {
+		update_shadow = false
+	}
+	if !update_shadow do return
+
+	zone := tracy.zone_begin(&srcloc_shadow_cubemap)
+	defer tracy.zone_end(zone)
 
 	light_pos := point_light_get_position(light, total_time)
 	shadow_cubemap_update_matrices(sc, light_pos, light.radius, sc.near_plane)
@@ -361,18 +400,42 @@ shadow_cubemap_render_spheres :: proc(
 	instanced_bind(spheres)
 	gl.BindVertexArray(billboard.vao)
 
-	for i in 0..<CUBEMAP_FACES {
-		face_target := gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(i)
+	faces_to_render: [6]int
+	num_faces := 6
+
+	if light.is_dirty || !light.is_animated || sc.time_slice_mode == 0 || force_all_faces {
+		num_faces = 6
+		for i in 0..<6 {
+			faces_to_render[i] = i
+		}
+		sc.face_offset = 0
+	} else {
+		switch sc.time_slice_mode {
+		case 1: num_faces = 3 // 3 faces / frame (2-frame cycle)
+		case 2: num_faces = 2 // 2 faces / frame (3-frame cycle)
+		case 3: num_faces = 1 // 1 face / frame (6-frame cycle)
+		case:   num_faces = 6
+		}
+
+		for i in 0..<num_faces {
+			faces_to_render[i] = (sc.face_offset + i) % 6
+		}
+		sc.face_offset = (sc.face_offset + num_faces) % 6
+	}
+
+	for i in 0..<num_faces {
+		f := faces_to_render[i]
+		face_target := gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(f)
 		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, face_target, sc.depth_cubemap, 0)
 		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, face_target, sc.linear_depth_cubemap, 0)
 
 		gl.ClearColor(1.0, 1.0, 1.0, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		gl.UniformMatrix4fv(sc.loc_view, 1, false, &sc.view_matrices[i][0][0])
+		gl.UniformMatrix4fv(sc.loc_view, 1, false, &sc.view_matrices[f][0][0])
 		gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, spheres.count)
 
-		sc.cached_faces[i] = true
+		sc.cached_faces[f] = true
 	}
 
 	gl.BindVertexArray(0)

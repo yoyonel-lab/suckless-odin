@@ -102,6 +102,7 @@ Scene :: struct {
 	specular_aa_split_enabled:  bool,
 	specular_aa_split_position: f32,
 	frame_count:         int,
+	dt:                  f32,
 }
 
 HDR_DIR        :: "assets/textures/hdr"
@@ -260,7 +261,9 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 
 	// 0. Shadow cubemap pass (Point light shadows from instanced spheres)
 	if s.point_light.enabled {
+		rendering.volumetric_timer_begin(&s.volumetric.timers, .Shadow_Pass)
 		rendering.shadow_cubemap_render_spheres(&s.shadow_cubemap, &s.point_light, &s.spheres, &s.billboard, f32(s.frame_count) * 0.016)
+		rendering.volumetric_timer_end(&s.volumetric.timers, .Shadow_Pass)
 	}
 
 	gl.Viewport(0, 0, width, height)
@@ -389,8 +392,19 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 
 	dbg.pop_group()
 
+	// Ensure volumetric & depth downsampler match the requested resolution divider
+	expected_div := max(1, s.volumetric.params.resolution_divider)
+	expected_w := max(1, width / expected_div)
+	expected_h := max(1, height / expected_div)
+	if s.volumetric.width != expected_w || s.volumetric.height != expected_h {
+		rendering.depth_downsample_resize(&s.depth_downsample, width, height, expected_div)
+		rendering.volumetric_resize(&s.volumetric, width, height, expected_div)
+	}
+
 	// 2.5 Volumetric Lighting: Rank/Median 4-tap Depth Downsample pass
+	rendering.volumetric_timer_begin(&s.volumetric.timers, .Depth_Downsample)
 	rendering.depth_downsample_render(&s.depth_downsample, s.postfx_pipeline.depth_tex, settings.NEAR_PLANE, settings.FAR_PLANE)
+	rendering.volumetric_timer_end(&s.volumetric.timers, .Depth_Downsample)
 
 	// 2.6 Volumetric Lighting: Raymarching & TAA Reprojection passes (Phase 3 & 4)
 	vp := proj * view
@@ -428,6 +442,9 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 			settings.FAR_PLANE,
 		)
 	}
+
+	// Collect volumetric GPU timers
+	rendering.volumetric_timers_collect(&s.volumetric.timers, s.dt)
 
 	// 3. End post-processing (composite to screen)
 	// Inject camera data for fog depth reconstruction (invViewProj + world cam pos)
@@ -476,6 +493,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 }
 
 scene_update :: proc(s: ^Scene, dt: f32) {
+	s.dt = dt
 	if s.frame_count >= 5 && !s.ibl.brdf_lut_computed {
 		rendering.ibl_update_brdf_lut(&s.ibl)
 	}
@@ -542,8 +560,8 @@ scene_adjust_exposure :: proc(s: ^Scene, delta: f32) {
 // Resize postfx pipeline (call from framebuffer callback).
 scene_resize :: proc(s: ^Scene, width, height: i32) {
 	postfx.pipeline_resize(&s.postfx_pipeline, width, height)
-	rendering.depth_downsample_resize(&s.depth_downsample, width, height)
-	rendering.volumetric_resize(&s.volumetric, width, height)
+	rendering.depth_downsample_resize(&s.depth_downsample, width, height, s.volumetric.params.resolution_divider)
+	rendering.volumetric_resize(&s.volumetric, width, height, s.volumetric.params.resolution_divider)
 }
 
 // Trigger an asynchronous environment map change.

@@ -7,7 +7,53 @@ import dbg "../core/gl_debug"
 import log "../core/log"
 import gl_state "../core/gl_state"
 import mt "../core/math_types"
+import tracy "../core/tracy"
 import shader "./shader"
+
+@(private)
+srcloc_volumetric_render := tracy.Source_Location_Data{
+	name     = "Volumetric_Pipeline",
+	function = "volumetric_render",
+	file     = #file,
+	line     = #line,
+	color    = 0x88C0D0,
+}
+
+@(private)
+srcloc_volumetric_raymarch := tracy.Source_Location_Data{
+	name     = "Volumetric_Raymarch",
+	function = "volumetric_render",
+	file     = #file,
+	line     = #line,
+	color    = 0x81A1C1,
+}
+
+@(private)
+srcloc_volumetric_taa := tracy.Source_Location_Data{
+	name     = "Volumetric_TAA",
+	function = "volumetric_render",
+	file     = #file,
+	line     = #line,
+	color    = 0x5E81AC,
+}
+
+@(private)
+srcloc_volumetric_blur := tracy.Source_Location_Data{
+	name     = "Volumetric_Bilateral_Blur",
+	function = "volumetric_render",
+	file     = #file,
+	line     = #line,
+	color    = 0xB48EAD,
+}
+
+@(private)
+srcloc_volumetric_composite := tracy.Source_Location_Data{
+	name     = "Volumetric_Composite_JBU",
+	function = "volumetric_composite_to_scene",
+	file     = #file,
+	line     = #line,
+	color    = 0xA3BE8C,
+}
 
 // Debug view enumeration for volumetric lighting pipeline inspection
 Volumetric_Debug_View :: enum u32 {
@@ -51,6 +97,7 @@ Volumetric_Params :: struct {
 	// Phase 6: Joint Bilateral Upsampling (JBU) parameters
 	upsample_mode:                i32,  // 0: Bilinear Standard, 1: Nearest-Depth Fast JBU, 2: Joint Bilateral Upsampling 2x2
 	upsample_sharpness:           f32,  // Sharpness for JBU depth guidance (default 200.0)
+	resolution_divider:           i32,  // Volumetric buffer divider (1: Full 1/1, 2: Half 1/2, 4: Quarter 1/4)
 
 	// Preview / Inspector tools
 	preview_mode:                 i32,  // 0..9 preview visualization modes
@@ -156,6 +203,9 @@ Volumetric_Renderer :: struct {
 
 	// Fullscreen Triangle
 	triangle:                      Fullscreen_Triangle,
+
+	// Phase 7: GPU Timers & Profiling
+	timers:                        Volumetric_Gpu_Timers,
 }
 
 // Henyey-Greenstein Normalized Phase Function (phase == 1.0 when g == 0.0, ISO legacy)
@@ -207,16 +257,18 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		viewport_debug_mode    = 0,
 		upsample_mode          = 2, // Joint Bilateral Upsampling (JBU 2x2 Depth-Guided)
 		upsample_sharpness     = 200.0,
+		resolution_divider     = 2, // Half-resolution buffer (1/2 default)
 		preview_mode           = 0,
 		preview_exposure_boost = 1.0,
 		zoom_scale             = 1.0,
 		zoom_center            = mt.Vec2{0.5, 0.5},
 	}
 
+	div := max(1, vr.params.resolution_divider)
 	vr.full_width = max(2, full_width)
 	vr.full_height = max(2, full_height)
-	vr.width = max(1, full_width / 2)
-	vr.height = max(1, full_height / 2)
+	vr.width = max(1, full_width / div)
+	vr.height = max(1, full_height / div)
 	vr.history_valid = false
 	vr.history_idx = 0
 	vr.preview_dirty = true
@@ -328,6 +380,9 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 
 	// 3. FBO & Textures
 	create_volumetric_fbo(vr) or_return
+
+	// 4. Phase 7 GPU Profiling Timers
+	volumetric_timers_create(&vr.timers)
 
 	dbg.object_label(gl.FRAMEBUFFER, vr.fbo, "Volumetric_Raw_FBO")
 	dbg.object_label(gl.TEXTURE, vr.raw_tex, "Volumetric_Raw_RGBA16F")
@@ -492,18 +547,22 @@ destroy_volumetric_fbo :: proc(vr: ^Volumetric_Renderer) {
 	}
 }
 
-// Resizes volumetric buffers
-volumetric_resize :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32) {
-	if full_width == vr.full_width && full_height == vr.full_height do return
+// Resizes volumetric buffers on viewport or resolution divider changes
+volumetric_resize :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32, resolution_divider: i32 = 2) {
+	div := max(1, resolution_divider)
+	new_w := max(1, full_width / div)
+	new_h := max(1, full_height / div)
+	if full_width == vr.full_width && full_height == vr.full_height && vr.width == new_w && vr.height == new_h do return
+
 	vr.full_width = max(2, full_width)
 	vr.full_height = max(2, full_height)
-	vr.width = max(1, full_width / 2)
-	vr.height = max(1, full_height / 2)
+	vr.width = new_w
+	vr.height = new_h
 	vr.history_valid = false
 
 	destroy_volumetric_fbo(vr)
 	create_volumetric_fbo(vr)
-	log.log_info("suckless-odin.volumetric", "Volumetric renderer resized to %dx%d (from %dx%d)", vr.width, vr.height, vr.full_width, vr.full_height)
+	log.log_info("suckless-odin.volumetric", "Volumetric renderer resized to %dx%d (1/%d from %dx%d)", vr.width, vr.height, div, vr.full_width, vr.full_height)
 }
 
 // Executes the Volumetric Raymarching and TAA Reprojection passes
@@ -521,6 +580,9 @@ volumetric_render :: proc(
 ) {
 	if !vr.params.enabled || vr.fbo == 0 || vr.program == 0 do return
 
+	zone_pipeline := tracy.zone_begin(&srcloc_volumetric_render)
+	defer tracy.zone_end(zone_pipeline)
+
 	dbg.push_group("Volumetric_Pipeline")
 
 	prev_fbo: i32
@@ -531,6 +593,8 @@ volumetric_render :: proc(
 	// =========================================================================
 	// Pass 1: Raw Analytical Raymarching into vr.raw_tex
 	// =========================================================================
+	volumetric_timer_begin(&vr.timers, .Raymarching)
+	zone_raymarch := tracy.zone_begin(&srcloc_volumetric_raymarch)
 	dbg.push_group("Volumetric_Raymarch_Pass")
 	gl.BindFramebuffer(gl.FRAMEBUFFER, vr.fbo)
 	gl.Viewport(0, 0, vr.width, vr.height)
@@ -584,11 +648,15 @@ volumetric_render :: proc(
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 	gl.UseProgram(0)
 	dbg.pop_group()
+	tracy.zone_end(zone_raymarch)
+	volumetric_timer_end(&vr.timers, .Raymarching)
 
 	// =========================================================================
 	// Pass 2: Phase 4 TAA Reprojection & History Blending
 	// =========================================================================
 	if vr.params.taa_mode > 0 && vr.taa_program != 0 {
+		volumetric_timer_begin(&vr.timers, .TAA_Blend)
+		zone_taa := tracy.zone_begin(&srcloc_volumetric_taa)
 		dbg.push_group("Volumetric_TAA_Reprojection_Pass")
 
 		dest_fbo := vr.history_fbo[vr.history_idx]
@@ -648,6 +716,8 @@ volumetric_render :: proc(
 		vr.history_valid = true
 
 		dbg.pop_group()
+		tracy.zone_end(zone_taa)
+		volumetric_timer_end(&vr.timers, .TAA_Blend)
 	} else {
 		// No temporal accumulation
 		vr.history_valid = false
@@ -660,6 +730,8 @@ volumetric_render :: proc(
 	// Pass 3: Phase 5 Separable Joint Bilateral Blur (5-tap & 9-tap)
 	// =========================================================================
 	if vr.params.blur_mode > 0 && vr.blur_program != 0 {
+		volumetric_timer_begin(&vr.timers, .Bilateral_Blur)
+		zone_blur := tracy.zone_begin(&srcloc_volumetric_blur)
 		dbg.push_group("Volumetric_Bilateral_Blur_Pass")
 
 		blur_src_tex := vr.history_tex[1 - vr.history_idx] if (vr.params.taa_mode > 0 && vr.history_valid) else vr.raw_tex
@@ -700,6 +772,8 @@ volumetric_render :: proc(
 		gl.UseProgram(0)
 
 		dbg.pop_group()
+		tracy.zone_end(zone_blur)
+		volumetric_timer_end(&vr.timers, .Bilateral_Blur)
 	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
@@ -815,6 +889,9 @@ volumetric_composite_to_scene :: proc(
 	active_tex := volumetric_get_active_texture(vr)
 	if !vr.params.enabled || !vr.params.composite_in_scene || vr.composite_program == 0 || active_tex == 0 do return
 
+	zone_comp := tracy.zone_begin(&srcloc_volumetric_composite)
+	defer tracy.zone_end(zone_comp)
+
 	dbg.push_group("Volumetric_Composite_Direct")
 
 	prev_fbo: i32
@@ -862,7 +939,9 @@ volumetric_composite_to_scene :: proc(
 	gl.Uniform1f(vr.loc_comp_sharpness, vr.params.blur_sharpness)
 	gl.Uniform2f(vr.loc_comp_texel_size, 1.0 / f32(max(1, vr.width)), 1.0 / f32(max(1, vr.height)))
 
+	volumetric_timer_begin(&vr.timers, .Composite_Upsample)
 	fullscreen_triangle_draw(&vr.triangle)
+	volumetric_timer_end(&vr.timers, .Composite_Upsample)
 
 	for u in u32(0)..=4 {
 		gl.ActiveTexture(gl.TEXTURE0 + u)
@@ -881,6 +960,7 @@ volumetric_composite_to_scene :: proc(
 volumetric_destroy :: proc(vr: ^Volumetric_Renderer) {
 	destroy_volumetric_fbo(vr)
 	fullscreen_triangle_destroy(&vr.triangle)
+	volumetric_timers_destroy(&vr.timers)
 
 	if vr.program != 0 {
 		gl.DeleteProgram(vr.program)

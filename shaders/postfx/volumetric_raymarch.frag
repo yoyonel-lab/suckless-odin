@@ -102,49 +102,62 @@ void main()
         return;
     }
 
-    // 2. Raymarching Setup (ISO legacy: stepLenWorld & dithering)
+    // 2. Raymarching Setup with Precalculated Invariants
     int steps = clamp(u_step_count, 4, 64);
     float step_size = (t_end - t_start) / float(steps);
+    vec3 step_dir = ray_dir * step_size;
 
     // Spatial/temporal ray jittering
-    float jitter = 0.5;
-    if (u_jitter_enabled) {
-        jitter = interleaved_gradient_noise(gl_FragCoord.xy, u_frame_idx);
-    }
-    float t_current = t_start + jitter * step_size;
+    float jitter = (u_jitter_enabled) ? interleaved_gradient_noise(gl_FragCoord.xy, u_frame_idx) : 0.5;
+    vec3 sample_pos = u_cam_pos + ray_dir * (t_start + jitter * step_size);
+
+    float base_step_energy = step_size * u_scattering_coeff;
+    float inv_light_radius = 1.0 / max(u_light_radius, 0.0001);
+    float light_radius_sq = u_light_radius * u_light_radius;
+
+    // Henyey-Greenstein precomputations
+    float g = u_anisotropy_g;
+    float g2 = g * g;
+    float one_minus_g2 = 1.0 - g2;
+    float two_g = 2.0 * g;
+    bool has_anisotropy = abs(g) >= 0.001;
 
     float scattered_amount = 0.0;
     vec3 light_color_intensity = u_light_color * (u_light_intensity * u_intensity_mult);
 
-    // 3. Raymarching Loop (ISO legacy formula)
+    // 3. Fast Vectorized Raymarching Loop (zero division, zero sqrt in inner loop)
     for (int i = 0; i < steps; ++i) {
-        vec3 sample_pos = u_cam_pos + ray_dir * t_current;
-        vec3 light_dir  = u_light_pos - sample_pos;
-        float dist_light = length(light_dir);
+        vec3 light_dir = u_light_pos - sample_pos;
+        float dist_sq  = dot(light_dir, light_dir);
 
-        if (dist_light < u_light_radius && dist_light > 0.001) {
-            // ISO legacy linear attenuation: smooth boundary without 1/d^2 blowup
-            float linear_attenuation = clamp((u_light_radius - dist_light) / u_light_radius, 0.0, 1.0);
-            float step_energy = linear_attenuation * step_size * u_scattering_coeff;
+        if (dist_sq < light_radius_sq && dist_sq > 0.0001) {
+            float inv_dist   = inversesqrt(dist_sq);
+            float dist_light = dist_sq * inv_dist;
+            float linear_attenuation = clamp(1.0 - dist_light * inv_light_radius, 0.0, 1.0);
 
-            // Phase function
-            float cos_theta = dot(light_dir / dist_light, ray_dir);
-            float phase = (abs(u_anisotropy_g) < 0.001) ? 1.0 : henyey_greenstein(cos_theta, u_anisotropy_g);
+            // Phase function evaluated with fast hardware inversesqrt
+            float cos_theta = dot(light_dir * inv_dist, ray_dir);
+            float phase = 1.0;
+            if (has_anisotropy) {
+                float denom = max(1.0 + g2 - two_g * cos_theta, 0.0001);
+                float inv_denom = inversesqrt(denom);
+                phase = one_minus_g2 * (inv_denom * inv_denom * inv_denom);
+            }
 
             // Shadow test from light to sample point
             float shadow_factor = 1.0;
             if (u_shadows_enabled) {
-                vec3 light_to_sample = sample_pos - u_light_pos;
-                float shadow_depth = texture(u_shadow_cubemap, light_to_sample).r * u_light_radius;
-                if (dist_light - u_shadow_bias > shadow_depth) {
+                vec3 light_to_sample = -light_dir;
+                float shadow_depth_norm = texture(u_shadow_cubemap, light_to_sample).r;
+                if (dist_light - u_shadow_bias > shadow_depth_norm * u_light_radius) {
                     shadow_factor = 0.0;
                 }
             }
 
-            scattered_amount += step_energy * shadow_factor * phase;
+            scattered_amount += linear_attenuation * base_step_energy * (shadow_factor * phase);
         }
 
-        t_current += step_size;
+        sample_pos += step_dir;
     }
 
     FragColor = vec4(scattered_amount * light_color_intensity, 1.0);

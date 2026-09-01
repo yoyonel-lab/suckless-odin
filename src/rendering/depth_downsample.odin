@@ -5,7 +5,17 @@ import gl "vendor:OpenGL"
 import dbg "../core/gl_debug"
 import log "../core/log"
 import gl_state "../core/gl_state"
+import tracy "../core/tracy"
 import shader "./shader"
+
+@(private)
+srcloc_depth_downsample := tracy.Source_Location_Data{
+	name     = "Depth_Downsample_Render",
+	function = "depth_downsample_render",
+	file     = #file,
+	line     = #line,
+	color    = 0xD08770,
+}
 
 // Depth downsample state: produces half-resolution linear depth and geometric edge mask
 Depth_Downsample :: struct {
@@ -177,22 +187,29 @@ destroy_fbo :: proc(dd: ^Depth_Downsample) {
 	}
 }
 
-// Resizes downsampler buffers on viewport changes
-depth_downsample_resize :: proc(dd: ^Depth_Downsample, full_width, full_height: i32) {
-	if full_width == dd.full_width && full_height == dd.full_height do return
+// Resizes downsampler buffers on viewport or resolution divider changes
+depth_downsample_resize :: proc(dd: ^Depth_Downsample, full_width, full_height: i32, resolution_divider: i32 = 2) {
+	div := max(1, resolution_divider)
+	new_w := max(1, full_width / div)
+	new_h := max(1, full_height / div)
+	if full_width == dd.full_width && full_height == dd.full_height && dd.width == new_w && dd.height == new_h do return
+
 	dd.full_width = max(2, full_width)
 	dd.full_height = max(2, full_height)
-	dd.width = max(1, full_width / 2)
-	dd.height = max(1, full_height / 2)
+	dd.width = new_w
+	dd.height = new_h
 
 	destroy_fbo(dd)
 	create_fbo(dd)
-	log.log_info("suckless-odin.volumetric", "Depth downsampler resized to %dx%d (from %dx%d)", dd.width, dd.height, dd.full_width, dd.full_height)
+	log.log_info("suckless-odin.volumetric", "Depth downsampler resized to %dx%d (1/%d from %dx%d)", dd.width, dd.height, div, dd.full_width, dd.full_height)
 }
 
 // Executes the Rank/Median 4-tap depth downsample pass
 depth_downsample_render :: proc(dd: ^Depth_Downsample, full_depth_tex: u32, near_plane, far_plane: f32) {
 	if dd.fbo[0] == 0 || full_depth_tex == 0 do return
+
+	zone := tracy.zone_begin(&srcloc_depth_downsample)
+	defer tracy.zone_end(zone)
 
 	dbg.push_group("Depth_Downsample_Pass")
 

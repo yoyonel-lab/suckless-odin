@@ -233,5 +233,5 @@ Volumetric_Params :: struct {
 | **M4** | Phase 3 : Raymarching volumétrique & Henyey-Greenstein | `Raw_Raymarching` + Courbe polaire HG | ✅ Terminé | 31/08/2026 | Antigravity |
 | **M5** | Phase 4 : TAA Reprojection & History Blending | `TAA_Acceptance_Map` (🟩/🟥/🟦) | ✅ Terminé | 31/08/2026 | Antigravity |
 | **M6** | Phase 5 : Joint Bilateral Blur 9-tap séparable | `Bilateral_Blur_Diff` | ✅ Terminé | 31/08/2026 | Antigravity |
-| **M7** | Phase 6 : Composite pass & Joint Bilateral Upsampling | `AB_Split_Comparison` + Loupe $8\times$ | ⏳ À faire | - | - |
-| **M8** | Phase 7 : Hub ImGui, Presets & Tests dorés headless | Panel complet + Gpu_Timers $\mu s$ | ⏳ À faire | - | - |
+| **M7** | Phase 6 : Composite pass & Joint Bilateral Upsampling | `AB_Split_Comparison` + Loupe $8\times$ | ✅ Terminé | 01/09/2026 | Antigravity |
+| **M8** | Phase 7 : Hub ImGui, Presets & Tests dorés headless | Panel complet + Gpu_Timers $\mu s$ | ✅ Terminé | 01/09/2026 | Antigravity |

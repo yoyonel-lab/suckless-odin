@@ -57,6 +57,51 @@ test_session_save_load :: proc(t: ^testing.T) {
 	state_to_save.skybox_blur_lod = 1.2
 	state_to_save.edge_aa_debug = false
 	state_to_save.gui_active_tab = 3
+	state_to_save.volumetric = session.Volumetric_Session_Settings{
+		enabled                = true,
+		composite_in_scene     = true,
+		isolate_in_scene       = false,
+		shadows_enabled        = true,
+		step_count             = 32,
+		scattering_coeff       = 0.035,
+		extinction_coeff       = 0.050,
+		anisotropy_g           = 0.75,
+		intensity_mult         = 2.0,
+		jitter_enabled         = true,
+		taa_mode               = 2,
+		taa_alpha              = 0.25,
+		taa_depth_threshold    = 0.80,
+		taa_clamping_enabled   = true,
+		blur_mode              = 2,
+		blur_sharpness         = 600.0,
+		viewport_debug_mode    = 1,
+		upsample_mode          = 2,
+		upsample_sharpness     = 300.0,
+		resolution_divider     = 2,
+		shadow_cache           = true,
+		time_slice_mode        = 1,
+		shadow_res_index       = 2,
+		preview_mode           = 4,
+		preview_exposure_boost = 1.5,
+	}
+	state_to_save.point_light = session.Point_Light_Session_Settings{
+		position               = {10.0, 5.0, -2.0},
+		radius                 = 15.0,
+		color                  = {1.0, 0.8, 0.6},
+		intensity              = 2.5,
+		enabled                = true,
+		direct_shadows_enabled = true,
+		shadow_bias            = 0.002,
+		shadow_darkening       = 0.75,
+		shadow_debug_mask      = false,
+		phase_g                = 0.75,
+		is_animated            = true,
+		orbit_speed            = 1.2,
+		orbit_radius           = 8.0,
+		orbit_center           = {0.0, 2.0, 0.0},
+		show_bulb              = true,
+		bulb_radius            = 0.3,
+	}
 	
 	// 1. Test save
 	save_ok := session.save_session(&state_to_save, test_file)
@@ -111,6 +156,25 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.skybox_blur_lod, 1.2)
 	testing.expect_value(t, loaded_state.edge_aa_debug, false)
 	testing.expect_value(t, loaded_state.gui_active_tab, 3)
+
+	// Volumetric validation
+	testing.expect_value(t, loaded_state.volumetric.enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.step_count, 32)
+	testing.expect_value(t, loaded_state.volumetric.anisotropy_g, 0.75)
+	testing.expect_value(t, loaded_state.volumetric.scattering_coeff, 0.035)
+	testing.expect_value(t, loaded_state.volumetric.upsample_mode, 2)
+	testing.expect_value(t, loaded_state.volumetric.upsample_sharpness, 300.0)
+	testing.expect_value(t, loaded_state.volumetric.resolution_divider, 2)
+	testing.expect_value(t, loaded_state.volumetric.shadow_cache, true)
+	testing.expect_value(t, loaded_state.volumetric.time_slice_mode, 1)
+	testing.expect_value(t, loaded_state.volumetric.shadow_res_index, 2)
+
+	// Point Light validation
+	testing.expect_value(t, loaded_state.point_light.enabled, true)
+	testing.expect_value(t, loaded_state.point_light.intensity, 2.5)
+	testing.expect_value(t, loaded_state.point_light.radius, 15.0)
+	testing.expect_value(t, loaded_state.point_light.phase_g, 0.75)
+	testing.expect_value(t, loaded_state.point_light.is_animated, true)
 }
 
 @(test)

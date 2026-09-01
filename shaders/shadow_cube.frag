@@ -1,5 +1,7 @@
 #version 450 core
 
+layout(depth_greater) out float gl_FragDepth;
+
 layout(location = 0) in vec3 WorldPos;
 flat layout(location = 1) in vec3 SphereCenter;
 flat layout(location = 2) in float SphereRadius;
@@ -13,7 +15,7 @@ uniform float u_light_radius;
 
 // Ray-Sphere intersection
 bool intersectSphere(vec3 ro, vec3 rd, vec3 center, float radius,
-                     out float t, out vec3 normal)
+                     out float t)
 {
     vec3 oc = ro - center;
     float b = dot(oc, rd);
@@ -29,15 +31,13 @@ bool intersectSphere(vec3 ro, vec3 rd, vec3 center, float radius,
 
     if (t0 > 0.0) {
         t = t0;
+        return true;
     } else if (t1 > 0.0) {
         t = t1;
+        return true;
     } else {
         return false;
     }
-
-    vec3 hitPos = ro + t * rd;
-    normal = (hitPos - center) / radius;
-    return true;
 }
 
 void main()
@@ -45,10 +45,7 @@ void main()
     vec3 rayDir = normalize(WorldPos - u_light_pos);
 
     float t;
-    vec3 N;
-    bool hit = intersectSphere(u_light_pos, rayDir, SphereCenter, SphereRadius, t, N);
-
-    if (!hit) {
+    if (!intersectSphere(u_light_pos, rayDir, SphereCenter, SphereRadius, t)) {
         discard;
     }
 
@@ -59,6 +56,5 @@ void main()
     gl_FragDepth = clipPos.z / clipPos.w * 0.5 + 0.5;
 
     // Linear normalized radial distance [0.0..1.0] for volumetric raymarching
-    float dist = length(hitPos - u_light_pos);
-    LinearDepth = clamp(dist / max(0.001, u_light_radius), 0.0, 1.0);
+    LinearDepth = t / u_light_radius;
 }

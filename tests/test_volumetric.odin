@@ -214,4 +214,40 @@ test_volumetric_jbu_weights :: proc(t: ^testing.T) {
 	testing.expect_value(t, best_idx, 0)
 }
 
+// Verifies Phase 7 Atmosphere Presets and GPU timer metric window accumulation
+@(test)
+test_volumetric_presets_and_timers :: proc(t: ^testing.T) {
+	// 1. Presets Application
+	vr: rendering.Volumetric_Renderer
+	light: rendering.Point_Light
+
+	rendering.volumetric_preset_apply(&vr, &light, .God_Rays)
+	testing.expect_value(t, vr.params.step_count, 32)
+	testing.expect_value(t, vr.params.anisotropy_g, 0.75)
+	testing.expect_value(t, vr.params.scattering_coeff, 0.035)
+	testing.expect_value(t, vr.params.upsample_mode, 2)
+	testing.expect_value(t, light.intensity, 2.0)
+	testing.expect_value(t, light.phase_g, 0.75)
+
+	rendering.volumetric_preset_apply(&vr, &light, .Isotropic)
+	testing.expect_value(t, vr.params.anisotropy_g, 0.0)
+	testing.expect_value(t, vr.params.scattering_coeff, 0.040)
+	testing.expect_value(t, light.phase_g, 0.0)
+
+	// 2. Metric Window calculation
+	w: rendering.Volumetric_Metric_Window
+	w.sum = 1.0 + 2.0 + 3.0
+	w.count = 3
+	w.min_raw = 1.0
+	w.max_raw = 3.0
+	w.display_avg = f32(w.sum / f64(w.count))
+	w.display_min = w.min_raw
+	w.display_max = w.max_raw
+
+	testing.expect_value(t, math.abs(w.display_avg - 2.0) < 0.0001, true)
+	testing.expect_value(t, w.display_min, 1.0)
+	testing.expect_value(t, w.display_max, 3.0)
+}
+
+
 

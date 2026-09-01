@@ -65,21 +65,21 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 
 	// 2. Shadow Cubemap Live Preview & Resolution Inspector
 	if imgui.CollapsingHeader("Shadow Cubemap Inspector (3x2 Atlas & Controls)", imgui.TreeNodeFlags{}) {
-		// Dynamic Resolution Control
-		res_options := [4]i32{256, 512, 1024, 2048}
-		current_res_idx: i32 = 1 // default 512
-		for i in 0..<4 {
-			if sc.resolution == res_options[i] {
-				current_res_idx = i32(i)
-				break
-			}
-		}
-		if imgui.Combo("Cubemap Resolution", &current_res_idx, "256x256\x00512x512\x001024x1024\x002048x2048\x00\x00") {
-			new_res := res_options[current_res_idx]
+		// Dynamic Resolution Control (ISO parity: 64, 128, 256, 512)
+		if imgui.Combo("Cube Shadow Map Res", &sc.res_index, "64x64\x00128x128\x00256x256 (Default)\x00512x512 (Ultra HD)\x00\x00") {
+			new_res := rendering.shadow_cubemap_res_for_index(sc.res_index)
 			if new_res != sc.resolution {
 				rendering.shadow_cubemap_resize(sc, new_res)
+				light.is_dirty = true
 			}
 		}
+
+		imgui.Checkbox("Shadow Map Dirty Caching", &sc.shadow_cache)
+		imgui.Combo(
+			"Shadow Time-Slicing",
+			&sc.time_slice_mode,
+			"All 6 faces (Realtime / Max Quality)\x003 faces / frame (2-frame cycle)\x002 faces / frame (3-frame cycle)\x001 face / frame (Max Performance)\x00\x00",
+		)
 
 		imgui.SliderFloat("Near Clip", &sc.near_plane, 0.001, 1.0, "%.3f m")
 		imgui.SliderFloat("Far Clip", &sc.far_plane, 1.0, 50.0, "%.1f m")
@@ -188,6 +188,19 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 		imgui.Checkbox("Isolate Volumetric (No IBL)", &vr.params.isolate_in_scene)
 
 		if vr.params.enabled {
+			imgui.Text("Volumetric Buffer Resolution:")
+			if imgui.RadioButton("1/1 (Full)", vr.params.resolution_divider == 1) {
+				vr.params.resolution_divider = 1
+			}
+			imgui.SameLine()
+			if imgui.RadioButton("1/2 (Half)", vr.params.resolution_divider == 2) {
+				vr.params.resolution_divider = 2
+			}
+			imgui.SameLine()
+			if imgui.RadioButton("1/4 (Quarter - Max FPS)", vr.params.resolution_divider == 4) {
+				vr.params.resolution_divider = 4
+			}
+
 			imgui.SliderInt("Raymarch Steps (N)", &vr.params.step_count, 4, 64)
 			imgui.SliderFloat("Scattering Coeff (sigma_s)", &vr.params.scattering_coeff, 0.01, 1.0, "%.3f")
 			imgui.SliderFloat("Anisotropy (g)", &vr.params.anisotropy_g, -0.90, 0.90, "%.2f")
@@ -456,6 +469,76 @@ draw_tab_volumetric_shadows :: proc(g: ^Gui, state: Scene_State) {
 			imgui.TextDisabled("Volumetric Lighting is disabled.")
 		}
 	}
+
+	// 8. Phase 7: Atmosphere Presets & GPU Performance Hub
+	if state.volumetric != nil && imgui.CollapsingHeader("Atmosphere Presets & GPU Profiler Hub (Phase 7)", imgui.TreeNodeFlags{.DefaultOpen}) {
+		vr := state.volumetric
+
+		// Atmospheric Presets Selector
+		imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "Atmospheric & Cinematic Presets:")
+		if imgui.Button("Default (Standard)") {
+			rendering.volumetric_preset_apply(vr, light, .Default)
+		}
+		imgui.SameLine()
+		if imgui.Button("Isotropic Gas") {
+			rendering.volumetric_preset_apply(vr, light, .Isotropic)
+		}
+		imgui.SameLine()
+		if imgui.Button("Morning Fog") {
+			rendering.volumetric_preset_apply(vr, light, .Morning_Fog)
+		}
+
+		if imgui.Button("God Rays (Dramatic)") {
+			rendering.volumetric_preset_apply(vr, light, .God_Rays)
+		}
+		imgui.SameLine()
+		if imgui.Button("Torch / Searchlight") {
+			rendering.volumetric_preset_apply(vr, light, .Alan_Wake_Torch)
+		}
+		imgui.SameLine()
+		if imgui.Button("Car Headlights") {
+			rendering.volumetric_preset_apply(vr, light, .Car_Headlights)
+		}
+		imgui.SameLine()
+		if imgui.Button("Dense Dust / Sand") {
+			rendering.volumetric_preset_apply(vr, light, .Dense_Dust)
+		}
+
+		// GPU Performance Metrics (double-buffered hardware queries)
+		imgui.Spacing()
+		imgui.Separator()
+		total_avg, total_min, total_max := rendering.volumetric_timer_get_total_metrics(&vr.timers)
+		total_us := total_avg * 1000.0
+
+		imgui.TextColored({0.3, 0.9, 1.0, 1.0}, "Volumetric GPU Pipeline Metrics (GL_TIME_ELAPSED):")
+		imgui.Text("Total Frame Budget: %.3f ms (%.1f µs)  [min: %.2f ms, max: %.2f ms]", total_avg, total_us, total_min, total_max)
+
+		imgui.Spacing()
+		passes := [rendering.NUM_VOLUMETRIC_TIMER_PASSES]rendering.Volumetric_Timer_Pass{
+			.Shadow_Pass,
+			.Depth_Downsample,
+			.Raymarching,
+			.TAA_Blend,
+			.Bilateral_Blur,
+			.Composite_Upsample,
+		}
+
+		avail_w := imgui.GetContentRegionAvail().x
+		bar_w := max(100.0, avail_w - 220.0)
+
+		for pass in passes {
+			avg, _, _ := rendering.volumetric_timer_get_metrics(&vr.timers, pass)
+			pct := rendering.volumetric_timer_get_pct(&vr.timers, pass)
+			name := rendering.volumetric_timer_pass_name(pass)
+			us := avg * 1000.0
+
+			imgui.Text("%-18s: %6.1f µs (%4.1f%%)", name, us, pct)
+			imgui.SameLine()
+			fraction := clamp(pct / 100.0, 0.0, 1.0)
+			imgui.ProgressBar(fraction, imgui.Vec2{bar_w, 14.0}, "")
+		}
+	}
 }
+
 
 
