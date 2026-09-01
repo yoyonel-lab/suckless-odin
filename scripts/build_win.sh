@@ -46,6 +46,7 @@ OUT_DIR="$(dirname "$OUT_FILE")"
 # 1. Ensure Windows static libs are built
 if [ ! -f "$DEPS_DIR/win_compat.o" ] || \
    [ ! -f "$DEPS_DIR/libsimd_windows_x64.lib" ] || \
+   [ ! -f "$DEPS_DIR/libimguizmo_windows_x64.lib" ] || \
    [ ! -f "$DEPS_DIR/odin-imgui/imgui_windows_x64.lib" ] || \
    [ ! -f "$DEPS_DIR/glfw_build_win/src/libglfw3.a" ] || \
    [ ! -f "$ODIN_ROOT/vendor/stb/lib/stb_image.lib" ]; then
@@ -85,6 +86,7 @@ $CLANG_WIN --target=x86_64-w64-windows-gnu \
     "$OBJ_DIR"/*.obj \
     "$DEPS_DIR/win_compat.o" \
     "$DEPS_DIR/odin-imgui/imgui_windows_x64.lib" \
+    "$DEPS_DIR/libimguizmo_windows_x64.lib" \
     "$DEPS_DIR/libsimd_windows_x64.lib" \
     "$DEPS_DIR/glfw_build_win/src/libglfw3.a" \
     "$ODIN_ROOT/vendor/stb/lib/stb_image.lib" \

@@ -104,3 +104,12 @@ mat4_mul :: proc(a, b: Mat4) -> Mat4 {
 mat4_inverse :: proc(m: Mat4) -> Mat4 {
 	return linalg.inverse(m)
 }
+
+// Translation matrix
+mat4_translate :: proc(v: Vec3) -> Mat4 {
+	result := MAT4_IDENTITY
+	result[3][0] = v.x
+	result[3][1] = v.y
+	result[3][2] = v.z
+	return result
+}

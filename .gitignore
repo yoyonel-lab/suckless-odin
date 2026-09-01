@@ -9,6 +9,7 @@ suckless-odin
 *.o
 *.obj
 *.lib
+!deps/*.lib
 deps/glfw_build_win/
 
 # IDE
