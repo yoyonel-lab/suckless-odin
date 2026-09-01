@@ -15,6 +15,7 @@ import mt "../../src/core/math_types"
 import app_pkg "../../src/app"
 import sess_pkg "../../src/core/session"
 import postfx "../../src/rendering/postfx"
+import gui "../../src/gui"
 import gl "vendor:OpenGL"
 
 @(test)
@@ -546,4 +547,110 @@ test_exact_session_json_offscreen_verification :: proc(t: ^testing.T) {
 	pix_nosky := capture_framebuffer(&rt)
 	save_png("docs/images/shadows/diag_nosky_black_bg.png", pix_nosky, width, height)
 	delete(pix_nosky)
+}
+
+@(test)
+test_capture_imguizmo_showcase :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	width: i32 = 1280
+	height: i32 = 720
+
+	rt, rt_ok := render_target_create(width, height)
+	if !rt_ok {
+		testing.expect(t, false, "Failed to create offscreen render target FBO")
+		return
+	}
+	defer render_target_destroy(&rt)
+
+	app: app_pkg.App
+	app.width = width
+	app.height = height
+
+	if !sc.scene_create(&app.scene, width, height) {
+		testing.expect(t, false, "Failed to create scene")
+		return
+	}
+	defer sc.scene_destroy(&app.scene)
+
+	// Configure camera framing
+	app.scene.camera.position = mt.Vec3{0.0, 1.8, 12.5}
+	app.scene.camera.yaw = -90.0
+	app.scene.camera.pitch = -6.0
+	cam.update_vectors(&app.scene.camera)
+
+	// Configure light with ImGuizmo active
+	app.scene.point_light.enabled = true
+	app.scene.point_light.position = mt.Vec3{0.0, 2.5, 0.0}
+	app.scene.point_light.radius = 20.0
+	app.scene.point_light.intensity = 3.5
+	app.scene.point_light.color = mt.Vec3{1.0, 0.75, 0.4}
+	app.scene.point_light.direct_shadows_enabled = true
+	app.scene.point_light.show_gizmo = true
+	app.scene.point_light.gizmo_op = 0 // Translate
+	app.scene.point_light.gizmo_mode = 0 // World
+	app.scene.point_light.show_bulb = true
+	app.scene.point_light.bulb_radius = 0.4
+	app.scene.point_light.is_animated = false
+
+	// Init ImGui & ImGuizmo
+	g: gui.Gui
+	if !gui.init(&g, gl_window) {
+		testing.expect(t, false, "Failed to init GUI")
+		return
+	}
+	defer gui.destroy(&g)
+	g.visible = true
+
+	// Wait for async IBL to load
+	for _ in 0..<5000 {
+		sc.scene_update(&app.scene, 0.016)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.fbo)
+		gl.Viewport(0, 0, rt.width, rt.height)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		sc.scene_render(&app.scene, rt.width, rt.height)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		if !app.scene.env_mgr.is_first_load && app.scene.env_mgr.transition_state == .Idle && app.scene.env_mgr.ibl_state == .Idle { break }
+		time.sleep(1 * time.Millisecond)
+	}
+
+	libc.system("mkdir -p docs/images/guizmo")
+
+	// Render frame to offscreen target with ImGui + ImGuizmo
+	gl.BindFramebuffer(gl.FRAMEBUFFER, rt.fbo)
+	gl.Viewport(0, 0, rt.width, rt.height)
+	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	sc.scene_render(&app.scene, rt.width, rt.height)
+
+	gui.new_frame(&g)
+	gui.update(&g, gui.Scene_State{
+		camera              = &app.scene.camera,
+		skybox_visible      = &app.scene.skybox_visible,
+		wireframe_enabled   = &app.scene.wireframe_enabled,
+		exposure            = &app.scene.exposure,
+		skybox_blur_lod     = &app.scene.skybox.blur_lod,
+		skybox_mode         = &app.scene.skybox.mode,
+		mipmap_mode         = &app.scene.skybox.mipmap_mode,
+		blur_source         = &app.scene.skybox.blur_source,
+		cubemap_dirty       = &app.scene.skybox.cubemap_dirty,
+		show_mipmap_diff    = &app.scene.skybox.show_diff,
+		diff_gain           = &app.scene.skybox.diff_gain,
+		sort_mode           = &app.scene.sort_mode,
+		edge_aa_enabled     = &app.scene.edge_aa_enabled,
+		edge_aa_debug       = &app.scene.edge_aa_debug,
+		specular_aa_enabled = &app.scene.specular_aa_enabled,
+		specular_aa_split_enabled  = &app.scene.specular_aa_split_enabled,
+		specular_aa_split_position = &app.scene.specular_aa_split_position,
+		postfx              = &app.scene.postfx_pipeline,
+		point_light         = &app.scene.point_light,
+		shadow_cubemap      = &app.scene.shadow_cubemap,
+		volumetric          = &app.scene.volumetric,
+		frame_time_ms       = 16.6,
+	})
+	gui.render(&g)
+	gl.Finish()
+
+	pix_guizmo := capture_framebuffer(&rt)
+	save_png("docs/images/guizmo/01_imguizmo_3d_viewport_light.png", pix_guizmo, width, height)
+	delete(pix_guizmo)
 }
