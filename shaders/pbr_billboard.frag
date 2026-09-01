@@ -36,6 +36,11 @@ uniform float u_point_shadow_normal_bias;
 uniform float u_point_shadow_slope_bias;
 uniform float u_point_shadow_darkening;
 uniform bool  u_point_shadow_debug_mask;
+uniform int   u_point_shadow_debug_mode; // 0=Off, 1=Mask, 2=Penumbra, 3=Delta vs Hard, 4=Split-Screen
+uniform float u_point_shadow_split_pos;  // 0.0 .. 1.0
+uniform int   u_point_shadow_pcf_samples;
+uniform float u_point_shadow_filter_radius;
+uniform bool  u_point_shadow_pcf_jitter;
 
 // IBL textures (equirectangular 2D, same binding as suckless-ogl)
 layout(binding = 15) uniform sampler2D irradianceMap;
@@ -52,6 +57,12 @@ vec4 apply_split_line(vec4 color, float edgeFactor)
         float dist = abs(gl_FragCoord.x - u_specular_aa_split_position * u_screen_size.x);
         if (dist < 1.5) {
             return vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
+        }
+    }
+    if (u_point_shadows_enabled && u_point_shadow_debug_mode == 4) {
+        float dist = abs(gl_FragCoord.x - u_point_shadow_split_pos * u_screen_size.x);
+        if (dist < 1.5) {
+            return vec4(vec3(0.1, 0.75, 1.0), edgeFactor); // Cyan separator line
         }
     }
     return color;
@@ -190,6 +201,58 @@ bool intersectSphere(vec3 ro, vec3 rd, vec3 center, float radius,
 }
 
 // -------------------------------------------------------------------
+// Interleaved Gradient Noise (Jorge Jimenez, Call of Duty: AW)
+// -------------------------------------------------------------------
+float ign_noise(vec2 screen_pos)
+{
+    vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+    return fract(magic.z * fract(dot(screen_pos, magic.xy)));
+}
+
+// -------------------------------------------------------------------
+// Point Shadow PCF Filtering (Vogel-Disk Distribution + Stochastic Rotation)
+// -------------------------------------------------------------------
+float compute_point_shadow_pcf(vec3 lightToBiasedPos, float normalizedDist, float dynamicBias)
+{
+    if (u_point_shadow_pcf_samples <= 1) {
+        float sampledDepth = texture(u_point_shadow_cubemap, lightToBiasedPos).r;
+        return (normalizedDist - dynamicBias <= sampledDepth) ? 1.0 : 0.0;
+    }
+
+    vec3 dir = normalize(lightToBiasedPos);
+    vec3 up = abs(dir.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(up, dir));
+    vec3 bitangent = cross(dir, tangent);
+
+    float rotation = 0.0;
+    if (u_point_shadow_pcf_jitter) {
+        rotation = ign_noise(gl_FragCoord.xy) * 6.28318530718;
+    }
+
+    float cosRot = cos(rotation);
+    float sinRot = sin(rotation);
+
+    int numSamples = (u_point_shadow_pcf_samples >= 16) ? 16 : 8;
+    float shadowSum = 0.0;
+    const float GOLDEN_ANGLE = 2.39996323;
+
+    for (int i = 0; i < numSamples; ++i) {
+        float r = sqrt((float(i) + 0.5) / float(numSamples)) * u_point_shadow_filter_radius;
+        float theta = float(i) * GOLDEN_ANGLE;
+
+        // Apply stochastic IGN rotation
+        float x = r * (cos(theta) * cosRot - sin(theta) * sinRot);
+        float y = r * (sin(theta) * cosRot + cos(theta) * sinRot);
+
+        vec3 sampleDir = lightToBiasedPos + tangent * x + bitangent * y;
+        float sampledDepth = texture(u_point_shadow_cubemap, sampleDir).r;
+        shadowSum += (normalizedDist - dynamicBias <= sampledDepth) ? 1.0 : 0.0;
+    }
+
+    return shadowSum / float(numSamples);
+}
+
+// -------------------------------------------------------------------
 // Main
 // -------------------------------------------------------------------
 void main()
@@ -276,17 +339,44 @@ void main()
             float slopeFactor = sqrt(clamp(1.0 - NdotL * NdotL, 0.0, 1.0)) / max(NdotL, 0.05);
             float dynamicBias = u_point_shadow_bias + u_point_shadow_slope_bias * slopeFactor;
 
-            // Sample cubemap along the normal-biased ray direction
-            float sampledDepth = texture(u_point_shadow_cubemap, lightToBiasedPos).r;
+            // 3. Compute baseline 1-tap Hard shadow (unfiltered)
+            float sampledDepthHard = texture(u_point_shadow_cubemap, lightToBiasedPos).r;
             float normalizedDist = distToLight / max(0.001, u_point_light_radius);
+            float shadowHard = (normalizedDist - dynamicBias <= sampledDepthHard) ? 1.0 : 0.0;
 
-            float shadow = (normalizedDist - dynamicBias <= sampledDepth) ? 1.0 : 0.0;
+            // 4. Compute active PCF shadow (1-tap, Vogel 8-tap, or Vogel 16-tap)
+            float shadowPCF = compute_point_shadow_pcf(lightToBiasedPos, normalizedDist, dynamicBias);
 
-            if (u_point_shadow_debug_mask) {
-                // Debug mode: highlight shadow mask (Green = Lit, Red = Occluded)
-                color = mix(vec3(0.8, 0.1, 0.1), vec3(0.1, 0.9, 0.1), shadow);
+            // 5. Select effective shadow factor (Left=Hard 1-tap, Right=Active PCF in Split-Screen)
+            float shadow = shadowPCF;
+            if (u_point_shadow_debug_mode == 4) {
+                shadow = (uvX < u_point_shadow_split_pos) ? shadowHard : shadowPCF;
+            }
+
+            // 6. Handle Debug Visualization Modes
+            if (u_point_shadow_debug_mode == 1 || u_point_shadow_debug_mask) {
+                // Mode 1: Shadow Mask (Green = Lit, Red = Occluded)
+                // PCF displays a continuous gradient through penumbra zones
+                color = mix(vec3(0.85, 0.1, 0.1), vec3(0.1, 0.9, 0.1), shadow);
+            } else if (u_point_shadow_debug_mode == 2) {
+                // Mode 2: Penumbra / Softness Heatmap
+                // Highlights where 0.0 < shadow < 1.0 (transition zone generated by PCF)
+                float penumbra = 1.0 - abs(shadow * 2.0 - 1.0);
+                vec3 penumbraColor = vec3(penumbra * 1.6, penumbra * 0.8 + pow(penumbra, 3.0) * 0.2, pow(penumbra, 6.0));
+                color = mix(color * 0.15, penumbraColor, clamp(penumbra * 2.5, 0.0, 1.0));
+            } else if (u_point_shadow_debug_mode == 3) {
+                // Mode 3: Delta vs Hard 1-tap Heatmap (|PCF - Hard|)
+                // Blue = PCF smoothed / lightened stair step, Red = PCF softened / darkened step
+                float delta = shadowPCF - shadowHard;
+                vec3 diffColor = vec3(0.0);
+                if (delta > 0.001) {
+                    diffColor = mix(vec3(0.0, 0.1, 0.3), vec3(0.1, 0.7, 1.0), delta * 1.5);
+                } else if (delta < -0.001) {
+                    diffColor = mix(vec3(0.3, 0.05, 0.0), vec3(1.0, 0.2, 0.1), -delta * 1.5);
+                }
+                color = mix(color * 0.2, diffColor, clamp(abs(delta) * 3.0, 0.0, 1.0));
             } else {
-                // Subtly darken base IBL in shadowed zones (no extra lighting added)
+                // Mode 0 & 4: Normal Shading / Split-Screen comparison
                 float lightInfluence = clamp(1.0 - (distToLight / u_point_light_radius), 0.0, 1.0);
                 float occlusion = (1.0 - shadow) * lightInfluence * u_point_shadow_darkening;
                 color *= (1.0 - occlusion);

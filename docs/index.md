@@ -40,6 +40,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Lire l'Analyse d'Architecture](PORTING_C11_TO_ODIN.md)
 
+-   :material-lightbulb-on:{ .lg .middle } __Shadow Mapping & Anti-Aliasing (PCF Vogel-Disk)__
+
+    ---
+
+    Pipeline d'ombres omnidirectionnelles temps réel : Auto-Bias (RNOB + SSDB), filtrage PCF Vogel-Disk stochastique IGN (8-16 taps), comparateur split-screen et vues de debug thermiques.
+
+    [:octicons-arrow-right-24: Voir l'Analyse & Démonstrations](2026-09-01_shadow_mapping_improvements_antialiasing_pcf_bias_analysis.md)
+
 </div>
 
 ---

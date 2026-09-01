@@ -72,6 +72,11 @@ Scene :: struct {
 	loc_point_shadow_slope_bias:  i32,
 	loc_point_shadow_darkening:   i32,
 	loc_point_shadow_debug_mask:  i32,
+	loc_point_shadow_debug_mode:  i32,
+	loc_point_shadow_split_pos:   i32,
+	loc_point_shadow_pcf_samples: i32,
+	loc_point_shadow_filter_radius: i32,
+	loc_point_shadow_pcf_jitter:  i32,
 
 	// Cached uniform values to filter redundant driver uploads
 	cached_screen_w:             i32,
@@ -183,6 +188,11 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_point_shadow_slope_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_slope_bias")
 	s.loc_point_shadow_darkening = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_darkening")
 	s.loc_point_shadow_debug_mask = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_debug_mask")
+	s.loc_point_shadow_debug_mode = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_debug_mode")
+	s.loc_point_shadow_split_pos = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_split_pos")
+	s.loc_point_shadow_pcf_samples = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_pcf_samples")
+	s.loc_point_shadow_filter_radius = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_filter_radius")
+	s.loc_point_shadow_pcf_jitter = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_pcf_jitter")
 
 	s.cached_screen_w = -1
 	s.cached_screen_h = -1
@@ -226,6 +236,11 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		shadow_slope_bias      = 0.0010,
 		shadow_darkening       = 0.5,
 		shadow_debug_mask      = false,
+		shadow_debug_mode      = 0,
+		shadow_split_position  = 0.5,
+		shadow_pcf_samples     = 8,
+		shadow_filter_radius   = 0.015,
+		shadow_pcf_jitter      = true,
 		show_bulb              = true,
 		bulb_radius            = 0.45,
 		is_dirty               = true,
@@ -375,6 +390,11 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	gl.Uniform1f(s.loc_point_shadow_slope_bias, s.point_light.shadow_slope_bias)
 	gl.Uniform1f(s.loc_point_shadow_darkening, s.point_light.shadow_darkening)
 	gl.Uniform1i(s.loc_point_shadow_debug_mask, 1 if s.point_light.shadow_debug_mask else 0)
+	gl.Uniform1i(s.loc_point_shadow_debug_mode, s.point_light.shadow_debug_mode)
+	gl.Uniform1f(s.loc_point_shadow_split_pos, s.point_light.shadow_split_position)
+	gl.Uniform1i(s.loc_point_shadow_pcf_samples, s.point_light.shadow_pcf_samples)
+	gl.Uniform1f(s.loc_point_shadow_filter_radius, s.point_light.shadow_filter_radius)
+	gl.Uniform1i(s.loc_point_shadow_pcf_jitter, 1 if s.point_light.shadow_pcf_jitter else 0)
 
 	// Bind Shadow Cubemap (unit 18)
 	if s.point_light.enabled {

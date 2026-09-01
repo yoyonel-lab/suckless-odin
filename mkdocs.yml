@@ -102,6 +102,9 @@ nav:
       - Pipeline Post-Processing: postfx-pipeline-2026-05-18.md
       - Pipeline IBL Asynchrone: async-ibl-pipeline-2026-05-26.md
       - Filtrage Bicubique Envmap: envmap-bicubic-filtering-2026-05-21.md
+      - Améliorations Shadow Mapping & PCF Vogel-Disk: 2026-09-01_shadow_mapping_improvements_antialiasing_pcf_bias_analysis.md
+      - Architecture Cubemap & Ombres Dynamiques: 2026-09-01_shadow_cubemap_mrt_depth_vs_color_architecture.md
+      - Intégration Éclairage Volumétrique: 2026-08-31_volumetric_dynamic_lights_integration_plan.md
   - 🚀 Optimisation & Profiling:
       - Protocole Benchmarking & Roadmap: optimization-roadmap-and-benchmarking-protocol-2026-08-18.md
       - Profiling Tracy CPU: cpu-profiling-tracy-2026-05-23.md

@@ -114,6 +114,11 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			shadow_slope_bias      = s.point_light.shadow_slope_bias,
 			shadow_darkening       = s.point_light.shadow_darkening,
 			shadow_debug_mask      = s.point_light.shadow_debug_mask,
+			shadow_debug_mode      = s.point_light.shadow_debug_mode,
+			shadow_split_position  = s.point_light.shadow_split_position,
+			shadow_pcf_samples     = s.point_light.shadow_pcf_samples,
+			shadow_filter_radius   = s.point_light.shadow_filter_radius,
+			shadow_pcf_jitter      = s.point_light.shadow_pcf_jitter,
 			phase_g                = s.point_light.phase_g,
 			is_animated            = s.point_light.is_animated,
 			orbit_speed            = s.point_light.orbit_speed,
@@ -261,6 +266,17 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.point_light.shadow_slope_bias      = state.point_light.shadow_slope_bias
 		s.point_light.shadow_darkening       = state.point_light.shadow_darkening
 		s.point_light.shadow_debug_mask      = state.point_light.shadow_debug_mask
+		s.point_light.shadow_debug_mode      = state.point_light.shadow_debug_mode
+		if state.point_light.shadow_split_position > 0.0 {
+			s.point_light.shadow_split_position = state.point_light.shadow_split_position
+		}
+		if state.point_light.shadow_pcf_samples > 0 {
+			s.point_light.shadow_pcf_samples = state.point_light.shadow_pcf_samples
+		}
+		if state.point_light.shadow_filter_radius > 0 {
+			s.point_light.shadow_filter_radius = state.point_light.shadow_filter_radius
+		}
+		s.point_light.shadow_pcf_jitter      = state.point_light.shadow_pcf_jitter
 		s.point_light.phase_g                = state.point_light.phase_g
 		s.point_light.is_animated            = state.point_light.is_animated
 		s.point_light.orbit_speed            = state.point_light.orbit_speed

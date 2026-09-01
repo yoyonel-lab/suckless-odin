@@ -43,6 +43,11 @@ Point_Light :: struct {
 	shadow_slope_bias:      f32,
 	shadow_darkening:       f32,
 	shadow_debug_mask:      bool,
+	shadow_debug_mode:      i32,  // 0=Off, 1=Mask (Green/Red), 2=Penumbra Heatmap, 3=Delta vs Hard Heatmap, 4=Split-Screen
+	shadow_split_position:  f32,  // 0.0 .. 1.0 (default 0.5)
+	shadow_pcf_samples:     i32,  // 1 = Hard, 8 = Vogel 8-tap, 16 = Vogel 16-tap
+	shadow_filter_radius:   f32,  // Angular filter radius in radians (default 0.015 rad)
+	shadow_pcf_jitter:      bool, // Enable Interleaved Gradient Noise stochastic rotation
 	show_bulb:              bool,
 	bulb_radius:            f32,
 	is_dirty:               bool,
@@ -51,6 +56,14 @@ Point_Light :: struct {
 	orbit_radius:           f32,
 	orbit_center:           mt.Vec3,
 	phase_g:                f32, // Henyey-Greenstein anisotropy [-0.90..+0.90]
+}
+
+Shadow_Debug_Mode :: enum i32 {
+	Off             = 0,
+	Mask            = 1,
+	Penumbra        = 2,
+	Delta_Vs_Hard   = 3,
+	Split_Screen    = 4,
 }
 
 // Computes current light position (with orbit animation if enabled)

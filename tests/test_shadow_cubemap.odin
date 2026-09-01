@@ -141,3 +141,88 @@ test_shadow_normal_offset_and_slope_bias :: proc(t: ^testing.T) {
 	bias_edge := base_bias + slope_bias * slope_factor_edge
 	testing.expect(t, bias_edge > base_bias * 5.0, "Slope-scaled bias must significantly increase on grazing angle edges")
 }
+
+@(test)
+test_shadow_pcf_vogel_disk_sampling :: proc(t: ^testing.T) {
+	GOLDEN_ANGLE :: 2.39996323
+	filter_radius: f32 = 0.015
+	num_samples: i32 = 16
+
+	// 1. Verify monotonic radius scaling in Vogel-Disk
+	prev_r: f32 = -1.0
+	for i in 0..<num_samples {
+		r := math.sqrt((f32(i) + 0.5) / f32(num_samples)) * filter_radius
+		testing.expect(t, r > prev_r, "Vogel-Disk radius should be strictly monotonically increasing")
+		testing.expect(t, r <= filter_radius, "Sample radius must be within filter_radius")
+		prev_r = r
+	}
+
+	// 2. Verify Orthonormal Basis (ONB) construction
+	dir := mt.Vec3{0.0, 0.0, -1.0}
+	up := mt.Vec3{0.0, 1.0, 0.0} if math.abs(dir.y) < 0.999 else mt.Vec3{1.0, 0.0, 0.0}
+	tangent := linalg.normalize(linalg.cross(up, dir))
+	bitangent := linalg.cross(dir, tangent)
+
+	// Tangent & Bitangent orthogonality
+	testing.expect(t, math.abs(linalg.dot(tangent, dir)) < EPSILON, "Tangent must be orthogonal to Ray Direction")
+	testing.expect(t, math.abs(linalg.dot(bitangent, dir)) < EPSILON, "Bitangent must be orthogonal to Ray Direction")
+	testing.expect(t, math.abs(linalg.dot(tangent, bitangent)) < EPSILON, "Tangent and Bitangent must be mutually orthogonal")
+	testing.expect(t, math.abs(linalg.length(tangent) - 1.0) < EPSILON, "Tangent must be unit length")
+	testing.expect(t, math.abs(linalg.length(bitangent) - 1.0) < EPSILON, "Bitangent must be unit length")
+
+	// 3. Verify sample points coverage and bounding radius
+	rotation: f32 = 1.234 // Arbitrary IGN rotation
+	cos_rot := math.cos(rotation)
+	sin_rot := math.sin(rotation)
+
+	for i in 0..<num_samples {
+		r := math.sqrt((f32(i) + 0.5) / f32(num_samples)) * filter_radius
+		theta := f32(i) * GOLDEN_ANGLE
+
+		x := r * (math.cos(theta) * cos_rot - math.sin(theta) * sin_rot)
+		y := r * (math.sin(theta) * cos_rot + math.cos(theta) * sin_rot)
+
+		dist := math.sqrt(x*x + y*y)
+		testing.expect(t, dist <= filter_radius + EPSILON, "Rotated sample must stay within kernel radius")
+	}
+}
+
+@(test)
+test_shadow_debug_modes_and_delta :: proc(t: ^testing.T) {
+	// 1. Validate Shadow_Debug_Mode enum values
+	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Off), 0)
+	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Mask), 1)
+	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Penumbra), 2)
+	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Delta_Vs_Hard), 3)
+	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Split_Screen), 4)
+
+	// 2. Validate Penumbra Softness factor (1.0 - abs(s * 2.0 - 1.0))
+	calc_penumbra :: proc(s: f32) -> f32 {
+		return 1.0 - math.abs(s * 2.0 - 1.0)
+	}
+	testing.expect_value(t, calc_penumbra(0.0), 0.0) // Full shadow -> 0 penumbra
+	testing.expect_value(t, calc_penumbra(1.0), 0.0) // Full light  -> 0 penumbra
+	testing.expect_value(t, calc_penumbra(0.5), 1.0) // 50% penumbra -> max softness (1.0)
+	testing.expect(t, calc_penumbra(0.25) > 0.0 && calc_penumbra(0.25) < 1.0, "Intermediate penumbra factor")
+
+	// 3. Validate Delta vs Hard comparison logic
+	hard_shadow: f32 = 0.0 // Hard edge
+	pcf_8_shadow: f32 = 0.375 // 3 of 8 taps lit
+	pcf_16_shadow: f32 = 0.4375 // 7 of 16 taps lit
+
+	delta_8 := math.abs(pcf_8_shadow - hard_shadow)
+	delta_16 := math.abs(pcf_16_shadow - hard_shadow)
+	testing.expect(t, delta_8 > 0.0, "Delta between Hard and Vogel 8 must be non-zero in penumbra")
+	testing.expect(t, delta_16 > 0.0, "Delta between Hard and Vogel 16 must be non-zero in penumbra")
+
+	// 4. Validate Split Screen comparison selection
+	split_pos: f32 = 0.5
+	uv_left: f32 = 0.25
+	uv_right: f32 = 0.75
+
+	shadow_left := hard_shadow if (uv_left < split_pos) else pcf_16_shadow
+	shadow_right := hard_shadow if (uv_right < split_pos) else pcf_16_shadow
+
+	testing.expect_value(t, shadow_left, hard_shadow)
+	testing.expect_value(t, shadow_right, pcf_16_shadow)
+}

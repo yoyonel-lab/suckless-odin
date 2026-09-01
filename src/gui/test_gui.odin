@@ -103,6 +103,18 @@ test_section_has_matches_shadows :: proc(t: ^testing.T) {
 		"'cubemap' should match shadow section keywords")
 	testing.expect(t, section_has_matches("normal", SHADOW_KEYWORDS),
 		"'normal' should match shadow section keywords")
+	testing.expect(t, section_has_matches("pcf", SHADOW_KEYWORDS),
+		"'pcf' should match shadow section keywords")
+	testing.expect(t, section_has_matches("vogel", SHADOW_KEYWORDS),
+		"'vogel' should match shadow section keywords")
+	testing.expect(t, section_has_matches("debug", SHADOW_KEYWORDS),
+		"'debug' should match shadow section keywords")
+	testing.expect(t, section_has_matches("heatmap", SHADOW_KEYWORDS),
+		"'heatmap' should match shadow section keywords")
+	testing.expect(t, section_has_matches("penumbra", SHADOW_KEYWORDS),
+		"'penumbra' should match shadow section keywords")
+	testing.expect(t, section_has_matches("split", SHADOW_KEYWORDS),
+		"'split' should match shadow section keywords")
 }
 
 @(test)

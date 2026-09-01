@@ -279,6 +279,11 @@ tasks:
     cmds:
       - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-test-gl -debug -thread-count:{{.TEST_THREADS}} -define:ODIN_TEST_THREADS=1 -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
 
+  record-shadow-debug:
+    desc: Generate HD screen recordings and comparison captures for Shadow Debug modes
+    cmds:
+      - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-record-shadow -debug -thread-count:1 -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_shadow_debug_offscreen_e2e -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
   test-chaos:
     desc: Run temporal chaos fuzzer on active display (5 seconds)
     cmds:

@@ -71,8 +71,79 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 				imgui.SetTooltip("Slope-Scaled Bias:\nDynamically scales depth tolerance proportional to tan(theta) at grazing angles.")
 			}
 
+			// PCF Soft Shadows
+			pcf_idx: i32 = 1
+			if light.shadow_pcf_samples <= 1 do pcf_idx = 0
+			else if light.shadow_pcf_samples >= 16 do pcf_idx = 2
+			else do pcf_idx = 1
+
+			if imgui.Combo("PCF Soft Shadows", &pcf_idx, "Off (1-tap Hard)\x00Vogel Disk 8-tap (Fast)\x00Vogel Disk 16-tap (Ultra HD Smooth)\x00\x00") {
+				switch pcf_idx {
+				case 0: light.shadow_pcf_samples = 1
+				case 1: light.shadow_pcf_samples = 8
+				case 2: light.shadow_pcf_samples = 16
+				}
+			}
+
+			if light.shadow_pcf_samples > 1 {
+				imgui.SliderFloat("Shadow Filter Radius", &light.shadow_filter_radius, 0.001, 0.050, "%.3f rad")
+				imgui.SameLine()
+				imgui.TextDisabled("(?)")
+				if imgui.IsItemHovered() {
+					imgui.SetTooltip("Angular kernel radius in radians.\nControls penumbra softness around sphere silhouettes.")
+				}
+
+				imgui.Checkbox("Stochastic IGN Jittering", &light.shadow_pcf_jitter)
+				imgui.SameLine()
+				imgui.TextDisabled("(?)")
+				if imgui.IsItemHovered() {
+					imgui.SetTooltip("Interleaved Gradient Noise per-pixel kernel rotation.\nTransforms shadow banding into high-frequency blue-like noise easily cleaned by TAA.")
+				}
+			}
+
 			imgui.SliderFloat("Shadow Darkening", &light.shadow_darkening, 0.0, 1.0, "%.2f")
-			imgui.Checkbox("Shadow Debug Mask (Green=Lit, Red=Occluded)", &light.shadow_debug_mask)
+
+			imgui.Spacing()
+			imgui.SeparatorText("Shadow Sampling & PCF Debug Inspector")
+
+			debug_mode_idx := light.shadow_debug_mode
+			if imgui.Combo(
+				"Shadow Debug View",
+				&debug_mode_idx,
+				"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00\x00",
+			) {
+				light.shadow_debug_mode = debug_mode_idx
+				light.shadow_debug_mask = (debug_mode_idx == 1)
+			}
+
+			if light.shadow_debug_mode == 4 {
+				imgui.SliderFloat("Split Position", &light.shadow_split_position, 0.0, 1.0, "%.2f")
+				sample_name := "Vogel 8-tap" if light.shadow_pcf_samples == 8 else ("Vogel 16-tap" if light.shadow_pcf_samples >= 16 else "1-tap Hard")
+				imgui.TextColored(imgui.Vec4{0.1, 0.75, 1.0, 1.0}, "[ Left: Hard 1-tap (Off) | Right: %s ]", sample_name)
+			}
+
+			if imgui.Button("Compare Hard vs Vogel 8-tap") {
+				light.shadow_pcf_samples = 8
+				light.shadow_debug_mode = 4
+				light.shadow_split_position = 0.5
+				light.direct_shadows_enabled = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Compare Hard vs Vogel 16-tap") {
+				light.shadow_pcf_samples = 16
+				light.shadow_debug_mode = 4
+				light.shadow_split_position = 0.5
+				light.direct_shadows_enabled = true
+			}
+			if imgui.Button("View Delta Heatmap") {
+				light.shadow_debug_mode = 3
+				light.direct_shadows_enabled = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Normal Shading") {
+				light.shadow_debug_mode = 0
+				light.shadow_debug_mask = false
+			}
 		}
 
 		imgui.Spacing()
@@ -186,8 +257,46 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		imgui.SliderFloat("Slope-Scaled Bias##filt", &light.shadow_slope_bias, 0.0, 0.01, "%.4f")
 		match_count += 1
 	}
+	if fuzzy_match(filter, "PCF Soft Shadows", "shadow pcf soft vogel disk penumbra filtering anti-aliasing") {
+		pcf_idx: i32 = 1
+		if light.shadow_pcf_samples <= 1 do pcf_idx = 0
+		else if light.shadow_pcf_samples >= 16 do pcf_idx = 2
+		else do pcf_idx = 1
+
+		if imgui.Combo("PCF Soft Shadows##filt", &pcf_idx, "Off (1-tap Hard)\x00Vogel Disk 8-tap (Fast)\x00Vogel Disk 16-tap (Ultra HD Smooth)\x00\x00") {
+			switch pcf_idx {
+			case 0: light.shadow_pcf_samples = 1
+			case 1: light.shadow_pcf_samples = 8
+			case 2: light.shadow_pcf_samples = 16
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Shadow Filter Radius", "shadow filter radius pcf penumbra softness angular kernel") {
+		imgui.SliderFloat("Shadow Filter Radius##filt", &light.shadow_filter_radius, 0.001, 0.050, "%.3f rad")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Stochastic IGN Jittering", "shadow jitter noise ign interleaved gradient rotation pcf") {
+		imgui.Checkbox("Stochastic IGN Jittering##filt", &light.shadow_pcf_jitter)
+		match_count += 1
+	}
 	if fuzzy_match(filter, "Shadow Darkening", "shadow darkening occlusion attenuation intensity") {
 		imgui.SliderFloat("Shadow Darkening##filt", &light.shadow_darkening, 0.0, 1.0, "%.2f")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Shadow Debug View", "shadow debug mask mode penumbra heatmap delta split screen comparison hard pcf") {
+		debug_mode_idx := light.shadow_debug_mode
+		if imgui.Combo(
+			"Shadow Debug View##filt",
+			&debug_mode_idx,
+			"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00\x00",
+		) {
+			light.shadow_debug_mode = debug_mode_idx
+			light.shadow_debug_mask = (debug_mode_idx == 1)
+		}
+		if light.shadow_debug_mode == 4 {
+			imgui.SliderFloat("Split Position##filt", &light.shadow_split_position, 0.0, 1.0, "%.2f")
+		}
 		match_count += 1
 	}
 	if fuzzy_match(filter, "Shadow Debug Mask", "shadow debug mask green lit red occluded verification") {

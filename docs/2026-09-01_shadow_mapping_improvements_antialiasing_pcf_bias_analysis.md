@@ -175,13 +175,75 @@ Pour reproduire, évaluer et calibrer en direct le comportement du système :
 
 ---
 
-## 7. Plan d'Action Retenu
+## 7. Bilan d'Implémentation : Étape 2 (PCF Vogel-Disk + IGN)
+
+### 7.1 Pourquoi le PCF Vogel-Disk avec rotation IGN ?
+* **Spirale de Vogel & Nombre d'Or** : Distribue $N \in \{8, 16\}$ points sur un disque de manière optimale sans motifs réguliers de grille cartésienne.
+  $$r_i = R_{\text{filter}} \cdot \sqrt{\frac{i + 0.5}{N}}, \quad \theta_i = i \cdot 2.39996323\text{ rad} + \text{IGN}(\text{pos}) \cdot 2\pi$$
+* **Base Orthonormée Tangente (ONB)** : Permet d'injecter la distribution 2D sur le plan tangent au vecteur de projection lumière $\mathbf{d} = \text{normalize}(\mathbf{p} - \mathbf{p}_{\text{light}})$ dans l'espace 3D de la cubemap.
+* **Rotation Interleaved Gradient Noise (IGN)** : Fait pivoter le motif de Vogel différemment sur chaque pixel de l'écran $\to$ brise le banding d'escalier en un bruit à haute fréquence instantanément nettoyé par le TAA.
+
+### 7.2 Vues de Debug Dédiées & Comparateur Interactif PCF vs Hard
+
+Afin d'inspecter, évaluer et comparer instantanément les différences visuelles entre **Off (1-tap Hard)**, **Vogel Disk 8-tap** et **Vogel Disk 16-tap**, 5 modes de visualisation debug ont été intégrés dans le shader [`shaders/pbr_billboard.frag`](file:///home/latty/Prog/__PERSO__/suckless-odin/shaders/pbr_billboard.frag) et le panneau ImGui [`src/gui/gui_shadows.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/gui/gui_shadows.odin) :
+
+1. **`0: Off (Normal Shading)`** : Rendu PBR physique normal avec assombrissement doux progressif selon le filtrage PCF actif.
+2. **`1: Shadow Mask (Green = Lit, Red = Occluded)`** :
+   * *1-tap Hard* : Frontière binaire abrupte (aliasing d'escalier brutal vert/rouge).
+   * *Vogel 8/16-tap* : Gradient continu et régulier le long de la pénombre.
+3. **`2: Penumbra / Softness Heatmap`** :
+   * Met en valeur la zone de transition où $0.0 < \text{shadow} < 1.0$ via un gradient thermique (Noir = Pleine lumière ou Pleine occlusion, Orange/Jaune vif = Pénombre adoucie).
+   * Permet de jauger instantanément l'épaisseur et la régularité de la zone de transition selon le rayon du filtre.
+4. **`3: PCF vs Hard Delta Heatmap (|PCF - Hard|)`** :
+   * Calcule simultanément la visibilité de base 1-tap et le filtrage PCF actif.
+   * Affiche la différence brute amplifiée : **Bleu** = lissage/éclaircissement PCF sur les marches extérieures, **Rouge** = adoucissement/assombrissement PCF sur les coins intérieurs.
+5. **`4: Split-Screen Comparison (Left = Hard 1-tap, Right = Active PCF)`** :
+   * Scinde l'écran verticalement avec une ligne de séparation dynamique cyan.
+   * Moitié gauche : Ombre dure 1-tap crénelée brute sans filtrage.
+   * Moitié droite : Ombre douce Vogel Disk 8 ou 16 taps avec rotation IGN.
+   * Boutons d'action rapide dans l'UI : `[Compare Hard vs Vogel 8-tap]`, `[Compare Hard vs Vogel 16-tap]`, `[View Delta Heatmap]`, `[Normal Shading]`.
+
+### 7.3 Validation E2E Offscreen & Démonstration Visuelle Animée (Screen Recording GPU)
+
+Un test d'intégration automatisé 100% offscreen a été mis en place dans [`tests/gl/test_gl_shadow_debug_e2e.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/tests/gl/test_gl_shadow_debug_e2e.odin) (exécutable via `task record-shadow-debug`) :
+* **Headless GPU natif** : Exécution sur la carte graphique réelle sans afficher de fenêtre ni perturber le bureau de l'utilisateur (`glfw.WindowHint(glfw.VISIBLE, 0)`).
+* **Capture d'un sweep split-screen dynamique** : Enregistrement de 60 frames avec balayage sinusoïdal de la position de split de 5% à 95% de la largeur de l'écran.
+
+#### Animation Split-Screen Dynamique (Hard 1-tap vs Vogel 16-tap)
+
+![Shadow Debug Split-Screen Sweep](images/shadows/shadow_debug_split_sweep.gif)
+*Animation en direct du comparateur split-screen générée par le test E2E offscreen : à gauche de la ligne cyan, l'ombre dure 1-tap non-filtrée avec aliasing d'escalier prononcé ; à droite, le filtrage PCF Vogel-Disk 16-taps avec rotation stochastique IGN lissant la pénombre sans acné.*
+
+---
+
+#### Galerie Comparative des Modes de Rendu & Vues Debug
+
+| Mode 1-Tap Hard (Baseline) | Mode Vogel-Disk 16 Taps (Actif) |
+|---|---|
+| ![Hard 1-tap Normal](images/shadows/01_normal_hard_1tap.png)<br>*(a) Rendu Standard Hard 1-tap : crénelage d'escalier brutal* | ![Vogel 16-tap Normal](images/shadows/03_normal_vogel_16tap.png)<br>*(b) Rendu Vogel 16-tap : transition douce et naturelle de pénombre* |
+| ![Mask Hard](images/shadows/04_mask_hard_1tap.png)<br>*(c) Masque Hard : discontinuité binaire $0/1$ sans gradient* | ![Mask Vogel 16-tap](images/shadows/05_mask_vogel_16tap.png)<br>*(d) Masque Vogel 16-tap : gradient d'occlusion continu* |
+
+| Heatmap Pénombre ($0 < \text{shadow} < 1$) | Différence Delta ($\lvert\text{PCF} - \text{Hard}\rvert$) |
+|---|---|
+| ![Penumbra Heatmap](images/shadows/06_penumbra_heatmap.png)<br>*(e) Heatmap Pénombre : jaune/orange = zone de transition adoucie* | ![Delta Heatmap](images/shadows/07_delta_vs_hard_heatmap.png)<br>*(f) Delta Heatmap : bleu = adoucissement externe, rouge = assombrissement interne* |
+
+| Split-Screen 50/50 Fixe | Vogel 8 Taps (Intermédiaire) |
+|---|---|
+| ![Split Screen 50/50](images/shadows/08_split_screen_50_50.png)<br>*(g) Comparateur Split-Screen 50/50 avec délimiteur cyan* | ![Vogel 8-tap Normal](images/shadows/02_normal_vogel_8tap.png)<br>*(h) Rendu Vogel 8-tap : compromis coût / lissage* |
+
+---
+
+## 8. Plan d'Action Retenu
 
 * **Étape 1 (✅ Validée & Fusionnée)** :
   * Intégration dans [`shaders/pbr_billboard.frag`](file:///home/latty/Prog/__PERSO__/suckless-odin/shaders/pbr_billboard.frag) du **Receiver Normal Offset Bias** et du **Slope-Scaled Bias** dynamique.
   * Séparation ergonomique dans ImGui : Onglet dédié [`[Shadows]`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/gui/gui_shadows.odin) (Tab 9) et Onglet dédié [`[Volumetric]`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/gui/gui_volumetric.odin) (Tab 10).
-* **Étape 2 (Actuelle / Prochaine)** :
+* **Étape 2 (✅ Validée & Testée avec Captures & GIF E2E)** :
   * Implémentation du filtre **PCF Vogel-Disk (8-16 taps)** avec rotation stochastique par pixel via Interleaved Gradient Noise (IGN).
-* **Étape 3 (Future)** :
+  * Contrôles ImGui dédiés : Mode PCF (Hard, Vogel 8-tap, Vogel 16-tap), Rayon angulaire du filtre ($0.001..0.050\text{ rad}$), Toggle rotation IGN.
+  * Vues Debug Complètes : Masque Vert/Rouge, Heatmap de Pénombre, Différence Delta (|PCF - Hard|), et Split-Screen interactif Gauche/Droite.
+  * Test E2E headless matériel sous [`tests/gl/test_gl_shadow_debug_e2e.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/tests/gl/test_gl_shadow_debug_e2e.odin) et task `task record-shadow-debug`.
+  * Enrichissement de la documentation avec animations GIF et galerie comparative 800x600.
+* **Étape 3 (Suivante / Optionnelle)** :
   * Intégration optionnelle du filtrage temporel TAA sur le shadow mask ou PCSS à pénombre adaptative.
 

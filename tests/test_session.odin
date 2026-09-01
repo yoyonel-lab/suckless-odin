@@ -96,6 +96,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 		shadow_slope_bias      = 0.0010,
 		shadow_darkening       = 0.75,
 		shadow_debug_mask      = false,
+		shadow_debug_mode      = 4,
+		shadow_split_position  = 0.65,
+		shadow_pcf_samples     = 16,
+		shadow_filter_radius   = 0.020,
+		shadow_pcf_jitter      = true,
 		phase_g                = 0.75,
 		is_animated            = true,
 		orbit_speed            = 1.2,
@@ -178,6 +183,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.point_light.shadow_bias, 0.002)
 	testing.expect_value(t, loaded_state.point_light.shadow_normal_bias, 0.025)
 	testing.expect_value(t, loaded_state.point_light.shadow_slope_bias, 0.0010)
+	testing.expect_value(t, loaded_state.point_light.shadow_debug_mode, 4)
+	testing.expect_value(t, loaded_state.point_light.shadow_split_position, 0.65)
+	testing.expect_value(t, loaded_state.point_light.shadow_pcf_samples, 16)
+	testing.expect_value(t, loaded_state.point_light.shadow_filter_radius, 0.020)
+	testing.expect_value(t, loaded_state.point_light.shadow_pcf_jitter, true)
 	testing.expect_value(t, loaded_state.point_light.phase_g, 0.75)
 	testing.expect_value(t, loaded_state.point_light.is_animated, true)
 }
