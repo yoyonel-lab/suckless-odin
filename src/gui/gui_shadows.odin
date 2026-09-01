@@ -44,7 +44,6 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 			light.color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
 		}
 		imgui.SliderFloat("Intensity", &light.intensity, 0.0, 10.0)
-		imgui.SliderFloat("Phase Anisotropy (g)", &light.phase_g, -0.9, 0.9)
 
 		imgui.Separator()
 		imgui.TextColored({1.0, 0.9, 0.3, 1.0}, "Surface Shadow Mapping Verification (Debug Mode)")
@@ -172,6 +171,27 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 		imgui.Checkbox("Show Light Bulb Gizmo", &light.show_bulb)
 		if light.show_bulb {
 			imgui.SliderFloat("Bulb Gizmo Radius", &light.bulb_radius, 0.05, 2.0, "%.2f m")
+		}
+
+		imgui.Spacing()
+		imgui.SeparatorText("3D Interactive Gizmo (ImGuizmo)")
+		imgui.Checkbox("Enable 3D Light Gizmo", &light.show_gizmo)
+		if light.show_gizmo {
+			imgui.Combo(
+				"Gizmo Operation",
+				&light.gizmo_op,
+				"Translate (Move Position)\x00Rotate (Aim Direction)\x00Scale (Adjust Size)\x00Universal (All-in-One)\x00\x00",
+			)
+			imgui.Combo(
+				"Gizmo Coordinate Space",
+				&light.gizmo_mode,
+				"World Coordinates\x00Local Coordinates\x00\x00",
+			)
+			imgui.Checkbox("Grid Snapping", &light.gizmo_snap)
+			if light.gizmo_snap {
+				imgui.SameLine()
+				imgui.SliderFloat("Snap Step", &light.gizmo_snap_value, 0.05, 5.0, "%.2f m")
+			}
 		}
 	}
 
@@ -357,6 +377,26 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		imgui.Checkbox("Show Light Bulb Gizmo##filt", &light.show_bulb)
 		if light.show_bulb {
 			imgui.SliderFloat("Bulb Gizmo Radius##filt", &light.bulb_radius, 0.05, 2.0, "%.2f m")
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "3D Light Gizmo", "imguizmo gizmo 3d light translate rotate scale universal snap move manipulation") {
+		imgui.Checkbox("Enable 3D Light Gizmo##filt", &light.show_gizmo)
+		if light.show_gizmo {
+			imgui.Combo(
+				"Gizmo Operation##filt",
+				&light.gizmo_op,
+				"Translate (Move Position)\x00Rotate (Aim Direction)\x00Scale (Adjust Size)\x00Universal (All-in-One)\x00\x00",
+			)
+			imgui.Combo(
+				"Gizmo Coordinate Space##filt",
+				&light.gizmo_mode,
+				"World Coordinates\x00Local Coordinates\x00\x00",
+			)
+			imgui.Checkbox("Grid Snapping##filt", &light.gizmo_snap)
+			if light.gizmo_snap {
+				imgui.SliderFloat("Snap Step##filt", &light.gizmo_snap_value, 0.05, 5.0, "%.2f m")
+			}
 		}
 		match_count += 1
 	}

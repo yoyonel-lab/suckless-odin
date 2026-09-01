@@ -9,6 +9,7 @@ import "../../deps/odin-imgui/imgui_impl_glfw"
 import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
+import mt "../core/math_types"
 import "../core/search"
 import settings "../core/settings"
 import perf_mode "../core/perf_mode"
@@ -151,6 +152,8 @@ init :: proc(g: ^Gui, window: glfw.WindowHandle) -> bool {
 		return false
 	}
 
+	guizmo_set_imgui_context(g.ctx)
+
 	return true
 }
 
@@ -159,6 +162,7 @@ new_frame :: proc(g: ^Gui) {
 	imgui_impl_opengl3.NewFrame()
 	imgui_impl_glfw.NewFrame()
 	imgui.NewFrame()
+	guizmo_begin_frame()
 }
 
 // Single window with search + tab bar for all engine controls.
@@ -266,6 +270,9 @@ update :: proc(g: ^Gui, state: Scene_State) {
 		}
 	}
 	imgui.End()
+
+	// 3D Viewport Interactive Controls (ImGuizmo)
+	draw_point_light_gizmo(state)
 }
 
 render :: proc(g: ^Gui) {
@@ -312,9 +319,74 @@ wants_keyboard :: proc(g: ^Gui) -> bool {
 
 wants_mouse :: proc(g: ^Gui) -> bool {
 	if g.ctx == nil { return false }
+	if guizmo_is_over() || guizmo_is_using() { return true }
 	if !g.visible { return false }
 	io := imgui.GetIO()
 	return io.WantCaptureMouse
+}
+
+// ─── 3D Interactive Viewport Gizmo (ImGuizmo) ──────────────────────────────────
+
+@(private)
+draw_point_light_gizmo :: proc(state: Scene_State) {
+	light := state.point_light
+	c := state.camera
+	if light == nil || c == nil || !light.enabled || !light.show_gizmo {
+		return
+	}
+
+	io := imgui.GetIO()
+	guizmo_set_rect(0, 0, io.DisplaySize.x, io.DisplaySize.y)
+	guizmo_set_orthographic(false)
+
+	view := cam.get_view_matrix(c)
+	aspect := io.DisplaySize.x / max(io.DisplaySize.y, 1.0)
+	fov_rad := math.to_radians(c.zoom)
+	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
+
+	light_pos := light.orbit_center if light.is_animated else light.position
+	model := mt.mat4_translate(light_pos)
+
+	op: Guizmo_Operation
+	switch light.gizmo_op {
+	case 1: op = .Rotate
+	case 2: op = .Scale
+	case 3: op = .Universal
+	case:   op = .Translate
+	}
+
+	mode: Guizmo_Mode = .World if light.gizmo_mode == 0 else .Local
+
+	snap_val: [3]f32
+	snap_ptr: [^]f32 = nil
+	if light.gizmo_snap {
+		snap_val = {light.gizmo_snap_value, light.gizmo_snap_value, light.gizmo_snap_value}
+		snap_ptr = &snap_val[0]
+	}
+
+	manipulated := guizmo_manipulate(
+		&view[0][0],
+		&proj[0][0],
+		op,
+		mode,
+		&model[0][0],
+		nil,
+		snap_ptr,
+	)
+
+	is_using := guizmo_is_using()
+	light.is_interacting = is_using
+
+	if manipulated || is_using {
+		new_pos := mt.Vec3{model[3][0], model[3][1], model[3][2]}
+		if light.is_animated {
+			light.orbit_center = new_pos
+		} else {
+			light.position = new_pos
+		}
+		light.motion_cooldown = 0.40
+		light.is_dirty = true
+	}
 }
 
 // ─── Tab: Camera ───────────────────────────────────────────────────────────────
@@ -460,11 +532,6 @@ draw_tab_scene :: proc(state: Scene_State) {
 			imgui.SliderFloat("Diff Gain", state.diff_gain, 1.0, 100.0)
 		}
 	}
-	imgui.Separator()
-
-	imgui.BeginDisabled()
-	imgui.SliderFloat("Exposure", state.exposure, 0.1, 10.0)
-	imgui.EndDisabled()
 	imgui.Separator()
 
 	imgui.Checkbox("Wireframe", state.wireframe_enabled)
@@ -900,18 +967,6 @@ draw_rendering_scene_debug :: proc(state: Scene_State) {
 	gi_mode: i32 = 0
 	imgui.Combo("GI Mode", &gi_mode, "OFF\x00Volume 3D Tex\x00SSBO\x00")
 	imgui.EndDisabled()
-
-	if state.sort_mode != nil {
-		sort_val := i32(state.sort_mode^)
-		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
-			state.sort_mode^ = rendering.Sort_Mode(sort_val)
-		}
-		imgui.SameLine()
-		imgui.TextDisabled("(?)")
-		if imgui.IsItemHovered() {
-			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
-		}
-	}
 }
 
 @(private)
