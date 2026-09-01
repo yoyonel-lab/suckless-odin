@@ -49,13 +49,14 @@ graph TD
     subgraph WindowsSub["ci-windows.yml"]
         WindowsCI --> WTest["Wine Test Suite<br/>(12 Unit/CLI/Shader Tests)"]
         WTest --> WPkg["Windows Packaging & Sandbox<br/>(.tar.zst & .zip verification)"]
+        WPkg --> WSteam["Steam Deployment & Headless<br/>(VDF Injection + Wine/Xvfb Benchmark)"]
     end
 ```
 
 | Matrice des Workflows GitHub Actions & Architecture de Validation ISO Locale |
 | :---: |
 | ![GitHub Actions CI Matrix](images/ci/01_ci_matrix_topology.webp) |
-| *Orchestrateur découpé : Lint/Vet, Linux Matrix (GCC/Clang/Xvfb), Windows Cross-Build (MinGW/Wine) et packaging automatique.* |
+| *Orchestrateur découpé : Lint/Vet, Linux Matrix (GCC/Clang/Xvfb), Windows Cross-Build (MinGW/Wine), packaging et validation Steam/Proton headless.* |
 
 ---
 
@@ -71,7 +72,7 @@ Coordinates all sub-workflows concurrently using standard GitHub Actions `workfl
 |---|---|---|---|
 | **CI Lint** | [`.github/workflows/ci-lint.yml`](../.github/workflows/ci-lint.yml) | `workflow_call`, `workflow_dispatch` | Ruff lint/format, State Machine TLA+ codegen parity check, `odin check -vet -strict-style`. |
 | **CI Linux** | [`.github/workflows/ci-linux.yml`](../.github/workflows/ci-linux.yml) | `workflow_call`, `workflow_dispatch` | Dependency build (GLFW 3.4 shared, ImGui .a), 6 matrix target builds, Unit/CLI/Shader tests, headless OpenGL & visual regression under xvfb. |
-| **CI Windows** | [`.github/workflows/ci-windows.yml`](../.github/workflows/ci-windows.yml) | `workflow_call`, `workflow_dispatch` | Cross-compilation with Clang-19/LLD-19/MinGW, 12 test suites executed under Wine, `.tar.zst`/`.zip` packaging & sandboxed distribution verification. |
+| **CI Windows** | [`.github/workflows/ci-windows.yml`](../.github/workflows/ci-windows.yml) | `workflow_call`, `workflow_dispatch` | Cross-compilation with Clang-19/LLD-19/MinGW, 12 test suites executed under Wine, `.tar.zst`/`.zip` packaging & sandboxed distribution verification, Steam mock VDF injection & headless Wine/Xvfb benchmark execution (`task test-steam-ci`). |
 | **Docker CI Image** | [`.github/workflows/docker-ci-image.yml`](../.github/workflows/docker-ci-image.yml) | `push` on `Dockerfile.ci`, `workflow_dispatch` | Builds and publishes `ghcr.io/yoyonel-lab/suckless-odin-ci:latest` to GitHub Container Registry with BuildKit GHA layer caching. |
 | **Nightly Chaos** | [`.github/workflows/nightly.yml`](../.github/workflows/nightly.yml) | `schedule (0 2 * * *)`, `workflow_dispatch` | Stochastic concurrent temporal chaos fuzzer under headless Xvfb with core dump generation and markdown diagnostics summary. |
 | **Release** | [`.github/workflows/release.yml`](../.github/workflows/release.yml) | `push tags (v*)`, `workflow_dispatch` | Packages Linux AMD64 and Windows x86_64 distributions and publishes GitHub Release with SHA-256 checksums. |
