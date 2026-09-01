@@ -83,7 +83,7 @@ Coordinates all sub-workflows concurrently using standard GitHub Actions `workfl
 To eliminate boilerplate across workflows, reusable composite actions encapsulate recurring toolchain setup:
 
 1. **[`setup-odin`](../.github/actions/setup-odin/action.yml)**:
-   - Downloads, caches, and configures the pinned Odin compiler (`dev-2026-05`).
+   - Downloads, caches, and configures the pinned Odin compiler (`dev-2026-09`).
    - Compiles STB dependencies into `$ODIN_ROOT/vendor/stb/src`.
 2. **[`setup-linux-deps`](../.github/actions/setup-linux-deps/action.yml)**:
    - Installs apt packages (X11, Mesa, xvfb).

@@ -10,8 +10,8 @@
 
 FROM ubuntu:24.04
 
-ARG ODIN_VERSION=dev-2026-05
-ARG ODIN_URL=https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz
+ARG ODIN_VERSION=dev-2026-09
+ARG ODIN_URL=https://github.com/odin-lang/Odin/releases/download/dev-2026-09/odin-linux-amd64-dev-2026-09.tar.gz
 ARG GLFW_VERSION=3.4
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Install Odin compiler
 RUN mkdir -p /opt/odin && \
     curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1 && \
-    make -C /opt/odin/vendor/stb/src
+    bash /opt/odin/vendor/stb/src/build_stb.sh
 ENV PATH="/opt/odin:${PATH}"
 
 # Build GLFW from source (shared library, same as CI)
