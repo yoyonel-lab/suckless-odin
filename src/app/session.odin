@@ -117,15 +117,21 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			shadow_debug_mode      = s.point_light.shadow_debug_mode,
 			shadow_split_position  = s.point_light.shadow_split_position,
 			shadow_pcf_samples     = s.point_light.shadow_pcf_samples,
-			shadow_filter_radius   = s.point_light.shadow_filter_radius,
-			shadow_pcf_jitter      = s.point_light.shadow_pcf_jitter,
-			phase_g                = s.point_light.phase_g,
-			is_animated            = s.point_light.is_animated,
-			orbit_speed            = s.point_light.orbit_speed,
-			orbit_radius           = s.point_light.orbit_radius,
-			orbit_center           = s.point_light.orbit_center,
-			show_bulb              = s.point_light.show_bulb,
-			bulb_radius            = s.point_light.bulb_radius,
+			shadow_filter_radius       = s.point_light.shadow_filter_radius,
+			shadow_pcf_jitter          = s.point_light.shadow_pcf_jitter,
+			shadow_temporal_jitter     = s.point_light.shadow_temporal_jitter,
+			shadow_taa_enabled         = s.point_light.shadow_taa_enabled,
+			shadow_taa_mode            = s.point_light.shadow_taa_mode,
+			shadow_taa_alpha           = s.point_light.shadow_taa_alpha,
+			shadow_taa_depth_threshold = s.point_light.shadow_taa_depth_threshold,
+			shadow_taa_clamping        = s.point_light.shadow_taa_clamping,
+			phase_g                    = s.point_light.phase_g,
+			is_animated                = s.point_light.is_animated,
+			orbit_speed                = s.point_light.orbit_speed,
+			orbit_radius               = s.point_light.orbit_radius,
+			orbit_center               = s.point_light.orbit_center,
+			show_bulb                  = s.point_light.show_bulb,
+			bulb_radius                = s.point_light.bulb_radius,
 		},
 	}
 }
@@ -198,18 +204,20 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		application.camera_enabled = false
 	}
 	
-	if application.camera_enabled {
-		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
-	} else {
-		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
-	}
-	
-	if state.is_fullscreen {
-		monitor := glfw.GetPrimaryMonitor()
-		if monitor != nil {
-			mode := glfw.GetVideoMode(monitor)
-			glfw.SetWindowMonitor(application.window, monitor, 0, 0, mode.width, mode.height, mode.refresh_rate)
-			application.is_fullscreen = true
+	if application.window != nil {
+		if application.camera_enabled {
+			glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+		} else {
+			glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+		}
+		
+		if state.is_fullscreen {
+			monitor := glfw.GetPrimaryMonitor()
+			if monitor != nil {
+				mode := glfw.GetVideoMode(monitor)
+				glfw.SetWindowMonitor(application.window, monitor, 0, 0, mode.width, mode.height, mode.refresh_rate)
+				application.is_fullscreen = true
+			}
 		}
 	}
 
@@ -276,14 +284,24 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		if state.point_light.shadow_filter_radius > 0 {
 			s.point_light.shadow_filter_radius = state.point_light.shadow_filter_radius
 		}
-		s.point_light.shadow_pcf_jitter      = state.point_light.shadow_pcf_jitter
-		s.point_light.phase_g                = state.point_light.phase_g
-		s.point_light.is_animated            = state.point_light.is_animated
-		s.point_light.orbit_speed            = state.point_light.orbit_speed
-		s.point_light.orbit_radius           = state.point_light.orbit_radius
-		s.point_light.orbit_center           = state.point_light.orbit_center
-		s.point_light.show_bulb              = state.point_light.show_bulb
-		s.point_light.bulb_radius            = state.point_light.bulb_radius
-		s.point_light.is_dirty               = true
+		s.point_light.shadow_pcf_jitter          = state.point_light.shadow_pcf_jitter
+		s.point_light.shadow_temporal_jitter     = state.point_light.shadow_temporal_jitter
+		s.point_light.shadow_taa_enabled         = state.point_light.shadow_taa_enabled
+		s.point_light.shadow_taa_mode            = state.point_light.shadow_taa_mode
+		if state.point_light.shadow_taa_alpha > 0 {
+			s.point_light.shadow_taa_alpha = state.point_light.shadow_taa_alpha
+		}
+		if state.point_light.shadow_taa_depth_threshold > 0 {
+			s.point_light.shadow_taa_depth_threshold = state.point_light.shadow_taa_depth_threshold
+		}
+		s.point_light.shadow_taa_clamping        = state.point_light.shadow_taa_clamping
+		s.point_light.phase_g                    = state.point_light.phase_g
+		s.point_light.is_animated                = state.point_light.is_animated
+		s.point_light.orbit_speed                = state.point_light.orbit_speed
+		s.point_light.orbit_radius               = state.point_light.orbit_radius
+		s.point_light.orbit_center               = state.point_light.orbit_center
+		s.point_light.show_bulb                  = state.point_light.show_bulb
+		s.point_light.bulb_radius                = state.point_light.bulb_radius
+		s.point_light.is_dirty                   = true
 	}
 }

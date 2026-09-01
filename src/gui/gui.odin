@@ -1400,7 +1400,7 @@ IBL_KEYWORDS :: "ibl debug irradiance prefilter specular diffuse brdf lut split 
 COMPUTE_KEYWORDS :: "compute tuning shader progressive slicing dispatch samples workgroup spbrdf irmap spmap slices profile legacy optimized vram timing optimization"
 
 @(private)
-SHADOW_KEYWORDS :: "shadow shadows point light cubemap bias normal offset slope rnob ssdb bulb darkening omnidirectional atlas dirty cache time slicing near far pcf vogel disk filter radius jitter stochastic debug heatmap penumbra split delta"
+SHADOW_KEYWORDS :: "shadow shadows point light cubemap bias normal offset slope rnob ssdb bulb darkening omnidirectional atlas dirty cache time slicing near far pcf vogel disk filter radius jitter stochastic temporal taa reprojection alpha disocclusion clamping debug heatmap penumbra split delta"
 
 @(private)
 VOLUMETRIC_KEYWORDS :: "volumetric raymarch raymarching taa reprojection bilateral blur scattering extinction henyey greenstein anisotropy god rays jbu upsample downsample fog mist smoke atmosphere presets"

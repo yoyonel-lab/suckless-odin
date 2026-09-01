@@ -693,9 +693,17 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_taa_near_plane, near_plane)
 		gl.Uniform1f(vr.loc_taa_far_plane, far_plane)
 
+		// Dynamic responsive TAA alpha during light motion with smooth graceful transition
+		effective_alpha := vr.params.taa_alpha
+		if light != nil && (light.is_interacting || light.motion_cooldown > 0.0) {
+			blend := min(f32(1.0), light.motion_cooldown / 0.40)
+			blend_smooth := blend * blend * (3.0 - 2.0 * blend)
+			effective_alpha = math.lerp(vr.params.taa_alpha, 0.70, blend_smooth)
+		}
+
 		// TAA parameters
 		gl.Uniform1i(vr.loc_taa_mode, vr.params.taa_mode)
-		gl.Uniform1f(vr.loc_taa_alpha, vr.params.taa_alpha)
+		gl.Uniform1f(vr.loc_taa_alpha, effective_alpha)
 		gl.Uniform1f(vr.loc_taa_depth_threshold, vr.params.taa_depth_threshold)
 		gl.Uniform1i(vr.loc_taa_clamping_enabled, 1 if vr.params.taa_clamping_enabled else 0)
 		gl.Uniform1i(vr.loc_taa_history_valid, 1 if vr.history_valid else 0)

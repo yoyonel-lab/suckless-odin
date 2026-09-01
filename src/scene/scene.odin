@@ -39,9 +39,10 @@ Scene :: struct {
 	// Post-processing pipeline
 	postfx_pipeline: postfx.Pipeline,
 
-	// Point light & Shadow Cubemap (Phase 1)
+	// Point light & Shadow Cubemap & Shadow TAA (Phase 1)
 	point_light:    rendering.Point_Light,
 	shadow_cubemap: rendering.Shadow_Cubemap,
+	shadow_taa:     rendering.Shadow_TAA,
 
 	// Volumetric Lighting Depth Downsampling (Phase 2)
 	depth_downsample: rendering.Depth_Downsample,
@@ -77,6 +78,8 @@ Scene :: struct {
 	loc_point_shadow_pcf_samples: i32,
 	loc_point_shadow_filter_radius: i32,
 	loc_point_shadow_pcf_jitter:  i32,
+	loc_point_shadow_temporal_jitter: i32,
+	loc_frame_count:              i32,
 
 	// Cached uniform values to filter redundant driver uploads
 	cached_screen_w:             i32,
@@ -193,6 +196,8 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_point_shadow_pcf_samples = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_pcf_samples")
 	s.loc_point_shadow_filter_radius = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_filter_radius")
 	s.loc_point_shadow_pcf_jitter = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_pcf_jitter")
+	s.loc_point_shadow_temporal_jitter = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_temporal_jitter")
+	s.loc_frame_count = gl.GetUniformLocation(s.pbr_program, "u_frame_count")
 
 	s.cached_screen_w = -1
 	s.cached_screen_h = -1
@@ -225,33 +230,50 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 
 	// Initialize default dynamic point light & shadow cubemap (Phase 1 & 3 ISO proportional scale)
 	s.point_light = rendering.Point_Light{
-		position               = mt.Vec3{0.0, 2.0, -3.0},
-		radius                 = 22.0,
-		color                  = mt.Vec3{1.0, 0.50, 0.25},
-		intensity              = 2.8,
-		enabled                = true,
-		direct_shadows_enabled = false,
-		shadow_bias            = 0.0015,
-		shadow_normal_bias     = 0.025,
-		shadow_slope_bias      = 0.0010,
-		shadow_darkening       = 0.5,
-		shadow_debug_mask      = false,
-		shadow_debug_mode      = 0,
-		shadow_split_position  = 0.5,
-		shadow_pcf_samples     = 8,
-		shadow_filter_radius   = 0.015,
-		shadow_pcf_jitter      = true,
-		show_bulb              = true,
-		bulb_radius            = 0.45,
-		is_dirty               = true,
-		is_animated            = true,
-		orbit_speed            = 0.25,
-		orbit_radius           = 5.0,
-		orbit_center           = mt.Vec3{0.0, 2.0, -3.0},
-		phase_g                = 0.55,
+		position                   = mt.Vec3{0.0, 2.0, -3.0},
+		radius                     = 22.0,
+		color                      = mt.Vec3{1.0, 0.50, 0.25},
+		intensity                  = 2.8,
+		enabled                    = true,
+		direct_shadows_enabled     = false,
+		shadow_bias                = 0.0015,
+		shadow_normal_bias         = 0.025,
+		shadow_slope_bias          = 0.0010,
+		shadow_darkening           = 0.5,
+		shadow_debug_mask          = false,
+		shadow_debug_mode          = 0,
+		shadow_split_position      = 0.5,
+		shadow_pcf_samples         = 8,
+		shadow_filter_radius       = 0.015,
+		shadow_pcf_jitter          = true,
+		shadow_temporal_jitter     = true,
+		shadow_taa_enabled         = true,
+		shadow_taa_mode            = 2,
+		shadow_taa_alpha           = 0.15,
+		shadow_taa_depth_threshold = 0.30,
+		shadow_taa_clamping        = true,
+		show_bulb                  = true,
+		bulb_radius                = 0.45,
+		is_dirty                   = true,
+		is_animated                = true,
+		orbit_speed                = 0.25,
+		orbit_radius               = 5.0,
+		orbit_center               = mt.Vec3{0.0, 2.0, -3.0},
+		phase_g                    = 0.55,
+		show_gizmo                 = true,
+		gizmo_op                   = 0,
+		gizmo_mode                 = 0,
+		gizmo_snap                 = false,
+		gizmo_snap_value           = 0.5,
 	}
 	if !rendering.shadow_cubemap_create(&s.shadow_cubemap, 512) {
 		log.log_error("suckless-odin.scene", "Failed to create shadow cubemap")
+		return false
+	}
+
+	// Initialize shadow TAA renderer (Screen-Space Temporal Reprojection)
+	if !rendering.shadow_taa_create(&s.shadow_taa, width, height) {
+		log.log_error("suckless-odin.scene", "Failed to create shadow TAA renderer")
 		return false
 	}
 
@@ -306,7 +328,8 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
 
 	// 1. Skybox (drawn first, depth <= 1.0)
-	if s.skybox_visible && (!s.volumetric.params.enabled || !s.volumetric.params.isolate_in_scene) {
+	skip_skybox_for_shadow_debug := (s.point_light.enabled && s.point_light.shadow_debug_mode == 6)
+	if s.skybox_visible && !skip_skybox_for_shadow_debug && (!s.volumetric.params.enabled || !s.volumetric.params.isolate_in_scene) {
 		dbg.push_group("Skybox_Pass")
 		rendering.skybox_render(&s.skybox, view, proj, s.specular_aa_split_enabled, s.specular_aa_split_position)
 		dbg.pop_group()
@@ -395,6 +418,8 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	gl.Uniform1i(s.loc_point_shadow_pcf_samples, s.point_light.shadow_pcf_samples)
 	gl.Uniform1f(s.loc_point_shadow_filter_radius, s.point_light.shadow_filter_radius)
 	gl.Uniform1i(s.loc_point_shadow_pcf_jitter, 1 if s.point_light.shadow_pcf_jitter else 0)
+	gl.Uniform1i(s.loc_point_shadow_temporal_jitter, 1 if s.point_light.shadow_temporal_jitter else 0)
+	gl.Uniform1i(s.loc_frame_count, i32(s.frame_count))
 
 	// Bind Shadow Cubemap (unit 18)
 	if s.point_light.enabled {
@@ -529,6 +554,7 @@ scene_update :: proc(s: ^Scene, dt: f32) {
 
 	postfx.pipeline_update(&s.postfx_pipeline, dt)
 	rendering.overlay_update(&s.overlay, dt)
+	rendering.point_light_update(&s.point_light, dt)
 
 	// Environment manager: poll async loader, advance IBL, update transitions
 	env_manager_update(&s.env_mgr, s, dt)
@@ -590,6 +616,7 @@ scene_resize :: proc(s: ^Scene, width, height: i32) {
 	postfx.pipeline_resize(&s.postfx_pipeline, width, height)
 	rendering.depth_downsample_resize(&s.depth_downsample, width, height, s.volumetric.params.resolution_divider)
 	rendering.volumetric_resize(&s.volumetric, width, height, s.volumetric.params.resolution_divider)
+	rendering.shadow_taa_resize(&s.shadow_taa, width, height)
 }
 
 // Trigger an asynchronous environment map change.
@@ -655,6 +682,7 @@ scene_destroy :: proc(s: ^Scene) {
 	delete(s.hdr_files)
 
 	env_manager_destroy(&s.env_mgr)
+	rendering.shadow_taa_destroy(&s.shadow_taa)
 	rendering.shadow_cubemap_destroy(&s.shadow_cubemap)
 	rendering.depth_downsample_destroy(&s.depth_downsample)
 	rendering.volumetric_destroy(&s.volumetric)

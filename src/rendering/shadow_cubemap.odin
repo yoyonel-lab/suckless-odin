@@ -47,15 +47,34 @@ Point_Light :: struct {
 	shadow_split_position:  f32,  // 0.0 .. 1.0 (default 0.5)
 	shadow_pcf_samples:     i32,  // 1 = Hard, 8 = Vogel 8-tap, 16 = Vogel 16-tap
 	shadow_filter_radius:   f32,  // Angular filter radius in radians (default 0.015 rad)
-	shadow_pcf_jitter:      bool, // Enable Interleaved Gradient Noise stochastic rotation
-	show_bulb:              bool,
-	bulb_radius:            f32,
-	is_dirty:               bool,
-	is_animated:            bool,
-	orbit_speed:            f32,
-	orbit_radius:           f32,
-	orbit_center:           mt.Vec3,
-	phase_g:                f32, // Henyey-Greenstein anisotropy [-0.90..+0.90]
+	shadow_pcf_jitter:          bool, // Enable Interleaved Gradient Noise stochastic rotation
+	shadow_temporal_jitter:     bool, // Enable Golden-Ratio inter-frame stochastic rotation
+	shadow_taa_enabled:         bool, // Enable Screen-Space Shadow TAA
+	shadow_taa_mode:            i32,  // 0: Off, 1: Simple EMA, 2: TAA Reprojection
+	shadow_taa_alpha:           f32,  // History blend weight (default 0.15)
+	shadow_taa_depth_threshold: f32,  // Disocclusion depth tolerance (default 0.30m)
+	shadow_taa_clamping:        bool, // 3x3 Neighborhood Clamping
+	show_bulb:                  bool,
+	bulb_radius:                f32,
+	is_dirty:                   bool,
+	is_animated:                bool,
+	orbit_speed:                f32,
+	orbit_radius:               f32,
+	orbit_center:               mt.Vec3,
+	phase_g:                    f32, // Henyey-Greenstein anisotropy [-0.90..+0.90]
+
+	// 3D Interactive Gizmo Controls (ImGuizmo)
+	show_gizmo:                 bool, // Show interactive 3D translation gizmo in viewport
+	gizmo_op:                   i32,  // 0: Translate, 1: Rotate, 2: Scale, 3: Universal
+	gizmo_mode:                 i32,  // 0: World, 1: Local
+	gizmo_snap:                 bool, // Snap to grid
+	gizmo_snap_value:           f32,  // Snap interval in meters (default 0.5m)
+
+	// Motion & Interaction Tracking for smooth shadow caching / TAA adaptation
+	prev_position:              mt.Vec3,
+	prev_orbit_center:          mt.Vec3,
+	is_interacting:             bool, // True while dragging gizmo
+	motion_cooldown:            f32,  // Seconds remaining in graceful motion transition
 }
 
 Shadow_Debug_Mode :: enum i32 {
@@ -64,6 +83,8 @@ Shadow_Debug_Mode :: enum i32 {
 	Penumbra        = 2,
 	Delta_Vs_Hard   = 3,
 	Split_Screen    = 4,
+	Temporal_Jitter = 5,
+	Only_Shadow     = 6,
 }
 
 // Computes current light position (with orbit animation if enabled)
@@ -77,6 +98,28 @@ point_light_get_position :: proc(light: ^Point_Light, total_time: f32) -> mt.Vec
 		0.0,
 		math.sin(angle) * light.orbit_radius,
 	}
+}
+
+// Advances cooldown and detects position changes for smooth shadow caching / TAA adaptation
+point_light_update :: proc(light: ^Point_Light, dt: f32) {
+	if light == nil do return
+
+	pos_delta := mt.vec3_length(light.position - light.prev_position)
+	center_delta := mt.vec3_length(light.orbit_center - light.prev_orbit_center)
+	has_moved := (pos_delta > 0.0001) || (center_delta > 0.0001)
+
+	if has_moved || light.is_interacting {
+		light.motion_cooldown = 0.40 // 400ms transition window for graceful settling
+		light.is_dirty = true
+	} else if light.motion_cooldown > 0.0 {
+		light.motion_cooldown = max(0.0, light.motion_cooldown - dt)
+		if light.motion_cooldown > 0.0 {
+			light.is_dirty = true
+		}
+	}
+
+	light.prev_position = light.position
+	light.prev_orbit_center = light.orbit_center
 }
 
 SHADOW_MAP_RESOLUTIONS :: [4]i32{64, 128, 256, 512}
@@ -379,8 +422,9 @@ shadow_cubemap_render_spheres :: proc(
 ) {
 	if !light.enabled || sc.fbo == 0 do return
 
+	is_in_motion := light.is_interacting || (light.motion_cooldown > 0.0) || light.is_animated
 	update_shadow := true
-	if sc.shadow_cache && !light.is_dirty && !light.is_animated && !force_all_faces {
+	if sc.shadow_cache && !light.is_dirty && !is_in_motion && !force_all_faces {
 		update_shadow = false
 	}
 	if !update_shadow do return
@@ -418,7 +462,7 @@ shadow_cubemap_render_spheres :: proc(
 	faces_to_render: [6]int
 	num_faces := 6
 
-	if light.is_dirty || !light.is_animated || sc.time_slice_mode == 0 || force_all_faces {
+	if is_in_motion || light.is_dirty || sc.time_slice_mode == 0 || force_all_faces {
 		num_faces = 6
 		for i in 0..<6 {
 			faces_to_render[i] = i
@@ -461,7 +505,9 @@ shadow_cubemap_render_spheres :: proc(
 	dbg.pop_group()
 
 	sc.preview_dirty = true
-	light.is_dirty = false
+	if num_faces == 6 && light.motion_cooldown <= 0.0 && !light.is_interacting {
+		light.is_dirty = false
+	}
 }
 
 // Updates the 2D preview atlas texture (3x2 grid) for Dear ImGui display

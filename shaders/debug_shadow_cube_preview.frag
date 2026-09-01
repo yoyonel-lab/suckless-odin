@@ -60,13 +60,18 @@ void main()
         FragColor = vec4(0.2, 0.2, 0.25, 1.0); // Border color
     } else {
         // Depth visualization: normalized distance (with false color tint)
-        vec3 color = vec3(depthVal);
+        vec3 color;
         if (depthVal >= 0.999) {
             // Background / Skybox (clear depth)
-            color = vec3(0.05, 0.05, 0.1);
+            color = vec3(0.04, 0.04, 0.07);
         } else {
-            // Heatmap colormap from dark purple/blue to orange/white
-            color = mix(vec3(0.1, 0.2, 0.8), vec3(1.0, 0.9, 0.7), depthVal);
+            // Perceptual Viridis-like smooth colormap for depth inspection:
+            // Near = Indigo/Blue, Mid = Emerald Green, Far = Warm Amber
+            float d = clamp(depthVal * 2.5, 0.0, 1.0); // Normalize depth across scene radius
+            vec3 c0 = vec3(0.15, 0.10, 0.45); // Deep Indigo (Near)
+            vec3 c1 = vec3(0.10, 0.60, 0.50); // Teal / Emerald (Mid)
+            vec3 c2 = vec3(0.95, 0.75, 0.20); // Warm Amber (Far)
+            color = (d < 0.5) ? mix(c0, c1, d * 2.0) : mix(c1, c2, (d - 0.5) * 2.0);
         }
         FragColor = vec4(color, 1.0);
     }

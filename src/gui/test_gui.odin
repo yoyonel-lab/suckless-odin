@@ -115,6 +115,14 @@ test_section_has_matches_shadows :: proc(t: ^testing.T) {
 		"'penumbra' should match shadow section keywords")
 	testing.expect(t, section_has_matches("split", SHADOW_KEYWORDS),
 		"'split' should match shadow section keywords")
+	testing.expect(t, section_has_matches("temporal", SHADOW_KEYWORDS),
+		"'temporal' should match shadow section keywords")
+	testing.expect(t, section_has_matches("taa", SHADOW_KEYWORDS),
+		"'taa' should match shadow section keywords")
+	testing.expect(t, section_has_matches("reprojection", SHADOW_KEYWORDS),
+		"'reprojection' should match shadow section keywords")
+	testing.expect(t, section_has_matches("disocclusion", SHADOW_KEYWORDS),
+		"'disocclusion' should match shadow section keywords")
 }
 
 @(test)

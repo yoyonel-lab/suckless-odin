@@ -97,17 +97,23 @@ test_session_save_load :: proc(t: ^testing.T) {
 		shadow_darkening       = 0.75,
 		shadow_debug_mask      = false,
 		shadow_debug_mode      = 4,
-		shadow_split_position  = 0.65,
-		shadow_pcf_samples     = 16,
-		shadow_filter_radius   = 0.020,
-		shadow_pcf_jitter      = true,
-		phase_g                = 0.75,
-		is_animated            = true,
-		orbit_speed            = 1.2,
-		orbit_radius           = 8.0,
-		orbit_center           = {0.0, 2.0, 0.0},
-		show_bulb              = true,
-		bulb_radius            = 0.3,
+		shadow_split_position      = 0.65,
+		shadow_pcf_samples         = 16,
+		shadow_filter_radius       = 0.020,
+		shadow_pcf_jitter          = true,
+		shadow_temporal_jitter     = true,
+		shadow_taa_enabled         = true,
+		shadow_taa_mode            = 2,
+		shadow_taa_alpha           = 0.18,
+		shadow_taa_depth_threshold = 0.35,
+		shadow_taa_clamping        = true,
+		phase_g                    = 0.75,
+		is_animated                = true,
+		orbit_speed                = 1.2,
+		orbit_radius               = 8.0,
+		orbit_center               = {0.0, 2.0, 0.0},
+		show_bulb                  = true,
+		bulb_radius                = 0.3,
 	}
 	
 	// 1. Test save
@@ -188,6 +194,12 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.point_light.shadow_pcf_samples, 16)
 	testing.expect_value(t, loaded_state.point_light.shadow_filter_radius, 0.020)
 	testing.expect_value(t, loaded_state.point_light.shadow_pcf_jitter, true)
+	testing.expect_value(t, loaded_state.point_light.shadow_temporal_jitter, true)
+	testing.expect_value(t, loaded_state.point_light.shadow_taa_enabled, true)
+	testing.expect_value(t, loaded_state.point_light.shadow_taa_mode, 2)
+	testing.expect_value(t, loaded_state.point_light.shadow_taa_alpha, f32(0.18))
+	testing.expect_value(t, loaded_state.point_light.shadow_taa_depth_threshold, f32(0.35))
+	testing.expect_value(t, loaded_state.point_light.shadow_taa_clamping, true)
 	testing.expect_value(t, loaded_state.point_light.phase_g, 0.75)
 	testing.expect_value(t, loaded_state.point_light.is_animated, true)
 }

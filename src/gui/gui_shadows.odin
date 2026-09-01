@@ -93,15 +93,32 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 					imgui.SetTooltip("Angular kernel radius in radians.\nControls penumbra softness around sphere silhouettes.")
 				}
 
-				imgui.Checkbox("Stochastic IGN Jittering", &light.shadow_pcf_jitter)
-				imgui.SameLine()
-				imgui.TextDisabled("(?)")
+				imgui.Checkbox("PCF Stochastic Jitter (IGN)", &light.shadow_pcf_jitter)
 				if imgui.IsItemHovered() {
 					imgui.SetTooltip("Interleaved Gradient Noise per-pixel kernel rotation.\nTransforms shadow banding into high-frequency blue-like noise easily cleaned by TAA.")
+				}
+				imgui.SameLine()
+				imgui.Checkbox("Temporal Jitter", &light.shadow_temporal_jitter)
+				if imgui.IsItemHovered() {
+					imgui.SetTooltip("Varies the IGN noise rotation each frame using a Golden-Ratio quasi-random sequence for temporal supersampling.")
 				}
 			}
 
 			imgui.SliderFloat("Shadow Darkening", &light.shadow_darkening, 0.0, 1.0, "%.2f")
+
+			imgui.Spacing()
+			imgui.SeparatorText("Shadow Temporal Anti-Aliasing (TAA)")
+			imgui.Checkbox("Enable Shadow TAA", &light.shadow_taa_enabled)
+			if light.shadow_taa_enabled {
+				imgui.Combo(
+					"Shadow TAA Mode",
+					&light.shadow_taa_mode,
+					"0: Off (Raw Vogel)\x001: Simple EMA Blend\x002: Motion-Aware TAA Reprojection\x00\x00",
+				)
+				imgui.SliderFloat("Shadow TAA Alpha", &light.shadow_taa_alpha, 0.01, 1.00, "%.2f")
+				imgui.SliderFloat("Disocclusion Tol.", &light.shadow_taa_depth_threshold, 0.05, 2.00, "%.2f m")
+				imgui.Checkbox("3x3 Neighborhood Clamping##sh_taa", &light.shadow_taa_clamping)
+			}
 
 			imgui.Spacing()
 			imgui.SeparatorText("Shadow Sampling & PCF Debug Inspector")
@@ -110,7 +127,7 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 			if imgui.Combo(
 				"Shadow Debug View",
 				&debug_mode_idx,
-				"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00\x00",
+				"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00Temporal Jitter Phase Heatmap\x00Only Shadow Factor (Grayscale White=Lit, Black=Shadow)\x00\x00",
 			) {
 				light.shadow_debug_mode = debug_mode_idx
 				light.shadow_debug_mask = (debug_mode_idx == 1)
@@ -135,6 +152,11 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 				light.shadow_split_position = 0.5
 				light.direct_shadows_enabled = true
 			}
+			if imgui.Button("Only Shadow (Grayscale)") {
+				light.shadow_debug_mode = 6
+				light.direct_shadows_enabled = true
+			}
+			imgui.SameLine()
 			if imgui.Button("View Delta Heatmap") {
 				light.shadow_debug_mode = 3
 				light.direct_shadows_enabled = true
@@ -280,16 +302,44 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		imgui.Checkbox("Stochastic IGN Jittering##filt", &light.shadow_pcf_jitter)
 		match_count += 1
 	}
+	if fuzzy_match(filter, "Temporal Jitter", "shadow temporal jitter golden ratio frame rotation") {
+		imgui.Checkbox("Temporal Jitter##filt", &light.shadow_temporal_jitter)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Enable Shadow TAA", "shadow taa temporal anti aliasing denoising filter") {
+		imgui.Checkbox("Enable Shadow TAA##filt", &light.shadow_taa_enabled)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Shadow TAA Mode", "shadow taa mode ema blend reprojection") {
+		imgui.Combo(
+			"Shadow TAA Mode##filt",
+			&light.shadow_taa_mode,
+			"0: Off\x001: Simple EMA Blend\x002: Motion-Aware TAA Reprojection\x00\x00",
+		)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Shadow TAA Alpha", "shadow taa alpha history blend weight") {
+		imgui.SliderFloat("Shadow TAA Alpha##filt", &light.shadow_taa_alpha, 0.01, 1.00, "%.2f")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Shadow TAA Disocclusion Tolerance", "shadow taa depth tolerance disocclusion threshold reject history meter") {
+		imgui.SliderFloat("Disocclusion Tol.##filt", &light.shadow_taa_depth_threshold, 0.05, 2.00, "%.2f m")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Shadow TAA 3x3 Clamping", "shadow taa clamping 3x3 neighborhood box anti ghosting") {
+		imgui.Checkbox("3x3 Neighborhood Clamping##sh_taa_filt", &light.shadow_taa_clamping)
+		match_count += 1
+	}
 	if fuzzy_match(filter, "Shadow Darkening", "shadow darkening occlusion attenuation intensity") {
 		imgui.SliderFloat("Shadow Darkening##filt", &light.shadow_darkening, 0.0, 1.0, "%.2f")
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Shadow Debug View", "shadow debug mask mode penumbra heatmap delta split screen comparison hard pcf") {
+	if fuzzy_match(filter, "Shadow Debug View", "shadow debug mask mode penumbra heatmap delta split screen comparison hard pcf grayscale graysc gray white black only shadow factor onlyshadow") {
 		debug_mode_idx := light.shadow_debug_mode
 		if imgui.Combo(
 			"Shadow Debug View##filt",
 			&debug_mode_idx,
-			"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00\x00",
+			"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00Temporal Jitter Phase Heatmap\x00Only Shadow Factor (Grayscale White=Lit, Black=Shadow)\x00\x00",
 		) {
 			light.shadow_debug_mode = debug_mode_idx
 			light.shadow_debug_mask = (debug_mode_idx == 1)
@@ -310,7 +360,7 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		}
 		match_count += 1
 	}
-	if sc != nil && fuzzy_match(filter, "Cube Shadow Map Res", "shadow resolution cubemap atlas 64 128 256 512") {
+	if sc != nil && fuzzy_match(filter, "Cube Shadow Map Res", "shadow resolution cubemap atlas 64 128 256 512 res index") {
 		if imgui.Combo("Cube Shadow Map Res##filt", &sc.res_index, "64x64\x00128x128\x00256x256 (Default)\x00512x512 (Ultra HD)\x00\x00") {
 			new_res := rendering.shadow_cubemap_res_for_index(sc.res_index)
 			if new_res != sc.resolution {
@@ -318,6 +368,23 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 				light.is_dirty = true
 			}
 		}
+		match_count += 1
+	}
+	if sc != nil && fuzzy_match(filter, "Shadow Map Dirty Caching", "shadow cache dirty caching static faces performance") {
+		imgui.Checkbox("Shadow Map Dirty Caching##filt", &sc.shadow_cache)
+		match_count += 1
+	}
+	if sc != nil && fuzzy_match(filter, "Shadow Time-Slicing", "shadow time slicing slice mode frame budget cycle") {
+		imgui.Combo(
+			"Shadow Time-Slicing##filt",
+			&sc.time_slice_mode,
+			"All 6 faces (Realtime / Max Quality)\x003 faces / frame (2-frame cycle)\x002 faces / frame (3-frame cycle)\x001 face / frame (Max Performance)\x00\x00",
+		)
+		match_count += 1
+	}
+	if sc != nil && fuzzy_match(filter, "Shadow Near / Far Clip", "shadow near far clip plane distance") {
+		imgui.SliderFloat("Near Clip##filt", &sc.near_plane, 0.001, 1.0, "%.3f m")
+		imgui.SliderFloat("Far Clip##filt", &sc.far_plane, 1.0, 50.0, "%.1f m")
 		match_count += 1
 	}
 

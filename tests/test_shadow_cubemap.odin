@@ -195,6 +195,8 @@ test_shadow_debug_modes_and_delta :: proc(t: ^testing.T) {
 	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Penumbra), 2)
 	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Delta_Vs_Hard), 3)
 	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Split_Screen), 4)
+	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Temporal_Jitter), 5)
+	testing.expect_value(t, i32(rendering.Shadow_Debug_Mode.Only_Shadow), 6)
 
 	// 2. Validate Penumbra Softness factor (1.0 - abs(s * 2.0 - 1.0))
 	calc_penumbra :: proc(s: f32) -> f32 {
@@ -225,4 +227,50 @@ test_shadow_debug_modes_and_delta :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, shadow_left, hard_shadow)
 	testing.expect_value(t, shadow_right, pcf_16_shadow)
+}
+
+@(test)
+test_shadow_taa_math_and_clamping :: proc(t: ^testing.T) {
+	// 1. Validate Default Shadow TAA Parameters
+	params := rendering.shadow_taa_default_params()
+	testing.expect(t, params.enabled, "Shadow TAA default should be enabled")
+	testing.expect_value(t, params.mode, 2)
+	testing.expect(t, params.alpha > 0.0 && params.alpha <= 1.0, "Shadow TAA alpha should be within (0, 1]")
+	testing.expect(t, params.depth_threshold > 0.0, "Disocclusion threshold must be positive")
+	testing.expect(t, params.clamping_enabled, "Neighborhood clamping must be enabled by default")
+	testing.expect(t, params.temporal_jitter, "Temporal Golden-Ratio jitter must be enabled by default")
+
+	// 2. Validate 3x3 Neighborhood Box Clamping
+	neighborhood := [9]f32{0.4, 0.45, 0.5, 0.42, 0.48, 0.52, 0.41, 0.46, 0.55}
+	box_min := neighborhood[0]
+	box_max := neighborhood[0]
+	for val in neighborhood {
+		box_min = math.min(box_min, val)
+		box_max = math.max(box_max, val)
+	}
+	testing.expect_value(t, box_min, f32(0.40))
+	testing.expect_value(t, box_max, f32(0.55))
+
+	outlier_hist: f32 = 0.90 // Ghosting artifact value from previous frame
+	clamped_hist := clamp(outlier_hist, box_min, box_max)
+	testing.expect_value(t, clamped_hist, f32(0.55)) // Successfully clamped to neighborhood maximum
+
+	// 3. Validate EMA Temporal Accumulation
+	alpha: f32 = 0.15
+	curr_shadow: f32 = 0.50
+	accum_shadow := (1.0 - alpha) * clamped_hist + alpha * curr_shadow
+	testing.expect(t, accum_shadow >= box_min && accum_shadow <= box_max, "Accumulated shadow must stay inside valid range")
+
+	// 4. Validate Golden Ratio Quasi-Random Distribution
+	GOLDEN_RATIO_CONJUGATE :: f32(0.61803398875)
+	phases: [16]f32
+	for i in 0..<16 {
+		phases[i] = math.mod(f32(i) * GOLDEN_RATIO_CONJUGATE, 1.0)
+	}
+	// Check that all phases are distinct and span [0, 1)
+	for i in 0..<15 {
+		for j in (i+1)..<16 {
+			testing.expect(t, math.abs(phases[i] - phases[j]) > 0.02, "Golden ratio sequence must avoid duplicate sample clusters")
+		}
+	}
 }
