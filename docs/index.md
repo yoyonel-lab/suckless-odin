@@ -48,6 +48,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Voir l'Analyse & Démonstrations](2026-09-01_shadow_mapping_improvements_antialiasing_pcf_bias_analysis.md)
 
+-   :material-axis-arrow:{ .lg .middle } __Manuel ImGuizmo 3D, Ombres & Éclairage Volumétrique__
+
+    ---
+
+    Manuel technique complet : contrôle 3D interactif via ImGuizmo, adaptation TAA dynamique lors du déplacement, architecture multi-phases volumétrique et catalogue exhaustif des réglages ImGui.
+
+    [:octicons-arrow-right-24: Consulter le Manuel de Référence](2026-09-01_imguizmo_shadow_volumetric_gui_reference_guide.md)
+
 </div>
 
 ---

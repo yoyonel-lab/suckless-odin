@@ -105,6 +105,7 @@ nav:
       - Améliorations Shadow Mapping & PCF Vogel-Disk: 2026-09-01_shadow_mapping_improvements_antialiasing_pcf_bias_analysis.md
       - Architecture Cubemap & Ombres Dynamiques: 2026-09-01_shadow_cubemap_mrt_depth_vs_color_architecture.md
       - Intégration Éclairage Volumétrique: 2026-08-31_volumetric_dynamic_lights_integration_plan.md
+      - Manuel ImGuizmo, Ombres PCF & Éclairage Volumétrique: 2026-09-01_imguizmo_shadow_volumetric_gui_reference_guide.md
   - 🚀 Optimisation & Profiling:
       - Protocole Benchmarking & Roadmap: optimization-roadmap-and-benchmarking-protocol-2026-08-18.md
       - Profiling Tracy CPU: cpu-profiling-tracy-2026-05-23.md
