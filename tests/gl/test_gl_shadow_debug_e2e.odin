@@ -20,6 +20,11 @@ import gl "vendor:OpenGL"
 
 @(test)
 test_shadow_debug_offscreen_e2e :: proc(t: ^testing.T) {
+	RECORD_SHADOW_DEBUG :: #config(RECORD_SHADOW_DEBUG, false)
+	when !RECORD_SHADOW_DEBUG {
+		return
+	}
+
 	if !ensure_gl_context(t) { return }
 
 	width: i32 = 800
