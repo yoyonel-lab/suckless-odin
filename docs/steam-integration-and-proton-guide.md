@@ -83,6 +83,15 @@ task steam-gen-assets
 | **Logo Titre** | `logo.png` | `800×300` | Titre transparent superposé sur le Hero |
 | **Icône Système** | `icon.ico` / `.png` | Multi-résolution | Barre des tâches & liste détaillée Steam |
 
+#### 🛡️ Stratégie de Déterminisme Binaire & Idempotence (`scripts/generate_steam_assets.sh`)
+
+Par défaut, ImageMagick injecte des horodatages dynamiques dans les en-têtes PNG (`tIME` chunk et métadonnées `tEXt date:create` / `date:modify`), créant un diff binaire artificiel de 14 à 30 octets dans Git à chaque réexécution (`git status` dirty) sans aucune modification de pixels.
+
+Pour garantir des builds 100% reproductibles et une idempotence totale, le script applique une stratégie à 2 niveaux :
+
+1. **Option `-strip` ImageMagick** : Élimine tous les profils, commentaires et horodatages éphémères du conteneur PNG/ICO.
+2. **Comparaison atomique `write_if_changed` (`cmp -s`)** : Génère d'abord dans un dossier temporaire (`mktemp -d`), compare bit-à-bit avec le fichier existant, et n'écrase la cible que si le contenu binaire réel diffère. Aucun timestamp de fichier (`mtime`) n'est altéré si les visuels sont identiques.
+
 ---
 
 ### 🔌 Étape 3 : Fermeture Propre & Déploiement VDF / Grid
