@@ -10,6 +10,8 @@ PACKAGES=(
     clang-19
     lld-19
     llvm-19
+    cmake
+    git
     wine
     wine64
     libgl1-mesa-dev
