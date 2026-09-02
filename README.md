@@ -203,6 +203,25 @@ task --list
 | `--benchmark` | — | — | Execute automated benchmark run, output stats, and exit. |
 | `--benchmark-frames=<N>` | `integer` | `300` | Number of evaluated frames during benchmark. |
 | `--compute-profile=<name>` | `string` | `legacy` | Compute shader tuning profile: `legacy` or `optimized`. |
+| `--opt-profile=<name>` | `string` | `quality` | Performance optimization profile: `quality`, `balanced`, or `ultra`. |
+
+---
+
+## Benchmarks & Optimization Profiles
+
+```bash
+# Direct profile benchmarks (300 frames by default)
+task bench-quality          # Reference / Cinematic profile (32 steps, PCF 16-tap)
+task bench-balanced         # Recommended iGPU profile (16 steps + TAA, PCF 8-tap)
+task bench-ultra            # Maximum framerate profile (8 steps, PCF 4-tap)
+
+# Parameterized benchmarks with custom frame count
+task bench-balanced frames=500
+task bench-render profile=ultra frames=1000
+
+# Full 3-profile comparison sequence
+task bench-profiles
+```
 
 ---
 

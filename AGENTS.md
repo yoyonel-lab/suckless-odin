@@ -49,12 +49,16 @@
 
 ---
 
-## 🔄 RÈGLE DE SYNCHRONISATION UI/UX : RECHERCHABILITÉ & PERSISTANCE TOTALE DES PARAMÈTRES IMGUI
+## 🔄 RÈGLE ABSOLUE DE SYNCHRONISATION UI/UX : PERSISTANCE, RESTAURATION & RECHERCHABILITÉ TOTALE (100%)
 
-1. **Persistance Totale (100%)** : Tout paramètre, mode ou toggle modifiable dans l'UI ImGui DOIT être :
-   - Présent dans la structure `Session_State` (`src/core/session/session.odin`).
-   - Extrait et sauvegardé dans `extract_session_state` (`src/app/session.odin`).
-   - Restauré fidèlement dans `restore_session_state` (`src/app/session.odin`).
+1. **Synchronisation Bidirectionnelle Immédiate** : Tout paramètre ou réglage exposé dans l'interface ImGui DOIT impérativement piloter l'état de l'application en direct et être synchronisé sans exception dans la persistance.
+2. **Persistance & Restauration Intégrale (100%)** : Tout paramètre, mode, slider, toggle, résolution ou configuration modifiable dans l'UI ImGui DOIT être :
+   - Présent dans la structure `Session_State` (`src/core/session/session.odin`) avec son tag JSON explicite.
+   - Extrait et sauvegardé fidèlement dans `extract_session_state` (`src/app/session.odin`).
+   - Restauré fidèlement dans `restore_session_state` (`src/app/session.odin`) avec des valeurs de repli saines.
    - Couvert par les tests unitaires et de persistance (`tests/test_session.odin` et `scripts/check_persistence.py`).
-2. **Recherchabilité Exhaustive (100% Fuzzy Search)** : Tout contrôle, mode de rendu, mode debug, slider ou toggle présent dans les onglets ImGui DOIT être intégré dans la vue filtrée de recherche (`draw_filtered_*` / `fuzzy_match`) avec des mots-clés riches et exhaustifs (synonymes, abréviations courantes, termes techniques).
-3. **Zéro Omission** : L'oubli d'un paramètre dans la persistance JSON ou dans la barre de recherche ImGui est strictement prohibé.
+3. **Recherchabilité Exhaustive (100% Fuzzy Search & Navigation Go To)** :
+   - Tout contrôle présent dans un onglet DOIT être présent dans la vue filtrée (`draw_filtered_*` / `fuzzy_match`).
+   - Couverture de mots-clés riches (labels, acronymes, termes techniques, synonymes).
+   - Les sous-contrôles vivant dans des sous-onglets doivent proposer des boutons de navigation directe `Go To`.
+4. **Zéro Omission & Tolérance Zéro** : L'oubli d'un paramètre dans la persistance JSON `session.json`, dans sa restauration ou dans la barre de recherche ImGui est strictement prohibé.

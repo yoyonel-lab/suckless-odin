@@ -56,6 +56,22 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter le Manuel de Référence](2026-09-01_imguizmo_shadow_volumetric_gui_reference_guide.md)
 
+-   :material-weather-fog:{ .lg .middle } __Calibration Physique : Beer-Lambert, God Rays & RNOB__
+
+    ---
+
+    Analyse approfondie de la calibration de précision : équation de transfert radiatif de Beer-Lambert, puits de lumière contrastés, correction géométrique RNOB et upsampling JBU 2x2.
+
+    [:octicons-arrow-right-24: Lire l'Analyse Physique](2026-09-02_volumetric_godrays_beer_lambert_shadow_rnob_calibration.md)
+
+-   :material-speedometer:{ .lg .middle } __Benchmark GPU Uncapped (VSync OFF) & Analyse de Coût__
+
+    ---
+
+    Rapport de performance brute non-capée : décomposition nanoseconde du raymarch volumétrique Beer-Lambert, ombres PCF 16-tap, goulots d'étranglement iGPU et roadmap d'optimisation.
+
+    [:octicons-arrow-right-24: Consulter le Rapport de Benchmark](2026-09-02_uncapped_gpu_benchmark_volumetric_shadows_cost_analysis.md)
+
 </div>
 
 ---

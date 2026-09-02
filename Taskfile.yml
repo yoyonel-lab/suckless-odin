@@ -604,22 +604,73 @@ tasks:
       - task: bench-render
 
   bench-render:
-    desc: Run GPU render benchmark
+    desc: Run generic GPU render benchmark (params frames=300, profile=quality|balanced|ultra)
     deps: [build-release]
+    vars:
+      FRAMES: '{{.FRAMES | default .frames | default .BENCH_FRAMES | default 300}}'
+      PROFILE: '{{.PROFILE | default .profile | default .OPT_PROFILE | default "quality"}}'
     cmds:
-      - "{{.RUNNER}}env mesa_glthread=true MESA_NO_ERROR=1 vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{.BUILD_BASE}}/release/suckless-odin --benchmark --benchmark-frames=200"
+      - "{{.RUNNER}}env mesa_glthread=true MESA_NO_ERROR=1 vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{.BUILD_BASE}}/release/suckless-odin --benchmark --benchmark-frames={{.FRAMES}} --opt-profile={{.PROFILE}} {{.CLI_ARGS}}"
+
+  bench-quality:
+    desc: Run GPU render benchmark on Quality profile (32 steps, PCF 16-tap, full cubemap)
+    cmds:
+      - task: bench-render
+        vars:
+          PROFILE: quality
+          FRAMES: '{{.frames | default 300}}'
+
+  bench-balanced:
+    desc: Run GPU render benchmark on Balanced profile (16 steps, PCF 8-tap, time-slicing)
+    cmds:
+      - task: bench-render
+        vars:
+          PROFILE: balanced
+          FRAMES: '{{.frames | default 300}}'
+
+  bench-ultra:
+    desc: Run GPU render benchmark on Ultra-Performance profile (8 steps, PCF 4-tap)
+    cmds:
+      - task: bench-render
+        vars:
+          PROFILE: ultra
+          FRAMES: '{{.frames | default 300}}'
+
+  bench-profiles:
+    desc: Sequentially run and compare all 3 optimization profiles (Quality, Balanced, Ultra)
+    cmds:
+      - echo "=== 1/3 BENCHMARK PROFILE QUALITY ==="
+      - task: bench-quality
+        vars:
+          FRAMES: '{{.frames | default 300}}'
+      - echo ""
+      - echo "=== 2/3 BENCHMARK PROFILE BALANCED ==="
+      - task: bench-balanced
+        vars:
+          FRAMES: '{{.frames | default 300}}'
+      - echo ""
+      - echo "=== 3/3 BENCHMARK PROFILE ULTRA-PERFORMANCE ==="
+      - task: bench-ultra
+        vars:
+          FRAMES: '{{.frames | default 300}}'
 
   bench-win-render:
-    desc: Run GPU render benchmark for Windows executable under Wine
+    desc: Run GPU render benchmark for Windows executable under Wine (params frames=300, profile=quality|balanced|ultra)
     deps: [build-win-release]
+    vars:
+      FRAMES: '{{.frames | default .BENCH_FRAMES | default 300}}'
+      PROFILE: '{{.profile | default .OPT_PROFILE | default "quality"}}'
     cmds:
-      - "WINEDEBUG=-all env vblank_mode=0 __GL_SYNC_TO_VBLANK=0 wine {{.BUILD_BASE}}/release-win/suckless-odin.exe --benchmark --benchmark-frames=200"
+      - "WINEDEBUG=-all env vblank_mode=0 __GL_SYNC_TO_VBLANK=0 wine {{.BUILD_BASE}}/release-win/suckless-odin.exe --benchmark --benchmark-frames={{.FRAMES}} --opt-profile={{.PROFILE}} {{.CLI_ARGS}}"
 
   bench-render-debug:
     desc: Run GPU render benchmark in debug mode
     deps: [build]
+    vars:
+      FRAMES: '{{.frames | default .BENCH_FRAMES | default 300}}'
+      PROFILE: '{{.profile | default .OPT_PROFILE | default "quality"}}'
     cmds:
-      - "{{.RUNNER}}env vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{.BUILD_BASE}}/debug/suckless-odin --benchmark --benchmark-frames=200"
+      - "{{.RUNNER}}env vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{.BUILD_BASE}}/debug/suckless-odin --benchmark --benchmark-frames={{.FRAMES}} --opt-profile={{.PROFILE}} {{.CLI_ARGS}}"
 
   bench-search:
     desc: Run fuzzy search algorithm benchmarks
