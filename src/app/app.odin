@@ -171,9 +171,15 @@ init :: proc(
 	}
 	
 	if has_session {
-		glfw.SetWindowPos(application.window, session_state.window_pos[0], session_state.window_pos[1])
-		application.saved_x = session_state.window_pos[0]
-		application.saved_y = session_state.window_pos[1]
+		safe_x, safe_y := sanitize_window_position(
+			session_state.window_pos[0],
+			session_state.window_pos[1],
+			session_state.window_size[0] if session_state.window_size[0] > 0 else application.width,
+			session_state.window_size[1] if session_state.window_size[1] > 0 else application.height,
+		)
+		glfw.SetWindowPos(application.window, safe_x, safe_y)
+		application.saved_x = safe_x
+		application.saved_y = safe_y
 		application.saved_width = session_state.window_size[0]
 		application.saved_height = session_state.window_size[1]
 	}
@@ -206,7 +212,8 @@ init :: proc(
 	tuning_params := settings.load_compute_tuning_params(compute_profile)
 
 	// Initialize scene
-	if !scene.scene_create(&application.scene, application.width, application.height, tuning_params) {
+	initial_env := session_state.env_path if has_session else ""
+	if !scene.scene_create(&application.scene, application.width, application.height, tuning_params, initial_env) {
 		log.log_error("suckless-odin.app", "Failed to create scene")
 		return false
 	}
@@ -232,6 +239,14 @@ init :: proc(
 
 	application.last_frame_time = glfw.GetTime()
 	application.running = true
+
+	// Log active optimization profile configurations
+	rendering.optimization_profile_log(
+		application.scene.optimization_profile,
+		&application.scene.volumetric,
+		&application.scene.point_light,
+		&application.scene.shadow_cubemap,
+	)
 
 	log.log_info("suckless-odin.app", "Application initialized (%dx%d)", application.width, application.height)
 	return true
@@ -358,8 +373,8 @@ run :: proc(application: ^App) {
 			rendering.overlay_render_splash(&application.scene.overlay, w, h, "SUCKLESS-ODIN", status_with_dots)
 		}
 
-		// GUI (Dear ImGui) — render on top of scene
-		if application.imgui.visible && !application.scene.env_mgr.is_first_load {
+		// GUI (Dear ImGui) & 3D Gizmo (ImGuizmo) — render on top of scene
+		if !application.scene.env_mgr.is_first_load {
 			dbg.push_group("GUI_ImGui")
 			gui.new_frame(&application.imgui)
 			gui.update(&application.imgui, gui.Scene_State{
@@ -398,6 +413,13 @@ run :: proc(application: ^App) {
 				live_compute_tuning = &application.scene.env_mgr.compute_tuning,
 				apply_compute_tuning = apply_compute_tuning_callback,
 				scene_ptr           = &application.scene,
+				hdr_files            = application.scene.hdr_files[:],
+				current_hdr_index    = &application.scene.current_hdr_index,
+				env_thumbnails       = application.scene.env_thumbs.thumbnails[:],
+				env_transitioning    = (application.scene.env_mgr.transition_state != .Idle),
+				env_transition_alpha = application.scene.env_mgr.transition_alpha,
+				change_env           = change_env_callback,
+				optimization_profile = &application.scene.optimization_profile,
 			})
 			gui.render(&application.imgui)
 			gl_state.reset()
@@ -479,6 +501,15 @@ apply_postfx_options :: proc(application: ^App, enabled: bool, preset: Maybe(pos
 	application.scene.postfx_pipeline.enabled = enabled
 	if id, ok := preset.?; ok {
 		postfx.pipeline_apply_preset(&application.scene.postfx_pipeline, id)
+	}
+}
+
+// Apply CLI optimization profile.
+apply_optimization_profile :: proc(application: ^App, profile: Maybe(rendering.Optimization_Profile)) {
+	if prof, ok := profile.?; ok {
+		application.scene.optimization_profile = prof
+		rendering.optimization_profile_apply(prof, &application.scene.volumetric, &application.scene.point_light, &application.scene.shadow_cubemap)
+		rendering.optimization_profile_log(prof, &application.scene.volumetric, &application.scene.point_light, &application.scene.shadow_cubemap)
 	}
 }
 

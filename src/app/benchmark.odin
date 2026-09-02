@@ -7,6 +7,7 @@ import "core:os"
 
 import scene "../scene"
 import postfx "../rendering/postfx"
+import rendering "../rendering"
 
 // Run a fixed-frame benchmark: enable all effects, render N frames, print stats.
 // Uses glFinish() per frame for accurate GPU timing (not just CPU submission).
@@ -33,6 +34,7 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 
 	fmt.println("=== BENCHMARK START ===")
 	fmt.printfln("  GPU: %s", gl.GetString(gl.RENDERER))
+	fmt.printfln("  Optimization Profile: %s", rendering.optimization_profile_name(application.scene.optimization_profile))
 	fmt.printfln("  Frames: %d (warmup: %d, measured: %d)", total_frames, effective_warmup, measured_frames)
 	fmt.printfln("  Effects: Vignette+Grain+Exposure+ChromAbbr+Bloom+ColorGrading+DoF+AutoExposure+FXAA+Tonemap+Banding")
 

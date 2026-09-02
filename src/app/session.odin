@@ -1,5 +1,6 @@
 package app
 
+import "core:strings"
 import "vendor:glfw"
 import session "../core/session"
 import postfx "../rendering/postfx"
@@ -58,6 +59,7 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		sort_mode         = i32(s.sort_mode),
 		edge_aa_enabled   = s.edge_aa_enabled,
 		edge_aa_debug     = s.edge_aa_debug,
+		env_path          = strings.clone(s.hdr_files[s.current_hdr_index]) if len(s.hdr_files) > 0 && s.current_hdr_index >= 0 && s.current_hdr_index < i32(len(s.hdr_files)) else "",
 		postfx_active     = p.enabled,
 		postfx_settings   = pfx_settings,
 		gui_visible       = application.imgui.visible,
@@ -99,8 +101,16 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			shadow_cache           = s.shadow_cubemap.shadow_cache,
 			time_slice_mode        = s.shadow_cubemap.time_slice_mode,
 			shadow_res_index       = s.shadow_cubemap.res_index,
+			shadow_near_plane      = s.shadow_cubemap.near_plane,
+			shadow_far_plane       = s.shadow_cubemap.far_plane,
 			preview_mode           = s.volumetric.params.preview_mode,
 			preview_exposure_boost = s.volumetric.params.preview_exposure_boost,
+			depth_edge_threshold   = s.depth_downsample.edge_threshold,
+			depth_preview_mode     = s.depth_downsample.preview_mode,
+			depth_preview_min      = s.depth_downsample.preview_min_depth,
+			depth_preview_max      = s.depth_downsample.preview_max_depth,
+			zoom_scale             = s.volumetric.params.zoom_scale,
+			zoom_center            = s.volumetric.params.zoom_center,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -138,6 +148,7 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			gizmo_snap                 = s.point_light.gizmo_snap,
 			gizmo_snap_value           = s.point_light.gizmo_snap_value,
 		},
+		optimization_profile = i32(s.optimization_profile),
 	}
 }
 
@@ -226,6 +237,16 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		}
 	}
 
+	// Restore Environment Map index matching session
+	if len(state.env_path) > 0 {
+		for path, idx in s.hdr_files {
+			if path == state.env_path {
+				s.current_hdr_index = i32(idx)
+				break
+			}
+		}
+	}
+
 	// Restore volumetric parameters (if valid saved state with step_count > 0)
 	if state.volumetric.step_count > 0 {
 		s.volumetric.params.enabled                = state.volumetric.enabled
@@ -235,7 +256,7 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.volumetric.params.step_count             = state.volumetric.step_count
 		s.volumetric.params.scattering_coeff       = state.volumetric.scattering_coeff
 		s.volumetric.params.extinction_coeff       = state.volumetric.extinction_coeff
-		s.volumetric.params.anisotropy_g           = state.volumetric.anisotropy_g
+		rendering.volumetric_set_anisotropy(&s.volumetric, &s.point_light, state.volumetric.anisotropy_g)
 		s.volumetric.params.intensity_mult         = state.volumetric.intensity_mult
 		s.volumetric.params.jitter_enabled         = state.volumetric.jitter_enabled
 		s.volumetric.params.taa_mode               = state.volumetric.taa_mode
@@ -252,17 +273,41 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		}
 		s.volumetric.params.preview_mode           = state.volumetric.preview_mode
 		s.volumetric.params.preview_exposure_boost = state.volumetric.preview_exposure_boost
+		if state.volumetric.zoom_scale > 0 {
+			s.volumetric.params.zoom_scale = state.volumetric.zoom_scale
+		}
+		if state.volumetric.zoom_center.x != 0 || state.volumetric.zoom_center.y != 0 {
+			s.volumetric.params.zoom_center = state.volumetric.zoom_center
+		}
 		s.volumetric.history_valid                 = false
 
-		// Restore shadow cubemap caching and resolution
+		// Restore shadow cubemap caching, near/far planes and resolution
 		s.shadow_cubemap.shadow_cache = state.volumetric.shadow_cache
 		s.shadow_cubemap.time_slice_mode = state.volumetric.time_slice_mode
-		if state.volumetric.shadow_res_index >= 0 && state.volumetric.shadow_res_index < 4 {
+		if state.volumetric.shadow_near_plane > 0 {
+			s.shadow_cubemap.near_plane = state.volumetric.shadow_near_plane
+		}
+		if state.volumetric.shadow_far_plane > 0 {
+			s.shadow_cubemap.far_plane = state.volumetric.shadow_far_plane
+		}
+		if state.volumetric.shadow_res_index >= 0 && state.volumetric.shadow_res_index < len(rendering.SHADOW_MAP_RESOLUTIONS) {
 			s.shadow_cubemap.res_index = state.volumetric.shadow_res_index
 			res := rendering.shadow_cubemap_res_for_index(s.shadow_cubemap.res_index)
 			if res != s.shadow_cubemap.resolution {
 				rendering.shadow_cubemap_resize(&s.shadow_cubemap, res)
 			}
+		}
+
+		// Restore depth downsample settings
+		if state.volumetric.depth_edge_threshold > 0 {
+			s.depth_downsample.edge_threshold = state.volumetric.depth_edge_threshold
+		}
+		s.depth_downsample.preview_mode = state.volumetric.depth_preview_mode
+		if state.volumetric.depth_preview_min > 0 {
+			s.depth_downsample.preview_min_depth = state.volumetric.depth_preview_min
+		}
+		if state.volumetric.depth_preview_max > 0 {
+			s.depth_downsample.preview_max_depth = state.volumetric.depth_preview_max
 		}
 	}
 
@@ -300,7 +345,7 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 			s.point_light.shadow_taa_depth_threshold = state.point_light.shadow_taa_depth_threshold
 		}
 		s.point_light.shadow_taa_clamping        = state.point_light.shadow_taa_clamping
-		s.point_light.phase_g                    = state.point_light.phase_g
+		rendering.volumetric_set_anisotropy(&s.volumetric, &s.point_light, state.point_light.phase_g)
 		s.point_light.is_animated                = state.point_light.is_animated
 		s.point_light.orbit_speed                = state.point_light.orbit_speed
 		s.point_light.orbit_radius               = state.point_light.orbit_radius
@@ -316,4 +361,7 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		}
 		s.point_light.is_dirty                   = true
 	}
+
+	// Restore optimization profile preset
+	s.optimization_profile = rendering.Optimization_Profile(clamp(state.optimization_profile, 0, 3))
 }

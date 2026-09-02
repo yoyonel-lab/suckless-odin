@@ -1,5 +1,6 @@
 package gui
 
+import "core:fmt"
 import "core:math"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
@@ -23,7 +24,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 		dd := state.depth_downsample
 		imgui.Text("Full: %dx%d -> Half: %dx%d (Rank/Median 4-tap Filter)", dd.full_width, dd.full_height, dd.width, dd.height)
 
-		imgui.SliderFloat("Edge Relative Threshold (ε)", &dd.edge_threshold, 0.001, 0.100, "%.3f (Scale-Invariant)")
+		imgui.SliderFloat("Edge Relative Threshold (eps)", &dd.edge_threshold, 0.001, 0.100, "%.3f (Scale-Invariant)")
 
 		// Preview display modes
 		imgui.Text("Depth Preview Mode:")
@@ -57,7 +58,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 
 		if imgui.IsItemHovered() {
 			if dd.preview_mode == 2 {
-				imgui.SetTooltip("Depth Discontinuity Mask:\nRed = Silhouette Edge (High Relative Step Δz/z > ε)\nDark Blue = Continuous Geometry / Sky")
+				imgui.SetTooltip("Depth Discontinuity Mask:\nRed = Silhouette Edge (High Relative Step dz/z > eps)\nDark Blue = Continuous Geometry / Sky")
 			} else {
 				imgui.SetTooltip("Downsampled Linear Camera Depth (Median 4-tap filtered)")
 			}
@@ -90,7 +91,10 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 
 			imgui.SliderInt("Raymarch Steps (N)", &vr.params.step_count, 4, 64)
 			imgui.SliderFloat("Scattering Coeff (sigma_s)", &vr.params.scattering_coeff, 0.01, 1.0, "%.3f")
-			imgui.SliderFloat("Anisotropy (g)", &vr.params.anisotropy_g, -0.90, 0.90, "%.2f")
+			g_val := vr.params.anisotropy_g
+			if imgui.SliderFloat("Anisotropy (g)", &g_val, -0.90, 0.90, "%.2f") {
+				rendering.volumetric_set_anisotropy(vr, light, g_val)
+			}
 			imgui.SliderFloat("Intensity Multiplier", &vr.params.intensity_mult, 0.0, 10.0, "%.2f")
 			imgui.Checkbox("Volumetric Shadows (God Rays)", &vr.params.shadows_enabled)
 			imgui.SameLine()
@@ -99,19 +103,19 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			// Atmosphere Scattering Presets (ISO legacy Volumetric_Dynamic_Lights)
 			imgui.Spacing()
 			imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Henyey-Greenstein Anisotropy (g) Presets:")
-			if imgui.Button("Isotropic (g=0.0)") { vr.params.anisotropy_g = 0.0 }
+			if imgui.Button("Isotropic (g=0.0)") { rendering.volumetric_set_anisotropy(vr, light, 0.0) }
 			imgui.SameLine()
-			if imgui.Button("Dust / Sand (g=0.35)") { vr.params.anisotropy_g = 0.35 }
+			if imgui.Button("Dust / Sand (g=0.35)") { rendering.volumetric_set_anisotropy(vr, light, 0.35) }
 			imgui.SameLine()
-			if imgui.Button("Morning Fog (g=0.55)") { vr.params.anisotropy_g = 0.55 }
+			if imgui.Button("Morning Fog (g=0.55)") { rendering.volumetric_set_anisotropy(vr, light, 0.55) }
 			imgui.SameLine()
-			if imgui.Button("God Rays (g=0.70)") { vr.params.anisotropy_g = 0.70 }
+			if imgui.Button("God Rays (g=0.70)") { rendering.volumetric_set_anisotropy(vr, light, 0.70) }
 
-			if imgui.Button("Alan Wake Torch (g=0.80)") { vr.params.anisotropy_g = 0.80 }
+			if imgui.Button("Alan Wake Torch (g=0.80)") { rendering.volumetric_set_anisotropy(vr, light, 0.80) }
 			imgui.SameLine()
-			if imgui.Button("Car Headlights (g=0.88)") { vr.params.anisotropy_g = 0.88 }
+			if imgui.Button("Car Headlights (g=0.88)") { rendering.volumetric_set_anisotropy(vr, light, 0.88) }
 			imgui.SameLine()
-			if imgui.Button("Backscatter (g=-0.35)") { vr.params.anisotropy_g = -0.35 }
+			if imgui.Button("Backscatter (g=-0.35)") { rendering.volumetric_set_anisotropy(vr, light, -0.35) }
 
 			// Henyey-Greenstein Phase Plot
 			imgui.Spacing()
@@ -152,7 +156,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			imgui.SameLine()
 			if imgui.RadioButton("Post-Blur HDR##vol", vr.params.preview_mode == 4) { vr.params.preview_mode = 4 }
 
-			if imgui.RadioButton("Bilateral Diff (|Δ|x10)##vol", vr.params.preview_mode == 5) { vr.params.preview_mode = 5 }
+			if imgui.RadioButton("Bilateral Diff (|Delta|x10)##vol", vr.params.preview_mode == 5) { vr.params.preview_mode = 5 }
 			imgui.SameLine()
 			if imgui.RadioButton("Edge Overlay (Magenta)##vol", vr.params.preview_mode == 6) { vr.params.preview_mode = 6 }
 			imgui.SameLine()
@@ -204,9 +208,9 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 				case 7:
 					imgui.SetTooltip("Silhouette Edges Only:\nIsolates in-scattering exclusively on sphere silhouette pixels.")
 				case 8:
-					imgui.SetTooltip("Bilateral Weight Attenuation Map:\n🟩 Green/Yellow (1.0) = Full blur allowed (homogeneous depth)\n🟥 Red/Blue (<0.2) = Depth edge detected, blur clamped to prevent bleed!")
+					imgui.SetTooltip("Bilateral Weight Attenuation Map:\n[Green] Green/Yellow (1.0) = Full blur allowed (homogeneous depth)\n[Red] Red/Blue (<0.2) = Depth edge detected, blur clamped to prevent bleed!")
 				case 3:
-					imgui.SetTooltip("TAA Acceptance Map (GL_RGBA8, W/2 x H/2):\n🟩 Green: Valid reprojected history pixel\n🟥 Red: Geometric disocclusion (depth delta > threshold)\n🟦 Blue: Offscreen reprojection outside viewport.")
+					imgui.SetTooltip("TAA Acceptance Map (GL_RGBA8, W/2 x H/2):\n[Green] Green: Valid reprojected history pixel\n[Red] Red: Geometric disocclusion (depth delta > threshold)\n[Blue] Blue: Offscreen reprojection outside viewport.")
 				case 1:
 					imgui.SetTooltip("Raw Raymarching buffer before temporal/bilateral filtering.\nPreserves spatial Interleaved Gradient Noise (IGN) grain.")
 				case:
@@ -340,11 +344,11 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Spacing()
 			switch vr.params.upsample_mode {
 			case 0:
-				imgui.TextColored({1.0, 0.4, 0.4, 1.0}, "⚠️ Bilinear: Bleeds low-res fog across sphere silhouettes (visible half-res jagged staircasing).")
+				imgui.TextColored({1.0, 0.4, 0.4, 1.0}, "[!] Bilinear: Bleeds low-res fog across sphere silhouettes (visible half-res jagged staircasing).")
 			case 1:
-				imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "⚡ Nearest-Depth: Snaps to the foreground/background depth tap. Zero bleed, low ALU cost.")
+				imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "[+] Nearest-Depth: Snaps to the foreground/background depth tap. Zero bleed, low ALU cost.")
 			case 2:
-				imgui.TextColored({0.2, 1.0, 0.4, 1.0}, "✨ Joint Bilateral Upsampling: 2x2 depth-weighted bilateral filter. Eliminates edge fringing while preserving sub-pixel smoothness.")
+				imgui.TextColored({0.2, 1.0, 0.4, 1.0}, "[*] Joint Bilateral Upsampling: 2x2 depth-weighted bilateral filter. Eliminates edge fringing while preserving sub-pixel smoothness.")
 			}
 		} else {
 			imgui.TextDisabled("Volumetric Lighting is disabled.")
@@ -391,7 +395,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 		total_us := total_avg * 1000.0
 
 		imgui.TextColored({0.3, 0.9, 1.0, 1.0}, "Volumetric GPU Pipeline Metrics (GL_TIME_ELAPSED):")
-		imgui.Text("Total Frame Budget: %.3f ms (%.1f µs)  [min: %.2f ms, max: %.2f ms]", total_avg, total_us, total_min, total_max)
+		imgui.Text("Total Frame Budget: %.3f ms (%.1f us)  [min: %.2f ms, max: %.2f ms]", total_avg, total_us, total_min, total_max)
 
 		imgui.Spacing()
 		passes := [rendering.NUM_VOLUMETRIC_TIMER_PASSES]rendering.Volumetric_Timer_Pass{
@@ -412,7 +416,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			name := rendering.volumetric_timer_pass_name(pass)
 			us := avg * 1000.0
 
-			imgui.Text("%-18s: %6.1f µs (%4.1f%%)", name, us, pct)
+			imgui.Text("%-18s: %6.1f us (%4.1f%%)", name, us, pct)
 			imgui.SameLine()
 			fraction := clamp(pct / 100.0, 0.0, 1.0)
 			imgui.ProgressBar(fraction, imgui.Vec2{bar_w, 14.0}, "")
@@ -426,10 +430,35 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 	vr := state.volumetric
 	if vr == nil { return 0 }
 	light := state.point_light
+	dd := state.depth_downsample
 	match_count := 0
 
-	if fuzzy_match(filter, "Volumetric Raymarching", "volumetric light raymarch scattering fog mist atmosphere") {
+	if fuzzy_match(filter, "Volumetric Presets", "volumetric presets atmosphere fog god rays isotropic torch headlights dust") {
+		imgui.Text("Atmosphere Presets:")
+		for p in rendering.Volumetric_Preset {
+			name := rendering.volumetric_preset_name(p)
+			if imgui.Button(fmt.ctprintf("%s##vol_preset_filt", name)) {
+				rendering.volumetric_preset_apply(vr, light, p)
+			}
+			imgui.SameLine()
+		}
+		imgui.NewLine()
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Volumetric Raymarching", "volumetric light raymarch scattering fog mist atmosphere enable") {
 		imgui.Checkbox("Enable Volumetric Raymarching##filt", &vr.params.enabled)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Volumetric Composite in Scene", "volumetric composite scene add blend direct") {
+		imgui.Checkbox("Composite into Viewport##filt", &vr.params.composite_in_scene)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Volumetric Intensity Multiplier", "volumetric intensity mult master brightness power") {
+		imgui.SliderFloat("Master Intensity##filt", &vr.params.intensity_mult, 0.0, 10.0, "%.2fx")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Volumetric Shadow Shafts", "volumetric shadows shafts god rays cubemap occlusion") {
+		imgui.Checkbox("Shadow Shafts (God Rays)##filt", &vr.params.shadows_enabled)
 		match_count += 1
 	}
 	if fuzzy_match(filter, "Raymarch Steps", "volumetric raymarching steps samples quality performance") {
@@ -440,31 +469,54 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		imgui.SliderFloat("Scattering Coeff (sigma_s)##filt", &vr.params.scattering_coeff, 0.001, 0.2, "%.3f")
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Extinction Coeff", "volumetric extinction sigma_t absorption fog") {
+	if fuzzy_match(filter, "Extinction Coeff", "volumetric extinction sigma_t absorption fog beer lambert") {
 		imgui.SliderFloat("Extinction Coeff (sigma_t)##filt", &vr.params.extinction_coeff, 0.001, 0.5, "%.3f")
 		match_count += 1
 	}
 	if light != nil && fuzzy_match(filter, "Phase Anisotropy (g)", "volumetric henyey greenstein anisotropy forward backward scattering phase") {
-		imgui.SliderFloat("Phase Anisotropy (g)##filt", &light.phase_g, -0.9, 0.9, "%.2f")
-		vr.params.anisotropy_g = light.phase_g
+		g_val := vr.params.anisotropy_g
+		if imgui.SliderFloat("Phase Anisotropy (g)##filt", &g_val, -0.9, 0.9, "%.2f") {
+			rendering.volumetric_set_anisotropy(vr, light, g_val)
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Volumetric Spatial Jitter", "volumetric spatial jitter interleaved gradient noise ign dither") {
+		imgui.Checkbox("IGN Spatial Jitter##filt", &vr.params.jitter_enabled)
 		match_count += 1
 	}
 	if fuzzy_match(filter, "TAA Reprojection", "volumetric taa temporal reprojection history jitter") {
-		taa_enabled := vr.params.taa_mode != 0
-		if imgui.Checkbox("Enable TAA Reprojection##filt", &taa_enabled) {
-			vr.params.taa_mode = 2 if taa_enabled else 0
-		}
+		imgui.Combo("TAA Mode##vol_filt", &vr.params.taa_mode, "0: Off\x001: Simple EMA Blend\x002: Motion-Aware TAA Reprojection\x00\x00")
+		imgui.SliderFloat("TAA Alpha##vol_filt", &vr.params.taa_alpha, 0.02, 1.00, "%.2f")
+		imgui.SliderFloat("Disocclusion Depth Tol.##vol_filt", &vr.params.taa_depth_threshold, 0.05, 5.0, "%.2f m")
+		imgui.Checkbox("3x3 Color Box Clamping##vol_filt", &vr.params.taa_clamping_enabled)
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Bilateral Blur", "volumetric bilateral blur edge preserving filter smoothing") {
-		blur_enabled := vr.params.blur_mode != 0
-		if imgui.Checkbox("Enable Bilateral Blur##filt", &blur_enabled) {
-			vr.params.blur_mode = 2 if blur_enabled else 0
-		}
+	if fuzzy_match(filter, "Bilateral Blur", "volumetric bilateral blur edge preserving filter smoothing sharpness") {
+		imgui.Combo("Blur Filter##vol_filt", &vr.params.blur_mode, "0: Off\x001: 5-Tap Bilateral (Fast)\x002: 9-Tap Bilateral (Smooth ISO)\x00\x00")
+		imgui.SliderFloat("Blur Sharpness##vol_filt", &vr.params.blur_sharpness, 10.0, 2000.0, "%.0f")
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Upsample Mode", "volumetric upsample jbu nearest bilateral") {
+	if fuzzy_match(filter, "Upsample Mode", "volumetric upsample jbu nearest bilateral sharpness") {
 		imgui.Combo("JBU Mode##filt", &vr.params.upsample_mode, "Bilinear Standard (Fast)\x00Nearest-Depth Fast JBU\x00Joint Bilateral Upsampling 2x2 (Ultra HD)\x00\x00")
+		imgui.SliderFloat("JBU Sharpness##filt", &vr.params.upsample_sharpness, 10.0, 2000.0, "%.0f")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Volumetric Viewport Debug Mode", "volumetric viewport debug neon silhouette isolated difference weight") {
+		imgui.Combo("Viewport Debug View##vol_filt", &vr.params.viewport_debug_mode, "Normal Scene\x00Neon Silhouette Highlight\x00Isolated Silhouettes\x00Difference Map (x10)\x00Weight Attenuation Map\x00\x00")
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Volumetric Magnifier Loupe", "volumetric loupe zoom magnifier center inspection") {
+		imgui.SliderFloat("Loupe Zoom##vol_filt", &vr.params.zoom_scale, 1.0, 16.0, "%.1fx")
+		zoom_arr := [2]f32{vr.params.zoom_center.x, vr.params.zoom_center.y}
+		if imgui.SliderFloat2("Loupe Center##vol_filt", &zoom_arr, 0.0, 1.0, "%.2f") {
+			vr.params.zoom_center = mt.Vec2{zoom_arr[0], zoom_arr[1]}
+		}
+		match_count += 1
+	}
+	if dd != nil && fuzzy_match(filter, "Depth Downsample Edge Threshold", "depth downsample edge threshold discontinuity median filter") {
+		imgui.SliderFloat("Depth Edge Threshold (eps)##filt", &dd.edge_threshold, 0.001, 0.100, "%.3f")
+		imgui.SliderFloat("Depth Min Range##filt", &dd.preview_min_depth, 0.1, 10.0, "%.1f m")
+		imgui.SliderFloat("Depth Max Range##filt", &dd.preview_max_depth, 5.0, 100.0, "%.1f m")
 		match_count += 1
 	}
 

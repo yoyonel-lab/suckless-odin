@@ -9,6 +9,7 @@ import "core:testing"
 import imgui "../../deps/odin-imgui"
 import gui "../../src/gui"
 import cam "../../src/camera"
+import rendering "../../src/rendering"
 
 // --- ImGui lifecycle tests ---
 
@@ -151,4 +152,48 @@ test_gui_focus_search_flag :: proc(t: ^testing.T) {
 
 	testing.expect(t, !g.focus_search,
 		"focus_search should be consumed (reset to false) after update")
+}
+
+@(test)
+test_gui_gizmo_active_when_hidden :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	g: gui.Gui
+	ok := gui.init(&g, gl_window)
+	testing.expect(t, ok, "gui.init should succeed")
+	defer gui.destroy(&g)
+
+	g.visible = false
+
+	gui.new_frame(&g)
+
+	skybox_vis := true
+	wireframe := false
+	exposure: f32 = 1.0
+	blur_lod: f32 = 0.0
+	c: cam.Camera
+	cam.init(&c, 5.0, -90.0, 0.0)
+
+	light := rendering.Point_Light{
+		position    = {0, 2, 0},
+		enabled     = true,
+		show_gizmo  = true,
+		gizmo_op    = 0, // Translate
+		gizmo_mode  = 0, // World
+	}
+
+	state := gui.Scene_State{
+		camera            = &c,
+		skybox_visible    = &skybox_vis,
+		wireframe_enabled = &wireframe,
+		exposure          = &exposure,
+		skybox_blur_lod   = &blur_lod,
+		point_light       = &light,
+	}
+
+	gui.update(&g, state)
+	gui.render(&g)
+
+	testing.expect(t, !g.visible, "GUI should remain hidden")
+	testing.expect(t, !gui.wants_keyboard(&g), "wants_keyboard should be false when GUI is hidden")
 }

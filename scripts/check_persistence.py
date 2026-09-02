@@ -37,6 +37,7 @@ FIELD_MAPPING = {
     "specular_aa_debug_mode": "specular_aa",
     "specular_aa_split_enabled": "specular_aa",
     "specular_aa_split_position": "specular_aa",
+    "current_hdr_index": "env_path",
 }
 
 

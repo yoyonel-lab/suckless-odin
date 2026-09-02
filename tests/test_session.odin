@@ -56,6 +56,7 @@ test_session_save_load :: proc(t: ^testing.T) {
 	state_to_save.blur_source = 0
 	state_to_save.skybox_blur_lod = 1.2
 	state_to_save.edge_aa_debug = false
+	state_to_save.env_path = "assets/textures/hdr/neon_photostudio_4k.hdr"
 	state_to_save.gui_active_tab = 3
 	state_to_save.volumetric = session.Volumetric_Session_Settings{
 		enabled                = true,
@@ -81,8 +82,16 @@ test_session_save_load :: proc(t: ^testing.T) {
 		shadow_cache           = true,
 		time_slice_mode        = 1,
 		shadow_res_index       = 2,
+		shadow_near_plane      = 0.05,
+		shadow_far_plane       = 35.0,
 		preview_mode           = 4,
 		preview_exposure_boost = 1.5,
+		depth_edge_threshold   = 0.035,
+		depth_preview_mode     = 1,
+		depth_preview_min      = 1.2,
+		depth_preview_max      = 45.0,
+		zoom_scale             = 2.5,
+		zoom_center            = {0.4, 0.6},
 	}
 	state_to_save.point_light = session.Point_Light_Session_Settings{
 		position               = {10.0, 5.0, -2.0},
@@ -120,6 +129,7 @@ test_session_save_load :: proc(t: ^testing.T) {
 		gizmo_snap                 = true,
 		gizmo_snap_value           = 0.25,
 	}
+	state_to_save.optimization_profile = 1
 	
 	// 1. Test save
 	save_ok := session.save_session(&state_to_save, test_file)
@@ -173,6 +183,7 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.blur_source, 0)
 	testing.expect_value(t, loaded_state.skybox_blur_lod, 1.2)
 	testing.expect_value(t, loaded_state.edge_aa_debug, false)
+	testing.expect_value(t, loaded_state.env_path, "assets/textures/hdr/neon_photostudio_4k.hdr")
 	testing.expect_value(t, loaded_state.gui_active_tab, 3)
 
 	// Volumetric validation
@@ -186,6 +197,17 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.shadow_cache, true)
 	testing.expect_value(t, loaded_state.volumetric.time_slice_mode, 1)
 	testing.expect_value(t, loaded_state.volumetric.shadow_res_index, 2)
+	testing.expect_value(t, loaded_state.volumetric.shadow_near_plane, 0.05)
+	testing.expect_value(t, loaded_state.volumetric.shadow_far_plane, 35.0)
+	testing.expect_value(t, loaded_state.volumetric.preview_mode, 4)
+	testing.expect_value(t, loaded_state.volumetric.preview_exposure_boost, 1.5)
+	testing.expect_value(t, loaded_state.volumetric.depth_edge_threshold, 0.035)
+	testing.expect_value(t, loaded_state.volumetric.depth_preview_mode, 1)
+	testing.expect_value(t, loaded_state.volumetric.depth_preview_min, 1.2)
+	testing.expect_value(t, loaded_state.volumetric.depth_preview_max, 45.0)
+	testing.expect_value(t, loaded_state.volumetric.zoom_scale, 2.5)
+	testing.expect_value(t, loaded_state.volumetric.zoom_center.x, 0.4)
+	testing.expect_value(t, loaded_state.volumetric.zoom_center.y, 0.6)
 
 	// Point Light validation
 	testing.expect_value(t, loaded_state.point_light.enabled, true)
@@ -212,6 +234,9 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.point_light.gizmo_mode, 1)
 	testing.expect_value(t, loaded_state.point_light.gizmo_snap, true)
 	testing.expect_value(t, loaded_state.point_light.gizmo_snap_value, f32(0.25))
+	testing.expect_value(t, loaded_state.optimization_profile, 1)
+
+	delete(loaded_state.env_path)
 }
 
 @(test)

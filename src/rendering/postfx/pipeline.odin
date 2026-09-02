@@ -182,7 +182,7 @@ pipeline_destroy :: proc(p: ^Pipeline) {
 // Begin post-processing: bind scene FBO for rendering.
 // Call this BEFORE rendering the scene.
 pipeline_begin :: proc(p: ^Pipeline) {
-	if !p.enabled {
+	if p.scene_fbo == 0 {
 		return
 	}
 	// Save current framebuffer and viewport (for correct restore in end)
@@ -345,12 +345,32 @@ pipeline_composite :: proc(p: ^Pipeline, composite_source_tex: u32, fxaa_prepass
 // End post-processing: run all effects and composite to the previously bound framebuffer.
 // Call this AFTER rendering the scene.
 pipeline_end :: proc(p: ^Pipeline) {
-	if !p.enabled {
+	if p.scene_fbo == 0 {
 		return
 	}
 
 	dbg.push_group("Post_Processing")
 	defer dbg.pop_group()
+
+	if !p.enabled {
+		// PostFX master disabled: direct passthrough of scene HDR buffer without sub-passes
+		gl_state.bind_framebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
+		gl_state.set_viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+		gl_state.disable(gl.DEPTH_TEST)
+
+		saved_effects := p.active_effects
+		p.active_effects = {}
+		upload_ubo(p)
+
+		gl_state.use_program(p.composite_program)
+		pipeline_bind_composite_textures(p, p.scene_color_tex)
+		quad_draw(&p.quad)
+
+		p.active_effects = saved_effects
+		gl_state.enable(gl.DEPTH_TEST)
+		return
+	}
 
 	// Collect previous frame's timer results (non-blocking)
 	gpu_timers_collect(&p.timers, p.dt)

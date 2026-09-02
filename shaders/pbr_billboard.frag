@@ -353,8 +353,8 @@ void main()
                 // Smooth geometric terminator falloff (eliminates silhouette acne and grazing light leaks)
                 float terminator = smoothstep(0.0, 0.06, NdotL);
 
-                // 1. Receiver Normal Offset Bias: scaled by NdotL to prevent pushing samples outside geometry
-                float normalOffset = u_point_shadow_normal_bias * clamp(NdotL, 0.0, 1.0);
+                // 1. Receiver Normal Offset Bias: scaled by (1.0 - NdotL) to expand bias at grazing angles
+                float normalOffset = u_point_shadow_normal_bias * clamp(1.0 - NdotL, 0.0, 1.0);
                 vec3 biasedHitPos = hitPos + N * normalOffset;
                 vec3 lightToBiasedPos = biasedHitPos - u_point_light_pos;
 

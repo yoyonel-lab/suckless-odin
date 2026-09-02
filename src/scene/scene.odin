@@ -35,6 +35,7 @@ Scene :: struct {
 
 	// Environment manager (async loading + IBL transitions)
 	env_mgr:     Env_Manager,
+	env_thumbs:  rendering.Env_Thumbnail_Manager,
 
 	// Post-processing pipeline
 	postfx_pipeline: postfx.Pipeline,
@@ -47,6 +48,9 @@ Scene :: struct {
 	// Volumetric Lighting Depth Downsampling (Phase 2)
 	depth_downsample: rendering.Depth_Downsample,
 	volumetric:       rendering.Volumetric_Renderer,
+
+	// Optimization & performance profile preset
+	optimization_profile: rendering.Optimization_Profile,
 
 	// Text overlay (F1)
 	overlay:     rendering.Text_Overlay,
@@ -119,7 +123,7 @@ HDR_DIR        :: "assets/textures/hdr"
 HDR_PATH       :: "assets/textures/hdr/cedar_bridge_2_4k.hdr"
 MATERIALS_PATH :: "assets/materials/pbr_materials.json"
 
-scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.DEFAULT_COMPUTE_TUNING) -> (ok: bool) {
+scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.DEFAULT_COMPUTE_TUNING, initial_env_path: string = "") -> (ok: bool) {
 	defer if !ok { scene_destroy(s) }
 	// Camera (ISO: same defaults as C — distance=20, yaw=-90, pitch=0)
 	cam.init(
@@ -162,9 +166,22 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 
 	// Scan HDR directory for environment cycling (PAGE_UP/PAGE_DOWN)
 	scene_scan_hdr_files(s)
+	rendering.env_thumbnails_init(&s.env_thumbs, s.hdr_files[:])
+
+	// Determine initial HDR path (from session or default)
+	target_hdr := HDR_PATH
+	if len(initial_env_path) > 0 {
+		for path, idx in s.hdr_files {
+			if path == initial_env_path {
+				target_hdr = path
+				s.current_hdr_index = i32(idx)
+				break
+			}
+		}
+	}
 
 	// Trigger initial environment load through the async pipeline
-	env_manager_trigger_initial(&s.env_mgr, HDR_PATH)
+	env_manager_trigger_initial(&s.env_mgr, target_hdr)
 
 	// PBR billboard shader
 	s.pbr_program = load_shader("shaders/pbr_billboard.vert", "shaders/pbr_billboard.frag") or_return
@@ -234,7 +251,7 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		radius                     = 22.0,
 		color                      = mt.Vec3{1.0, 0.50, 0.25},
 		intensity                  = 2.8,
-		enabled                    = true,
+		enabled                    = false,
 		direct_shadows_enabled     = false,
 		shadow_bias                = 0.0015,
 		shadow_normal_bias         = 0.025,
@@ -681,6 +698,7 @@ scene_destroy :: proc(s: ^Scene) {
 	}
 	delete(s.hdr_files)
 
+	rendering.env_thumbnails_destroy(&s.env_thumbs)
 	env_manager_destroy(&s.env_mgr)
 	rendering.shadow_taa_destroy(&s.shadow_taa)
 	rendering.shadow_cubemap_destroy(&s.shadow_cubemap)

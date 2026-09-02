@@ -80,3 +80,34 @@ window_destroy :: proc(window: glfw.WindowHandle) {
 gl_set_proc_address :: proc(p: rawptr, name: cstring) {
 	(cast(^rawptr)p)^ = glfw.GetProcAddress(name)
 }
+
+// Validates whether (x, y) intersects with at least one active monitor's visible viewport.
+// If offscreen or invalid, returns centered coordinates on the primary monitor.
+sanitize_window_position :: proc(x, y, width, height: i32) -> (safe_x, safe_y: i32) {
+	monitors := glfw.GetMonitors()
+	for mon in monitors {
+		mx, my := glfw.GetMonitorPos(mon)
+		mode := glfw.GetVideoMode(mon)
+		if mode != nil {
+			// Check if the top-left portion of the window intersects this monitor
+			if x >= mx - (width - 100) && x < mx + mode.width - 100 &&
+			   y >= my && y < my + mode.height - 50 {
+				return x, y
+			}
+		}
+	}
+
+	// Fallback: Center on primary monitor
+	primary := glfw.GetPrimaryMonitor()
+	if primary != nil {
+		mx, my := glfw.GetMonitorPos(primary)
+		mode := glfw.GetVideoMode(primary)
+		if mode != nil {
+			cx := mx + max(i32(0), (mode.width - width) / 2)
+			cy := my + max(i32(0), (mode.height - height) / 2)
+			return cx, cy
+		}
+	}
+
+	return 100, 100
+}
