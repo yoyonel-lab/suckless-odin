@@ -134,7 +134,8 @@ def test_headless_execution(target_exe: Path) -> None:
     assert ppm_out.exists(), f"Benchmark frame was not written to {ppm_out}"
 
     # Convert PPM to PNG with ImageMagick
-    run_cmd(f'magick "{ppm_out}" "{png_out}"', shell=True)
+    magick_cmd = "magick" if shutil.which("magick") else "convert"
+    run_cmd(f'{magick_cmd} "{ppm_out}" "{png_out}"', shell=True)
     assert png_out.exists(), f"Failed to convert {ppm_out} to {png_out}"
     assert png_out.stat().st_size > 1000, f"Rendered frame PNG too small ({png_out.stat().st_size} bytes)"
     print(f"    ✓ Headless benchmark execution succeeded ({png_out.stat().st_size} bytes PNG generated).")

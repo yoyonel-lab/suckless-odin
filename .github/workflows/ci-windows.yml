@@ -9,9 +9,9 @@ env:
   ODIN_URL: "https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz"
 
 jobs:
-  # ─── 1. WINDOWS CROSS-COMPILATION & WINE TESTS ─────────────────────────────
-  test-windows:
-    name: Windows Wine Tests
+  # ─── 1. BUILD WINDOWS DEPENDENCIES (GLFW, ImGui, SIMD, STB, Tracy, ImGuizmo) ─
+  deps-windows:
+    name: Build Windows Dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,21 +21,68 @@ jobs:
       - name: Setup Odin compiler
         uses: ./.github/actions/setup-odin
 
-      - name: Setup Windows toolchain & Wine
+      - name: Setup Windows toolchain
         uses: ./.github/actions/setup-windows-toolchain
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Windows Dependencies (GLFW, ImGui, SIMD, STB)
+      - name: Cache Windows Dependencies
+        id: cache-win-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/win_compat.o
+            deps/libsimd_windows_x64.lib
+            deps/libimguizmo_windows_x64.lib
+            deps/libtracy_windows_x64.lib
+            deps/odin-imgui/imgui_windows_x64.lib
+            deps/glfw_build_win/src/libglfw3.a
+            deps/stb_win_libs
+          key: win-deps-${{ hashFiles('deps/**', 'scripts/build_win_deps.sh') }}
+
+      - name: Build Windows Dependencies
+        if: steps.cache-win-deps.outputs.cache-hit != 'true'
         run: task build-win-deps
+
+      - name: Upload Windows Dependencies Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-deps
+          path: |
+            deps/win_compat.o
+            deps/libsimd_windows_x64.lib
+            deps/libimguizmo_windows_x64.lib
+            deps/libtracy_windows_x64.lib
+            deps/odin-imgui/imgui_windows_x64.lib
+            deps/glfw_build_win/src/libglfw3.a
+            deps/stb_win_libs
+          retention-days: 1
+
+  # ─── 2. WINDOWS CROSS-COMPILATION & WINE TESTS ─────────────────────────────
+  test-windows:
+    name: Windows Wine Tests
+    needs: [deps-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Odin compiler
+        uses: ./.github/actions/setup-odin
+
+      - name: Setup Windows Dependencies & Wine
+        uses: ./.github/actions/setup-windows-deps
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Windows test suites under Wine
         run: task test-win
 
-  # ─── 2. WINDOWS PACKAGING & SANDBOX VERIFICATION ───────────────────────────
+  # ─── 3. WINDOWS PACKAGING & SANDBOX VERIFICATION ───────────────────────────
   package-windows:
     name: Windows Packaging & Sandbox
-    needs: [test-windows]
+    needs: [deps-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,14 +92,11 @@ jobs:
       - name: Setup Odin compiler
         uses: ./.github/actions/setup-odin
 
-      - name: Setup Windows toolchain & Packaging tools
-        uses: ./.github/actions/setup-windows-toolchain
+      - name: Setup Windows Dependencies & Packaging tools
+        uses: ./.github/actions/setup-windows-deps
         with:
           with-packaging: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Windows Dependencies
-        run: task build-win-deps
 
       - name: Build Windows Release Binary
         run: task build-win-release
@@ -71,7 +115,7 @@ jobs:
             build-release/suckless-odin-windows-*.tar.zst
             build-release/suckless-odin-windows-*.zip
 
-  # ─── 3. STEAM DEPLOYMENT & HEADLESS RUNTIME VALIDATION ─────────────────────
+  # ─── 4. STEAM DEPLOYMENT & HEADLESS RUNTIME VALIDATION ─────────────────────
   steam-deployment:
     name: Steam Deployment & Headless Runtime
     needs: [package-windows]
@@ -81,17 +125,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Odin compiler
-        uses: ./.github/actions/setup-odin
-
-      - name: Setup Windows toolchain & Wine
+      - name: Setup Windows toolchain & Packaging tools
         uses: ./.github/actions/setup-windows-toolchain
         with:
           with-packaging: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Windows Dependencies
-        run: task build-win-deps
 
       - name: Download Windows Packages Artifact
         uses: actions/download-artifact@v4
@@ -115,4 +153,3 @@ jobs:
             assets/steam_grid/
             /tmp/benchmark_frame.png
           if-no-files-found: warn
-

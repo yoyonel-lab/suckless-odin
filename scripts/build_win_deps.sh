@@ -67,7 +67,7 @@ if [ -d "$ODIN_ROOT/vendor/glfw/lib" ] && [ -w "$ODIN_ROOT/vendor/glfw/lib" ]; t
 fi
 
 echo "==> [4/5] Building Windows vendor STB static libraries..."
-mkdir -p "$ODIN_ROOT/vendor/stb/lib" 2>/dev/null || true
+mkdir -p "$ODIN_ROOT/vendor/stb/lib" "$DEPS_DIR/stb_win_libs" 2>/dev/null || true
 if [ -d "$ODIN_ROOT/vendor/stb/src" ]; then
     (
         cd "$ODIN_ROOT/vendor/stb/src"
@@ -79,6 +79,7 @@ if [ -d "$ODIN_ROOT/vendor/stb/src" ]; then
         "$AR_TOOL" rcs ../lib/stb_rect_pack.lib stb_rect_pack.o
         "$AR_TOOL" rcs ../lib/stb_vorbis.lib stb_vorbis.o
         "$AR_TOOL" rcs ../lib/stb_sprintf.lib stb_sprintf.o
+        cp -f ../lib/stb_*.lib "$DEPS_DIR/stb_win_libs/" 2>/dev/null || true
         rm -f ./*.o
     )
 fi
