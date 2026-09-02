@@ -1,10 +1,11 @@
 package gui
 
+import "core:fmt"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
 import mt "../core/math_types"
 
-SHADOW_DEBUG_MODES_STRING :: "Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00Temporal Jitter Phase Heatmap\x00Only Shadow Factor (Grayscale White=Lit, Black=Shadow)\x00\x00"
+SHADOW_DEBUG_MODES_STRING :: "Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00PCF Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00Temporal Jitter Phase Heatmap\x00Only Shadow Factor (Grayscale White=Lit, Black=Shadow)\x00PBR Split-Screen (Left=No Shadows, Right=With Shadows)\x00Direct Shadow Delta Magnifier (Turbo Heatmap)\x00\x00"
 
 SHADOW_PCF_MODES_STRING :: "Off (1-tap Hard)\x00Vogel Disk 8-tap (Fast)\x00Vogel Disk 16-tap (Ultra HD Smooth)\x00\x00"
 
@@ -151,10 +152,25 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 
 			draw_shadow_debug_combo("Shadow Debug View", light)
 
-			if light.shadow_debug_mode == 4 {
+			if light.shadow_debug_mode == 4 || light.shadow_debug_mode == 7 {
 				imgui.SliderFloat("Split Position", &light.shadow_split_position, 0.0, 1.0, "%.2f")
-				sample_name := "Vogel 8-tap" if light.shadow_pcf_samples == 8 else ("Vogel 16-tap" if light.shadow_pcf_samples >= 16 else "1-tap Hard")
-				imgui.TextColored(imgui.Vec4{0.1, 0.75, 1.0, 1.0}, "[ Left: Hard 1-tap (Off) | Right: %s ]", sample_name)
+				if light.shadow_debug_mode == 7 {
+					imgui.TextColored(imgui.Vec4{0.1, 0.75, 1.0, 1.0}, "[ Left: No Direct Shadows (Lit) | Right: With Direct Shadows ]")
+				} else {
+					sample_name := "Vogel 8-tap" if light.shadow_pcf_samples == 8 else ("Vogel 16-tap" if light.shadow_pcf_samples >= 16 else "1-tap Hard")
+					imgui.TextColored(imgui.Vec4{0.1, 0.75, 1.0, 1.0}, fmt.ctprintf("[ Left: Hard 1-tap (Off) | Right: %s ]", sample_name))
+				}
+			}
+
+			if imgui.Button("Split: No Shadows vs Shadows") {
+				light.shadow_debug_mode = 7
+				light.shadow_split_position = 0.5
+				light.direct_shadows_enabled = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Shadow Delta Magnifier (Heatmap)") {
+				light.shadow_debug_mode = 8
+				light.direct_shadows_enabled = true
 			}
 
 			if imgui.Button("Compare Hard vs Vogel 8-tap") {
@@ -369,7 +385,7 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 	}
 	if fuzzy_match(filter, "Shadow Debug View", "shadow debug mask mode penumbra heatmap delta split screen comparison hard pcf grayscale graysc gray white black only shadow factor onlyshadow") {
 		draw_shadow_debug_combo("Shadow Debug View##filt", light)
-		if light.shadow_debug_mode == 4 {
+		if light.shadow_debug_mode == 4 || light.shadow_debug_mode == 7 {
 			imgui.SliderFloat("Split Position##filt", &light.shadow_split_position, 0.0, 1.0, "%.2f")
 		}
 		match_count += 1

@@ -1,5 +1,6 @@
 package gui
 
+import "core:fmt"
 import "core:strings"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
@@ -20,7 +21,7 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 	}
 
 	if imgui.CollapsingHeader("Active Environment Map", imgui.TreeNodeFlags{.DefaultOpen}) {
-		imgui.TextColored({0.4, 0.9, 0.4, 1.0}, "Active HDR: %s", strings.clone_to_cstring(curr_name, context.temp_allocator))
+		imgui.TextColored({0.4, 0.9, 0.4, 1.0}, fmt.ctprintf("Active HDR: %s", curr_name))
 		imgui.Text("Texture ID: %d  |  Resolution: %dx%d  |  Format: RGBA16F",
 			state.env_texture_id, state.env_texture_width, state.env_texture_height)
 
@@ -100,9 +101,9 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 				imgui.SameLine()
 
 				imgui.BeginGroup()
-				imgui.TextColored(is_active ? imgui.Vec4{0.3, 1.0, 0.3, 1.0} : imgui.Vec4{1.0, 1.0, 1.0, 1.0},
-					"%s", strings.clone_to_cstring(thumb.display_name, context.temp_allocator))
-				imgui.TextDisabled("%s", strings.clone_to_cstring(thumb.filename, context.temp_allocator))
+				imgui.TextColored(imgui.Vec4{0.3, 1.0, 0.3, 1.0} if is_active else imgui.Vec4{1.0, 1.0, 1.0, 1.0},
+					fmt.ctprintf("%s", thumb.display_name))
+				imgui.TextDisabled(fmt.ctprintf("%s", thumb.filename))
 				imgui.TextDisabled("%dx%d RGBA16F", thumb.width, thumb.height)
 
 				if is_active {
@@ -169,7 +170,7 @@ draw_filtered_env_map :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		for thumb, i in state.env_thumbnails {
 			imgui.PushIDInt(i32(100 + i))
 			is_active := (i32(i) == curr_idx)
-			imgui.Text("%s: %s", is_active ? "[ACTIVE]" : "[AVAILABLE]", strings.clone_to_cstring(thumb.display_name, context.temp_allocator))
+			imgui.TextUnformatted(fmt.ctprintf("%s: %s", "[ACTIVE]" if is_active else "[AVAILABLE]", thumb.display_name))
 			if !is_active {
 				imgui.SameLine()
 				if imgui.SmallButton("Load##filt_thumb") {

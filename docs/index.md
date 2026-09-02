@@ -80,6 +80,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter le Plan Directeur](2026-09-02_pbr_direct_lighting_shadow_ibl_harmonization_plan.md)
 
+-   :material-lightbulb-cfl:{ .lg .middle } __Intégration PBR Direct, Shadow Mapping & IBL__
+
+    ---
+
+    Spécification d'implémentation : lobe Cook-Torrance direct GGX/Smith, découplage physique des ombres de l'ambiance IBL, vues de debug PBR Split-Screen & Delta Magnifier Turbo Heatmap, et validation E2E.
+
+    [:octicons-arrow-right-24: Consulter la Spécification Technique](2026-09-03_pbr_direct_lighting_shadow_ibl_integration.md)
+
 </div>
 
 ---

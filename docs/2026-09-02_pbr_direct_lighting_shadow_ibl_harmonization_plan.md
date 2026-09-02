@@ -103,16 +103,18 @@ gantt
     Validation Globale & Benchmarks : p5_2, after p5_1, 1d
 ```
 
-### Phase 1 : Intégration du Lobe Direct Cook-Torrance dans `pbr_billboard.frag`
+### Phase 1 : Intégration du Lobe Direct Cook-Torrance dans `pbr_billboard.frag` (✅ Complétée)
 - **Objectif** : Ajouter le calcul de lumière directe analytique (BRDF spéculaire GGX/Smith + diffusion Lambert) sur la point light.
 - **Fichiers modifiés** : [`shaders/pbr_billboard.frag`](../shaders/pbr_billboard.frag), [`src/scene/scene.odin`](../src/scene/scene.odin).
-- **Critère de succès** : La point light illumine physiquement la face orientée vers elle, avec un spot spéculaire fidèle à la rugosité du matériau.
+- **Documentation technique** : [Spécification d'Implémentation PBR Direct & Ombres](2026-09-03_pbr_direct_lighting_shadow_ibl_integration.md).
+- **Statut** : **Validé & Intégré**.
 
-### Phase 2 : Découplage Strict de l'Ombre et de l'IBL Ambiant
+### Phase 2 : Découplage Strict de l'Ombre et de l'IBL Ambiant (✅ Complétée)
 - **Objectif** : L'ombre portée ne multiplie plus le résultat global, mais module **strictement** le terme direct :
   $$\text{Color} = \text{Color}_{\text{IBL}} + \text{Direct}_{\text{PBR}} \cdot \text{Shadow}$$
-- **Fichiers modifiés** : [`shaders/pbr_billboard.frag`](../shaders/pbr_billboard.frag).
-- **Critère de succès** : Dans l'ombre d'une sphère, le reflet du ciel et les couleurs HDR restent visibles et physiquement crédibles.
+- **Fichiers modifiés** : [`shaders/pbr_billboard.frag`](../shaders/pbr_billboard.frag), [`src/gui/gui_shadows.odin`](../src/gui/gui_shadows.odin).
+- **Vues Debug Ajoutées** : Mode 7 (PBR Split-Screen) et Mode 8 (Direct Shadow Delta Magnifier Turbo Heatmap).
+- **Statut** : **Validé & Intégré**.
 
 ### Phase 3 : Occlusion Spéculaire & Horizon Clipping
 - **Objectif** : Empêcher les fuites de reflets spéculaires IBL dans les occlusions de contact profondes.

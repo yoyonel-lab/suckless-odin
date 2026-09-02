@@ -61,7 +61,7 @@ vec4 apply_split_line(vec4 color, float edgeFactor)
             return vec4(vec3(0.9, 0.4, 0.0), edgeFactor);
         }
     }
-    if (u_point_shadows_enabled && u_point_shadow_debug_mode == 4) {
+    if (u_point_shadows_enabled && (u_point_shadow_debug_mode == 4 || u_point_shadow_debug_mode == 7)) {
         float dist = abs(gl_FragCoord.x - u_point_shadow_split_pos * u_screen_size.x);
         if (dist < 1.5) {
             return vec4(vec3(0.1, 0.75, 1.0), edgeFactor); // Cyan separator line
@@ -138,6 +138,91 @@ vec3 compute_IBL_PBR(vec3 N, vec3 V, vec3 R, vec3 F0, float NdotV,
     kD = (1.0 - (FssEss + multipleScattering)) * (1.0 - metallic);
 
     return (kD * diffuse + specular) * ao;
+}
+
+// -------------------------------------------------------------------
+// Direct Point Light PBR (Cook-Torrance GGX Specular + Lambert Diffuse)
+// -------------------------------------------------------------------
+float distribution_ggx(float NdotH, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH2 = NdotH * NdotH;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    return a2 / max(PI * denom * denom, EPSILON);
+}
+
+float geometry_schlick_ggx(float NdotV, float roughness)
+{
+    float r = (roughness + 1.0);
+    float k = (r * r) / 8.0;
+    return NdotV / max(NdotV * (1.0 - k) + k, EPSILON);
+}
+
+float geometry_smith(float NdotV, float NdotL, float roughness)
+{
+    float ggx2 = geometry_schlick_ggx(NdotV, roughness);
+    float ggx1 = geometry_schlick_ggx(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+vec3 compute_direct_point_light_pbr(vec3 N, vec3 V, vec3 L, vec3 F0,
+                                    vec3 albedo, float metallic, float roughness,
+                                    vec3 lightColor, float lightIntensity,
+                                    float distToLight, float lightRadius)
+{
+    float NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= 0.0) return vec3(0.0);
+
+    float NdotV = max(dot(N, V), 0.0);
+    vec3 H = normalize(V + L);
+    float NdotH = max(dot(N, H), 0.0);
+    float VdotH = max(dot(V, H), 0.0);
+
+    // Cook-Torrance Specular BRDF terms
+    float D = distribution_ggx(NdotH, roughness);
+    float G = geometry_smith(NdotV, NdotL, roughness);
+    vec3  F = F0 + (vec3(1.0) - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
+
+    vec3 numerator = D * G * F;
+    float denominator = 4.0 * NdotV * NdotL + 0.0001;
+    vec3 specular = numerator / denominator;
+
+    vec3 kS = F;
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+    vec3 diffuse = kD * albedo / PI;
+
+    // Windowed physical inverse-square attenuation (UE4 / Karis)
+    float distSq = distToLight * distToLight;
+    float radiusSq = lightRadius * lightRadius;
+    float factor = clamp(1.0 - (distSq * distSq) / max(0.0001, radiusSq * radiusSq), 0.0, 1.0);
+    float smoothFalloff = factor * factor;
+    float attenuation = smoothFalloff / (distSq + 1.0);
+
+    vec3 radiance = lightColor * lightIntensity * attenuation;
+    return (diffuse + specular) * radiance * NdotL;
+}
+
+// -------------------------------------------------------------------
+// Turbo Colormap (Google AI / High-dynamic-range thermal false color)
+// -------------------------------------------------------------------
+vec3 turbo_colormap(float x)
+{
+    x = clamp(x, 0.0, 1.0);
+    const vec4 kRedVec4   = vec4(0.13572138,  4.61539260, -42.66032258,  132.13108234);
+    const vec4 kGreenVec4 = vec4(0.09140261,  2.19418839,   4.84296658,  -14.18503333);
+    const vec4 kBlueVec4  = vec4(0.10667330, 12.64194608, -60.58204836,  110.36276771);
+    const vec2 kRedVec2   = vec2(-152.94239396,  59.28637943);
+    const vec2 kGreenVec2 = vec2(   4.27729857,   2.82956604);
+    const vec2 kBlueVec2  = vec2( -89.90310912,  27.34824973);
+
+    vec4 v4 = vec4(1.0, x, x * x, x * x * x);
+    vec2 v2 = v4.zw * v4.z;
+    return vec3(
+        dot(v4, kRedVec4)   + dot(v2, kRedVec2),
+        dot(v4, kGreenVec4) + dot(v2, kGreenVec2),
+        dot(v4, kBlueVec4)  + dot(v2, kBlueVec2)
+    );
 }
 
 // -------------------------------------------------------------------
@@ -328,8 +413,9 @@ void main()
         return;
     }
 
-    // Shadow Mapping visibility attenuation with Slope-Scaled & Normal-Offset Auto-Bias
-    if (u_point_shadows_enabled) {
+    // Direct Point Light + Shadow Mapping visibility with Slope-Scaled & Normal-Offset Auto-Bias
+    vec3 directLight = vec3(0.0);
+    if (u_point_shadows_enabled || u_point_light_intensity > 0.0) {
         vec3 lightToPos = hitPos - u_point_light_pos;
         float distToLight = length(lightToPos);
 
@@ -337,48 +423,42 @@ void main()
             vec3 L = -lightToPos / distToLight;
             float NdotL = max(dot(N, L), 0.0);
 
-            if (NdotL <= 0.0001) {
-                // Surface facing away from light is 100% occluded (zero direct visibility)
-                float shadow = 0.0;
-                if (u_point_shadow_debug_mode == 1 || u_point_shadow_debug_mask) {
-                    color = vec3(0.85, 0.1, 0.1);
-                } else if (u_point_shadow_debug_mode == 6) {
-                    color = vec3(0.0);
-                } else {
-                    float lightInfluence = clamp(1.0 - (distToLight / u_point_light_radius), 0.0, 1.0);
-                    float occlusion = lightInfluence * u_point_shadow_darkening;
-                    color *= (1.0 - occlusion);
-                }
-            } else {
+            if (NdotL > 0.0001) {
+                // 1. Direct Cook-Torrance specular + Lambertian diffuse radiance
+                directLight = compute_direct_point_light_pbr(N, V, L, F0,
+                                                             Albedo, Metallic, roughness,
+                                                             u_point_light_color, u_point_light_intensity,
+                                                             distToLight, u_point_light_radius);
+
                 // Smooth geometric terminator falloff (eliminates silhouette acne and grazing light leaks)
                 float terminator = smoothstep(0.0, 0.06, NdotL);
 
-                // 1. Receiver Normal Offset Bias: scaled by (1.0 - NdotL) to expand bias at grazing angles
+                // 2. Receiver Normal Offset Bias: scaled by (1.0 - NdotL) to expand bias at grazing angles
                 float normalOffset = u_point_shadow_normal_bias * clamp(1.0 - NdotL, 0.0, 1.0);
                 vec3 biasedHitPos = hitPos + N * normalOffset;
                 vec3 lightToBiasedPos = biasedHitPos - u_point_light_pos;
 
-                // 2. Slope-Scaled Depth Bias: increases tolerance on steep surface slopes
+                // 3. Slope-Scaled Depth Bias: increases tolerance on steep surface slopes
                 float slopeFactor = sqrt(clamp(1.0 - NdotL * NdotL, 0.0, 1.0)) / max(NdotL, 0.05);
                 float dynamicBias = u_point_shadow_bias + u_point_shadow_slope_bias * slopeFactor;
 
-                // 3. Compute baseline 1-tap Hard shadow (unfiltered)
+                // 4. Compute baseline 1-tap Hard shadow (unfiltered)
                 float sampledDepthHard = texture(u_point_shadow_cubemap, lightToBiasedPos).r;
                 float normalizedDist = distToLight / max(0.001, u_point_light_radius);
                 float shadowHard = (normalizedDist - dynamicBias <= sampledDepthHard) ? 1.0 : 0.0;
                 shadowHard *= terminator;
 
-                // 4. Compute active PCF shadow (1-tap, Vogel 8-tap, or Vogel 16-tap)
+                // 5. Compute active PCF shadow (1-tap, Vogel 8-tap, or Vogel 16-tap)
                 float shadowPCF = compute_point_shadow_pcf(lightToBiasedPos, normalizedDist, dynamicBias);
                 shadowPCF *= terminator;
 
-                // 5. Select effective shadow factor (Left=Hard 1-tap, Right=Active PCF in Split-Screen)
+                // 6. Select effective shadow factor (Left=Hard 1-tap, Right=Active PCF in Split-Screen)
                 float shadow = shadowPCF;
                 if (u_point_shadow_debug_mode == 4) {
                     shadow = (uvX < u_point_shadow_split_pos) ? shadowHard : shadowPCF;
                 }
 
-                // 6. Handle Debug Visualization Modes
+                // 7. Handle Debug Visualization Modes
                 if (u_point_shadow_debug_mode == 1 || u_point_shadow_debug_mask) {
                     // Mode 1: Shadow Mask (Green = Lit, Red = Occluded)
                     color = mix(vec3(0.85, 0.1, 0.1), vec3(0.1, 0.9, 0.1), shadow);
@@ -407,12 +487,35 @@ void main()
                 } else if (u_point_shadow_debug_mode == 6) {
                     // Mode 6: Only Shadow Factor (Pure Grayscale: 1.0=White/Lit, 0.0=Black/Occluded)
                     color = vec3(shadow);
+                } else if (u_point_shadow_debug_mode == 7) {
+                    // Mode 7: PBR Split-Screen (Left = No Direct Shadows / Fully Lit, Right = With Direct Shadows)
+                    float visibility = (uvX < u_point_shadow_split_pos) ? 1.0 : (u_point_shadows_enabled ? mix(1.0 - u_point_shadow_darkening, 1.0, shadow) : 1.0);
+                    color += directLight * visibility;
+                } else if (u_point_shadow_debug_mode == 8) {
+                    // Mode 8: Direct Shadow Delta Magnifier Heatmap (|Unshadowed - Shadowed| * 10.0 with Turbo False Color)
+                    float visibility = u_point_shadows_enabled ? mix(1.0 - u_point_shadow_darkening, 1.0, shadow) : 1.0;
+                    vec3 delta = directLight * (1.0 - visibility);
+                    float maxDelta = max(delta.r, max(delta.g, delta.b));
+                    float normalizedHeat = clamp(maxDelta * 10.0, 0.0, 1.0);
+                    vec3 heatmapColor = turbo_colormap(normalizedHeat);
+                    color = mix(color * 0.10, heatmapColor, clamp(normalizedHeat * 2.5, 0.0, 1.0));
                 } else {
-                    // Mode 0 & 4: Normal Shading / Split-Screen comparison
-                    float lightInfluence = clamp(1.0 - (distToLight / u_point_light_radius), 0.0, 1.0);
-                    float occlusion = (1.0 - shadow) * lightInfluence * u_point_shadow_darkening;
-                    color *= (1.0 - occlusion);
+                    // Mode 0 & 4: Normal Shading / PCF Split-Screen comparison
+                    // Physically-based lighting combination:
+                    // IBL ambient remains untouched, Direct light is modulated by shadow visibility
+                    float visibility = u_point_shadows_enabled ? mix(1.0 - u_point_shadow_darkening, 1.0, shadow) : 1.0;
+                    color += directLight * visibility;
                 }
+            } else {
+                // Surface facing away from light (NdotL <= 0.0001)
+                if (u_point_shadow_debug_mode == 1 || u_point_shadow_debug_mask) {
+                    color = vec3(0.85, 0.1, 0.1);
+                } else if (u_point_shadow_debug_mode == 6) {
+                    color = vec3(0.0);
+                } else if (u_point_shadow_debug_mode == 8) {
+                    color = color * 0.10; // Dim back-facing surface to make shadowed regions pop
+                }
+                // In normal mode: color retains 100% IBL ambient, directLight is zero
             }
         } else if (u_point_shadow_debug_mode == 6) {
             color = vec3(0.0);

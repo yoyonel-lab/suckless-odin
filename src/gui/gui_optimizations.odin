@@ -1,5 +1,6 @@
 package gui
 
+import "core:fmt"
 import "core:strings"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
@@ -151,7 +152,7 @@ draw_filtered_optimizations :: proc(g: ^Gui, state: Scene_State, filter: cstring
 	current_prof := state.optimization_profile^ if state.optimization_profile != nil else .Quality
 
 	if fuzzy_match(filter, "Optimization Presets", "optimization profile presets performance quality balanced ultra fps speed") {
-		imgui.Text("Active Profile: %s", strings.clone_to_cstring(rendering.optimization_profile_name(current_prof), context.temp_allocator))
+		imgui.TextUnformatted(fmt.ctprintf("Active Profile: %s", rendering.optimization_profile_name(current_prof)))
 		if imgui.SmallButton("Set Quality##filt_prof") {
 			if state.optimization_profile != nil {
 				state.optimization_profile^ = .Quality

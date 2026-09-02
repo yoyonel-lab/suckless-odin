@@ -1411,10 +1411,10 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 	// --- Active Effects Bitfield ---
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Effect Bits")
 	imgui.Separator()
-	imgui.Text("Motion_Blur (bit 10): %s", mb_on ? "ON" : "OFF")
-	imgui.Text("Motion_Blur_Debug (bit 11): %s", mb_dbg ? "ON" : "OFF")
-	imgui.Text("Vector_Field_Debug (bit 22): %s", vf_dbg ? "ON" : "OFF")
-	imgui.Text("Synthetic Inject: %s", p.motion_blur.inject_enabled ? "ACTIVE" : "off")
+	imgui.TextUnformatted(fmt.ctprintf("Motion_Blur (bit 10): %s", "ON" if mb_on else "OFF"))
+	imgui.TextUnformatted(fmt.ctprintf("Motion_Blur_Debug (bit 11): %s", "ON" if mb_dbg else "OFF"))
+	imgui.TextUnformatted(fmt.ctprintf("Vector_Field_Debug (bit 22): %s", "ON" if vf_dbg else "OFF"))
+	imgui.TextUnformatted(fmt.ctprintf("Synthetic Inject: %s", "ACTIVE" if p.motion_blur.inject_enabled else "off"))
 }
 
 // ─── Performance Mode Widget ───────────────────────────────────────────────────
