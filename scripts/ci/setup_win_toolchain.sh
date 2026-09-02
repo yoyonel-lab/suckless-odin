@@ -19,17 +19,22 @@ PACKAGES=(
 )
 
 if [ "$WITH_PACKAGING" = "true" ]; then
-    PACKAGES+=(zstd zip mesa-utils rsync)
+    PACKAGES+=(zstd zip mesa-utils rsync imagemagick)
 fi
 
-sudo apt-get update -qq
-sudo apt-get install -y -qq "${PACKAGES[@]}" >/dev/null
+SUDO=""
+if command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+fi
+
+$SUDO apt-get update -qq
+$SUDO apt-get install -y -qq "${PACKAGES[@]}" >/dev/null
 
 # Configure Clang-19 / LLVM-19 symlinks as default
-sudo ln -sf /usr/bin/clang-19 /usr/bin/clang
-sudo ln -sf /usr/bin/clang++-19 /usr/bin/clang++
-sudo ln -sf /usr/bin/lld-19 /usr/bin/lld
-sudo ln -sf /usr/bin/llvm-ar-19 /usr/bin/llvm-ar
+$SUDO ln -sf /usr/bin/clang-19 /usr/bin/clang
+$SUDO ln -sf /usr/bin/clang++-19 /usr/bin/clang++
+$SUDO ln -sf /usr/bin/lld-19 /usr/bin/lld
+$SUDO ln -sf /usr/bin/llvm-ar-19 /usr/bin/llvm-ar
 
 # Initialize Wine prefix quietly
 WINEDEBUG=-all wineboot --init || true
