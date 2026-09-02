@@ -139,8 +139,8 @@ jobs:
 
       - name: Extract Windows Package
         run: |
-          mkdir -p build-release/suckless-odin-windows-v0.1.0
-          tar -I zstd -xf build-release/suckless-odin-windows-*.tar.zst -C build-release/suckless-odin-windows-v0.1.0 --strip-components=1
+          tar -xf build-release/suckless-odin-windows-*.tar.zst -C build-release/
+          ls -la build-release/suckless-odin-windows-*/
 
       - name: Run Steam Deployment & Headless Benchmark Suite
         run: task test-steam-ci

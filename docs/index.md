@@ -72,6 +72,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter le Rapport de Benchmark](2026-09-02_uncapped_gpu_benchmark_volumetric_shadows_cost_analysis.md)
 
+-   :material-palette-swatch:{ .lg .middle } __Plan Directeur : Harmonisation PBR, Ombres & IBL__
+
+    ---
+
+    Feuille de route d'harmonisation physique : décomposition lumière directe Cook-Torrance, découplage ombres/ambiance IBL, Specular Occlusion (Lagarde) et couplage volumétrique.
+
+    [:octicons-arrow-right-24: Consulter le Plan Directeur](2026-09-02_pbr_direct_lighting_shadow_ibl_harmonization_plan.md)
+
 </div>
 
 ---

@@ -147,8 +147,7 @@ def main() -> None:
     print("=" * 70)
 
     # Locate executable
-    candidates = [
-        Path("build-release/suckless-odin-windows-v0.1.0/suckless-odin.exe"),
+    candidates = sorted(Path("build-release").glob("suckless-odin-windows-*/suckless-odin.exe")) + [
         Path("build/release-win/suckless-odin.exe"),
     ]
     target_exe = None
@@ -158,9 +157,12 @@ def main() -> None:
             break
 
     if target_exe is None:
-        print("==> suckless-odin.exe not found. Building release binary first...")
-        run_cmd(["task", "build-win-release"])
-        target_exe = Path("build/release-win/suckless-odin.exe")
+        print("==> suckless-odin.exe not found in build-release/. Checking build/release-win/...")
+        if shutil.which("odin"):
+            run_cmd(["task", "build-win-release"])
+            target_exe = Path("build/release-win/suckless-odin.exe")
+        else:
+            raise FileNotFoundError("suckless-odin.exe not found in build-release/ packages.")
 
     mock_steam_root = Path("/tmp/mock_steam_ci")
     if mock_steam_root.exists():
