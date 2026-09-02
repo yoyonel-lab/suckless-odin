@@ -1195,6 +1195,9 @@ tasks:
 
   test-steam-ci:
     desc: Automated Steam deployment & Headless Wine benchmark execution test suite for CI/CD
-    deps: [build-win-release]
     cmds:
+      - |
+        if [ ! -f build/release-win/suckless-odin.exe ] && ! ls build-release/suckless-odin-windows-*/suckless-odin.exe >/dev/null 2>&1; then
+          task build-win-release
+        fi
       - "{{.PYTHON3}} scripts/test_steam_ci.py"
