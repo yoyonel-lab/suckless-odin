@@ -89,19 +89,25 @@ do_package_win() {
     task package-win
 }
 
+do_test_steam() {
+    section "Steam Deployment & Headless Runtime"
+    task test-steam-ci
+}
+
 # --- Main ---
 diag
 ensure_imgui
 
 case "$MODE" in
-    lint)        do_lint ;;
-    build)       do_lint && do_build ;;
-    test-unit)   do_test_unit ;;
-    test-cli)    do_test_cli ;;
-    test-shader) do_test_shader ;;
-    test-gl)     do_test_gl ;;
-    test-win)    do_test_win ;;
-    package-win) do_package_win ;;
+    lint)          do_lint ;;
+    build)         do_lint && do_build ;;
+    test-unit)     do_test_unit ;;
+    test-cli)      do_test_cli ;;
+    test-shader)   do_test_shader ;;
+    test-gl)       do_test_gl ;;
+    test-win)      do_test_win ;;
+    package-win)   do_package_win ;;
+    test-steam-ci) do_test_steam ;;
     all)
         do_lint
         do_build
@@ -110,11 +116,13 @@ case "$MODE" in
         do_test_shader
         do_test_gl
         do_test_win
+        do_test_steam
         section "ALL PASSED ✓"
         ;;
     *)
         echo "Unknown mode: $MODE"
-        echo "Usage: $0 [lint|build|test-unit|test-cli|test-shader|test-gl|test-win|package-win|all]"
+        echo "Usage: $0 [lint|build|test-unit|test-cli|test-shader|test-gl|test-win|package-win|test-steam-ci|all]"
         exit 1
         ;;
 esac
+

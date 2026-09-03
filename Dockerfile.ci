@@ -29,8 +29,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libwayland-dev libxkbcommon-dev \
     xvfb mesa-utils libgl1-mesa-dri \
     python3 python3-venv python3-pip python3-ply \
-    zstd zip gdb rsync \
+    zstd zip gdb rsync imagemagick \
     && ln -sf /usr/bin/clang-19 /usr/local/bin/clang \
+
     && ln -sf /usr/bin/clang++-19 /usr/local/bin/clang++ \
     && ln -sf /usr/bin/lld-19 /usr/local/bin/lld \
     && ln -sf /usr/bin/llvm-ar-19 /usr/local/bin/llvm-ar \
