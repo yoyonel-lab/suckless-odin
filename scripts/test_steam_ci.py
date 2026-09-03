@@ -20,12 +20,17 @@ from pathlib import Path
 from inject_steam_art import parse_vdf_dict
 
 
-def run_cmd(cmd: list[str] | str, check: bool = True, shell: bool = False) -> subprocess.CompletedProcess[str]:
+def run_cmd(
+    cmd: list[str] | str,
+    check: bool = True,
+    shell: bool = False,
+    cwd: Path | str | None = None,
+) -> subprocess.CompletedProcess[str]:
     """Helper to run a shell command."""
     if shell:
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
     else:
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
     if check and res.returncode != 0:
         print(f"❌ Command failed (code {res.returncode}): {cmd}")
         print("STDOUT:", res.stdout)
@@ -126,10 +131,21 @@ def test_headless_execution(target_exe: Path) -> None:
     if png_out.exists():
         png_out.unlink()
 
-    # Run in benchmark mode with 30 frames
-    bench_cmd = f'xvfb-run -a wine "{target_exe.resolve()}" --benchmark --benchmark-frames=30'
+    # Configure headless environment & Xvfb 24-bit screen
+    env_prefix = (
+        "WINEDEBUG=-all "
+        "LIBGL_ALWAYS_SOFTWARE=1 "
+        "GALLIUM_DRIVER=llvmpipe "
+        "MESA_GL_VERSION_OVERRIDE=4.5 "
+        "MESA_GLSL_VERSION_OVERRIDE=450"
+    )
+    wine_cmd = shutil.which("wine") or shutil.which("wine64") or "wine"
+    bench_cmd = (
+        f'{env_prefix} xvfb-run -a -s "-screen 0 1024x768x24" '
+        f'{wine_cmd} "{target_exe.resolve()}" --benchmark --benchmark-frames=30'
+    )
     print(f"    Running: {bench_cmd}")
-    res = run_cmd(bench_cmd, check=True, shell=True)
+    res = run_cmd(bench_cmd, check=True, shell=True, cwd=target_exe.parent)
     assert "BENCHMARK RESULTS" in res.stdout, "Benchmark results not found in stdout"
     assert ppm_out.exists(), f"Benchmark frame was not written to {ppm_out}"
 
