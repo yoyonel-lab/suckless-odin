@@ -144,12 +144,13 @@ def test_interactive_window_presentation(target_exe: Path) -> None:
     wine_cmd = shutil.which("wine") or shutil.which("wine64") or "wine"
     magick_cmd = "magick" if shutil.which("magick") else "convert"
 
-    # Launch under Xvfb in background
+    # Launch under Xvfb in background and capture screen frame using $DISPLAY
     run_cmd_str = (
         f'{env_prefix} xvfb-run -a -s "-screen 0 1024x768x24" '
         f'bash -c \'{wine_cmd} "{target_exe.resolve()}" & WINE_PID=$!; sleep 4; '
-        f'xwd -root -silent | {magick_cmd} xwd:- "{capture_png}" 2>/dev/null '
-        f'|| ffmpeg -y -f x11grab -video_size 1024x768 -i :0.0 -vframes 1 "{capture_png}" 2>/dev/null; '
+        f'import -window root "{capture_png}" 2>/dev/null '
+        f'|| ffmpeg -y -f x11grab -video_size 1024x768 -i "$DISPLAY" -vframes 1 "{capture_png}" 2>/dev/null '
+        f'|| (xwd -root -silent | {magick_cmd} xwd:- "{capture_png}" 2>/dev/null); '
         f"kill -9 $WINE_PID 2>/dev/null || true; wait $WINE_PID 2>/dev/null || true'"
     )
     print(f"    Running: {run_cmd_str}")
