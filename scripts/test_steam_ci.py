@@ -144,13 +144,24 @@ def test_interactive_window_presentation(target_exe: Path) -> None:
     wine_cmd = shutil.which("wine") or shutil.which("wine64") or "wine"
     magick_cmd = "magick" if shutil.which("magick") else "convert"
 
-    # Launch under Xvfb in background and capture screen frame using $DISPLAY
-    run_cmd_str = (
-        f'{env_prefix} xvfb-run -a -s "-screen 0 1024x768x24" '
-        f'bash -c \'{wine_cmd} "{target_exe.resolve()}" & WINE_PID=$!; sleep 4; '
+    # Warm up wine prefix if running in CI to avoid first-boot delays
+    subprocess.run("WINEDEBUG=-all wineboot -u 2>/dev/null || true", shell=True)
+
+    # Launch under Xvfb in background, wait for window to map, then capture frame
+    wait_win_cmd = (
+        "for i in $(seq 1 12); do sleep 1; "
+        'if [ -n "$(xdotool search --name Suckless 2>/dev/null)" ]; then break; fi; '
+        "done"
+    )
+    capture_subcmd = (
         f'import -window root "{capture_png}" 2>/dev/null '
         f'|| ffmpeg -y -f x11grab -video_size 1024x768 -i "$DISPLAY" -vframes 1 "{capture_png}" 2>/dev/null '
-        f'|| (xwd -root -silent | {magick_cmd} xwd:- "{capture_png}" 2>/dev/null); '
+        f'|| (xwd -root -silent | {magick_cmd} xwd:- "{capture_png}" 2>/dev/null)'
+    )
+    run_cmd_str = (
+        f'{env_prefix} xvfb-run -a -s "-screen 0 1024x768x24" '
+        f'bash -c \'{wine_cmd} "{target_exe.resolve()}" & WINE_PID=$!; '
+        f"{wait_win_cmd}; sleep 4; {capture_subcmd}; "
         f"kill -9 $WINE_PID 2>/dev/null || true; wait $WINE_PID 2>/dev/null || true'"
     )
     print(f"    Running: {run_cmd_str}")

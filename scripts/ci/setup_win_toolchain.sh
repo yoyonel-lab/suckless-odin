@@ -22,7 +22,7 @@ PACKAGES=(
 )
 
 if [ "$WITH_PACKAGING" = "true" ]; then
-    PACKAGES+=(zstd zip mesa-utils rsync imagemagick)
+    PACKAGES+=(zstd zip mesa-utils rsync imagemagick xdotool ffmpeg)
 fi
 
 SUDO=""
