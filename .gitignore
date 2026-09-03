@@ -45,9 +45,15 @@ verification/*.svg
 # Local scratch directory
 scratch/
 
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Profiling dumps
 *.zst
 callgrind.out*
+
 
 
 
