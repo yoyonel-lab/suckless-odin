@@ -146,6 +146,62 @@ def configure_steam_proton_mapping(steam_root: Path, appid: int) -> None:
         print(f"    ⚠️ Could not update {config_file}: {e}")
 
 
+DEFAULT_LAUNCH_OPTIONS = 'MESA_DEBUG=1 MESA_LOADER_DRIVER_OVERRIDE=iris LD_PRELOAD="" PROTON_USE_WINED3D=1 %command%'
+
+
+def _find_target_exe(exe_path: Path | None = None) -> Path | None:
+    if exe_path and exe_path.exists():
+        return exe_path.resolve()
+    candidates = [
+        Path("build-release/suckless-odin-windows-v0.1.0/suckless-odin.exe").resolve(),
+        Path("build/release-win/suckless-odin.exe").resolve(),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def _update_or_match_shortcuts(
+    shortcuts_dict: dict[str, Any],
+    target_name: str,
+) -> tuple[list[SteamShortcut], bool]:
+    matched_shortcuts: list[SteamShortcut] = []
+    updated = False
+    for idx, sc_data in shortcuts_dict.items():
+        if not isinstance(sc_data, dict):
+            continue
+        sc_appname = str(sc_data.get("AppName", ""))
+        sc_exe = str(sc_data.get("Exe", ""))
+        if (
+            target_name.lower() in sc_appname.lower()
+            or target_name.lower() in sc_exe.lower()
+            or sc_appname.lower() in target_name.lower()
+        ):
+            appid = sc_data.get("appid")
+            if not isinstance(appid, int):
+                appid = calculate_shortcut_appid(sc_exe, sc_appname)
+
+            curr_opts = str(sc_data.get("LaunchOptions", "")).strip()
+            if not curr_opts or "MESA_LOADER_DRIVER_OVERRIDE" not in curr_opts:
+                sc_data["LaunchOptions"] = DEFAULT_LAUNCH_OPTIONS
+                updated = True
+            if sc_data.get("AllowOverlay") != 0:
+                sc_data["AllowOverlay"] = 0
+                updated = True
+
+            matched_shortcuts.append(
+                SteamShortcut(
+                    app_name=sc_appname,
+                    app_id=appid,
+                    exe=sc_exe,
+                    icon=str(sc_data.get("icon", "")),
+                    index=str(idx),
+                )
+            )
+    return matched_shortcuts, updated
+
+
 def process_user_shortcuts(
     shortcuts_file: Path,
     target_name: str,
@@ -166,45 +222,18 @@ def process_user_shortcuts(
     if not isinstance(shortcuts_dict, dict):
         shortcuts_dict = {}
 
-    matched_shortcuts: list[SteamShortcut] = []
-    for idx, sc_data in shortcuts_dict.items():
-        if not isinstance(sc_data, dict):
-            continue
-        sc_appname = str(sc_data.get("AppName", ""))
-        sc_exe = str(sc_data.get("Exe", ""))
-        if (
-            target_name.lower() in sc_appname.lower()
-            or target_name.lower() in sc_exe.lower()
-            or sc_appname.lower() in target_name.lower()
-        ):
-            appid = sc_data.get("appid")
-            if not isinstance(appid, int):
-                appid = calculate_shortcut_appid(sc_exe, sc_appname)
-            matched_shortcuts.append(
-                SteamShortcut(
-                    app_name=sc_appname,
-                    app_id=appid,
-                    exe=sc_exe,
-                    icon=str(sc_data.get("icon", "")),
-                    index=str(idx),
-                )
-            )
+    matched_shortcuts, updated_existing = _update_or_match_shortcuts(shortcuts_dict, target_name)
+
+    if updated_existing and matched_shortcuts:
+        try:
+            shortcuts_file.write_bytes(serialize_vdf_dict(parsed_vdf))
+            print(f"    ✓ Updated optimal Proton launch options & overlay settings in {shortcuts_file}")
+        except Exception as e:
+            print(f"    ⚠️ Failed to update {shortcuts_file}: {e}")
 
     # If not found and auto_add is enabled, create shortcut entry
     if not matched_shortcuts and auto_add:
-        target_exe = None
-        if exe_path and exe_path.exists():
-            target_exe = exe_path.resolve()
-        else:
-            candidates = [
-                Path("build-release/suckless-odin-windows-v0.1.0/suckless-odin.exe").resolve(),
-                Path("build/release-win/suckless-odin.exe").resolve(),
-            ]
-            for c in candidates:
-                if c.exists():
-                    target_exe = c
-                    break
-
+        target_exe = _find_target_exe(exe_path)
         if target_exe:
             print(f"  [+] Automatically adding non-Steam shortcut for '{target_name}' -> {target_exe}")
             formatted_exe = f'"{target_exe}"'
@@ -213,7 +242,6 @@ def process_user_shortcuts(
             icon_dest = shortcuts_file.parent / "grid" / "icon.ico"
             icon_path_str = str(icon_dest.resolve()) if icon_dest.exists() else str(icon_source.resolve())
 
-            # Find next free numerical index
             existing_indices = [int(k) for k in shortcuts_dict.keys() if str(k).isdigit()]
             next_idx = str(max(existing_indices, default=-1) + 1)
 
@@ -223,10 +251,10 @@ def process_user_shortcuts(
                 "StartDir": formatted_start_dir,
                 "icon": icon_path_str,
                 "ShortcutPath": "",
-                "LaunchOptions": "",
+                "LaunchOptions": DEFAULT_LAUNCH_OPTIONS,
                 "IsHidden": 0,
                 "AllowDesktopConfig": 1,
-                "AllowOverlay": 1,
+                "AllowOverlay": 0,
                 "OpenVR": 0,
                 "Devkit": 0,
                 "DevkitGameID": "",
@@ -239,7 +267,6 @@ def process_user_shortcuts(
             shortcuts_dict[next_idx] = new_sc_dict
             parsed_vdf["shortcuts"] = shortcuts_dict
             try:
-                # Backup existing shortcuts file
                 if shortcuts_file.exists():
                     shutil.copy2(shortcuts_file, shortcuts_file.with_suffix(".vdf.bak"))
                 shortcuts_file.write_bytes(serialize_vdf_dict(parsed_vdf))

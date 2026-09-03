@@ -1165,27 +1165,9 @@ tasks:
       - echo "👉 You can now relaunch Steam to play suckless-odin!"
 
   steam-launch:
-    desc: Launch suckless-odin through official Steam client using steam://rungameid URI
+    desc: Launch suckless-odin through official Steam client with process & lifecycle verification
     cmds:
-      - |
-        APPID=$({{.PYTHON3}} -c '
-        from pathlib import Path
-        import zlib
-        exe = Path("build-release/suckless-odin-windows-v0.1.0/suckless-odin.exe").resolve()
-        key = f"\"{exe}\"suckless-odin".encode()
-        u32 = zlib.crc32(key) | 0x80000000
-        u64 = ((u32 | 0x80000000) << 32) | 0x02000000
-        print(u64)
-        ')
-        echo "==> Launching suckless-odin via Steam (rungameid/${APPID})..."
-        if command -v flatpak >/dev/null 2>&1 && flatpak info com.valvesoftware.Steam >/dev/null 2>&1; then
-          flatpak run com.valvesoftware.Steam steam://rungameid/${APPID} {{.CLI_ARGS}} &
-        elif command -v steam >/dev/null 2>&1; then
-          steam steam://rungameid/${APPID} {{.CLI_ARGS}} &
-        else
-          xdg-open "steam://rungameid/${APPID}" &
-        fi
-        echo "✓ Steam launch signal sent"
+      - "{{.PYTHON3}} scripts/launch_steam.py {{.CLI_ARGS}}"
 
   steam-verify:
     desc: Automated end-to-end Steam launch verification with desktop screenshot captures

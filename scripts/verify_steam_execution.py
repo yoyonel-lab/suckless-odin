@@ -29,6 +29,28 @@ def take_screenshot(filename: str) -> Path:
     return out_path
 
 
+def check_image_luminance(image_path: Path) -> float:
+    """Calculates mean luminosity of captured frame."""
+    if not image_path.exists():
+        return 0.0
+    try:
+        import shutil
+
+        magick = shutil.which("magick") or shutil.which("convert")
+        if magick:
+            res = subprocess.run(
+                f'{magick} "{image_path}" -format "%[mean]" info:',
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return float(res.stdout.strip())
+    except Exception:
+        pass
+    return 0.0
+
+
 def main() -> int:
     print("=" * 70)
     print("🚀 AUTOMATED STEAM E2E VERIFICATION & SCREEN RECORDING")
@@ -90,8 +112,10 @@ def main() -> int:
 
     # 5. Capture screenshot of running game
     print("\n[Step 5/5] Capturing desktop with running application...")
-    time.sleep(2)
-    take_screenshot("02_game_running_under_steam.png")
+    time.sleep(4)
+    shot_path = take_screenshot("02_game_running_under_steam.png")
+    lum = check_image_luminance(shot_path)
+    print(f"  📊 Screen frame mean luminosity: {lum:.2f}")
 
     if running_pid:
         print("\n" + "=" * 70)
@@ -104,6 +128,8 @@ def main() -> int:
             text=True,
         )
         print(proc_info.stdout)
+        if lum <= 100.0:
+            print("⚠️ WARNING: Screen mean luminosity is low. Window may be occluded or displaying dark screen.")
         return 0
     else:
         print("\n" + "=" * 70)
@@ -114,12 +140,17 @@ def main() -> int:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(5)
-        take_screenshot("03_game_running_under_proton_direct.png")
+        time.sleep(6)
+        shot_direct = take_screenshot("03_game_running_under_proton_direct.png")
+        direct_lum = check_image_luminance(shot_direct)
+        print(f"  📊 Direct Proton frame mean luminosity: {direct_lum:.2f}")
         check = subprocess.run("pgrep -f 'suckless-odin'", shell=True, capture_output=True, text=True)
         if check.returncode == 0 and check.stdout.strip():
             pid = check.stdout.strip().splitlines()[0]
             print(f"✅ Fallback Proton runner verified on display (PID: {pid})")
+            if direct_lum <= 100.0:
+                print("❌ ERROR: Screen captured is black! Rendering regression detected.")
+                return 1
             return 0
         return 1
 
