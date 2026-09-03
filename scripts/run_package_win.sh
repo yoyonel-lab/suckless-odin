@@ -42,7 +42,7 @@ echo "==> Testing headless standalone benchmark under Wine (20 frames)..."
 
     if [ -n "${CI:-}" ] || [ -z "${DISPLAY:-}" ] || (! command -v xdpyinfo >/dev/null 2>&1) || (! xdpyinfo >/dev/null 2>&1); then
         if command -v xvfb-run >/dev/null 2>&1; then
-            xvfb-run -a -s "-screen 0 1024x768x24" "$WINE_CMD" suckless-odin.exe --benchmark --benchmark-frames=20
+            xvfb-run -a -s "-screen 0 1024x768x24" env WINEDEBUG=-all LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_GL_VERSION_OVERRIDE=4.5 MESA_GLSL_VERSION_OVERRIDE=450 "$WINE_CMD" suckless-odin.exe --benchmark --benchmark-frames=20
         else
             "$WINE_CMD" suckless-odin.exe --benchmark --benchmark-frames=20
         fi

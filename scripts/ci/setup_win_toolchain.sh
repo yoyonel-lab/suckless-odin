@@ -15,6 +15,7 @@ PACKAGES=(
     wine
     wine64
     libgl1-mesa-dev
+    libgl1-mesa-dri
     xvfb
     python3-ply
     python3-pip
