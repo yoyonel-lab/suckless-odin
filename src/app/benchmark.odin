@@ -98,15 +98,33 @@ BENCHMARK_SCREENSHOT_PATH :: "/tmp/benchmark_frame.ppm"
 
 @(private)
 dump_benchmark_frame :: proc(application: ^App, width, height: i32) {
-	// Read from default backbuffer (fully tone-mapped and resolved postfx frame)
-	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
-	gl.ReadBuffer(gl.BACK)
-	defer gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
-
 	pixels := make([]u8, int(width * height * 3))
 	defer delete(pixels)
 
+	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
+
+	// Read from default backbuffer (fully tone-mapped and resolved postfx frame)
+	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
+	gl.ReadBuffer(gl.BACK)
 	gl.ReadPixels(0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
+
+	// If backbuffer is completely zeroed (e.g. headless unmapped Xvfb under Wine),
+	// fallback to reading directly from scene HDR FBO
+	is_empty := true
+	for p in pixels {
+		if p != 0 {
+			is_empty = false
+			break
+		}
+	}
+
+	if is_empty && application.scene.postfx_pipeline.scene_fbo != 0 {
+		gl.BindFramebuffer(gl.READ_FRAMEBUFFER, application.scene.postfx_pipeline.scene_fbo)
+		gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
+		gl.ReadPixels(0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
+	}
+
+	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
 
 	fd, err := os.open(BENCHMARK_SCREENSHOT_PATH, os.O_WRONLY | os.O_CREATE | os.O_TRUNC)
 	if err != nil {
@@ -128,3 +146,4 @@ dump_benchmark_frame :: proc(application: ^App, width, height: i32) {
 
 	fmt.printfln("  Screenshot: %s", BENCHMARK_SCREENSHOT_PATH)
 }
+
