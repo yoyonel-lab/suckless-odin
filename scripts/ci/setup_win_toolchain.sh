@@ -39,6 +39,6 @@ $SUDO ln -sf /usr/bin/clang++-19 /usr/bin/clang++
 $SUDO ln -sf /usr/bin/lld-19 /usr/bin/lld
 $SUDO ln -sf /usr/bin/llvm-ar-19 /usr/bin/llvm-ar
 
-# Initialize Wine prefix quietly
-WINEDEBUG=-all wineboot --init || true
+# Initialize 64-bit Wine prefix quietly
+WINEDEBUG=-all WINEARCH=win64 wineboot --init || true
 echo "==> Windows cross-compilation toolchain configured successfully."

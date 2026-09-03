@@ -45,7 +45,8 @@ RUN mkdir -p /opt/odin && \
 ENV PATH="/opt/odin:${PATH}"
 
 # Build GLFW from source (shared library, same as CI)
-RUN git clone --depth 1 --branch ${GLFW_VERSION} https://github.com/glfw/glfw.git /tmp/glfw-src && \
+RUN mkdir -p /tmp/glfw-src && \
+    curl -sSL "https://github.com/glfw/glfw/archive/refs/tags/${GLFW_VERSION}.tar.gz" | tar xz -C /tmp/glfw-src --strip-components=1 && \
     cmake -S /tmp/glfw-src -B /tmp/glfw-build \
       -DCMAKE_INSTALL_PREFIX=/usr/local \
       -DBUILD_SHARED_LIBS=ON \
