@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 
 import postfx "rendering/postfx"
+import rendering "rendering"
 import settings "core/settings"
 
 // CLI action results
@@ -21,6 +22,8 @@ Cli_Options :: struct {
 	benchmark_frames: i32,
 	vsync:            bool,
 	compute_profile:  settings.Compute_Shader_Profile,
+	capture_ibl:      bool,
+	opt_profile:      Maybe(rendering.Optimization_Profile),
 }
 
 BENCHMARK_DEFAULT_FRAMES :: 300
@@ -33,6 +36,8 @@ DEFAULT_CLI_OPTIONS :: Cli_Options{
 	benchmark_frames = BENCHMARK_DEFAULT_FRAMES,
 	vsync            = false,
 	compute_profile  = .Legacy,
+	capture_ibl      = false,
+	opt_profile      = nil,
 }
 
 
@@ -56,6 +61,8 @@ cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
 			opts.postfx_enabled = false
 		case arg == "--vsync":
 			opts.vsync = true
+		case arg == "--capture-ibl":
+			opts.capture_ibl = true
 		case arg == "--benchmark":
 			opts.benchmark = true
 		case strings.has_prefix(arg, "--benchmark-frames="):
@@ -84,6 +91,20 @@ cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
 			} else {
 				fmt.eprintfln("Unknown compute profile: '%s'", value)
 				fmt.eprintln("Available profiles: legacy, optimized")
+				return opts, .Exit_Failure
+			}
+		case strings.has_prefix(arg, "--opt-profile=") || strings.has_prefix(arg, "--optimization-profile="):
+			prefix := "--opt-profile=" if strings.has_prefix(arg, "--opt-profile=") else "--optimization-profile="
+			value := arg[len(prefix):]
+			if value == "quality" {
+				opts.opt_profile = .Quality
+			} else if value == "balanced" {
+				opts.opt_profile = .Balanced
+			} else if value == "ultra" || value == "ultra-performance" {
+				opts.opt_profile = .Ultra_Performance
+			} else {
+				fmt.eprintfln("Unknown optimization profile: '%s'", value)
+				fmt.eprintln("Available profiles: quality, balanced, ultra")
 				return opts, .Exit_Failure
 			}
 		case:
@@ -120,6 +141,7 @@ print_usage :: proc(program_name: string) {
 	fmt.println("  --benchmark                 Run benchmark (all effects, print stats, exit)")
 	fmt.println("  --benchmark-frames=<N>      Benchmark frame count (default: 300)")
 	fmt.println("  --compute-profile=<name>    Compute shader tuning profile (legacy, optimized. default: legacy)")
+	fmt.println("  --opt-profile=<name>        Optimization profile (quality, balanced, ultra. default: quality)")
 }
 
 

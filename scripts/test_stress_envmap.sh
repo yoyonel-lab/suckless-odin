@@ -273,10 +273,8 @@ if kill -0 "$APP_PID" 2>/dev/null; then
 	else
 		kill -SIGTERM "$APP_PID" 2>/dev/null || true
 	fi
-	for _ in {1..40}; do
-		if ! kill -0 "$APP_PID" 2>/dev/null; then break; fi
-		sleep 0.05
-	done
+	wait_for_log "Application destroyed" 5 || true
+	wait "$APP_PID" 2>/dev/null || true
 	if kill -0 "$APP_PID" 2>/dev/null; then
 		kill -9 "$APP_PID" 2>/dev/null || true
 	fi

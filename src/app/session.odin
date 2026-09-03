@@ -1,5 +1,6 @@
 package app
 
+import "core:strings"
 import "vendor:glfw"
 import session "../core/session"
 import postfx "../rendering/postfx"
@@ -58,6 +59,7 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		sort_mode         = i32(s.sort_mode),
 		edge_aa_enabled   = s.edge_aa_enabled,
 		edge_aa_debug     = s.edge_aa_debug,
+		env_path          = strings.clone(s.hdr_files[s.current_hdr_index]) if len(s.hdr_files) > 0 && s.current_hdr_index >= 0 && s.current_hdr_index < i32(len(s.hdr_files)) else "",
 		postfx_active     = p.enabled,
 		postfx_settings   = pfx_settings,
 		gui_visible       = application.imgui.visible,
@@ -75,6 +77,78 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			split_enabled  = s.specular_aa_split_enabled,
 			split_position = s.specular_aa_split_position,
 		},
+		volumetric        = session.Volumetric_Session_Settings{
+			enabled                = s.volumetric.params.enabled,
+			composite_in_scene     = s.volumetric.params.composite_in_scene,
+			isolate_in_scene       = s.volumetric.params.isolate_in_scene,
+			shadows_enabled        = s.volumetric.params.shadows_enabled,
+			step_count             = s.volumetric.params.step_count,
+			scattering_coeff       = s.volumetric.params.scattering_coeff,
+			extinction_coeff       = s.volumetric.params.extinction_coeff,
+			anisotropy_g           = s.volumetric.params.anisotropy_g,
+			intensity_mult         = s.volumetric.params.intensity_mult,
+			jitter_enabled         = s.volumetric.params.jitter_enabled,
+			taa_mode               = s.volumetric.params.taa_mode,
+			taa_alpha              = s.volumetric.params.taa_alpha,
+			taa_depth_threshold    = s.volumetric.params.taa_depth_threshold,
+			taa_clamping_enabled   = s.volumetric.params.taa_clamping_enabled,
+			blur_mode              = s.volumetric.params.blur_mode,
+			blur_sharpness         = s.volumetric.params.blur_sharpness,
+			viewport_debug_mode    = s.volumetric.params.viewport_debug_mode,
+			upsample_mode          = s.volumetric.params.upsample_mode,
+			upsample_sharpness     = s.volumetric.params.upsample_sharpness,
+			resolution_divider     = s.volumetric.params.resolution_divider,
+			shadow_cache           = s.shadow_cubemap.shadow_cache,
+			time_slice_mode        = s.shadow_cubemap.time_slice_mode,
+			shadow_res_index       = s.shadow_cubemap.res_index,
+			shadow_near_plane      = s.shadow_cubemap.near_plane,
+			shadow_far_plane       = s.shadow_cubemap.far_plane,
+			preview_mode           = s.volumetric.params.preview_mode,
+			preview_exposure_boost = s.volumetric.params.preview_exposure_boost,
+			depth_edge_threshold   = s.depth_downsample.edge_threshold,
+			depth_preview_mode     = s.depth_downsample.preview_mode,
+			depth_preview_min      = s.depth_downsample.preview_min_depth,
+			depth_preview_max      = s.depth_downsample.preview_max_depth,
+			zoom_scale             = s.volumetric.params.zoom_scale,
+			zoom_center            = s.volumetric.params.zoom_center,
+		},
+		point_light       = session.Point_Light_Session_Settings{
+			position               = s.point_light.position,
+			radius                 = s.point_light.radius,
+			color                  = s.point_light.color,
+			intensity              = s.point_light.intensity,
+			enabled                = s.point_light.enabled,
+			direct_shadows_enabled = s.point_light.direct_shadows_enabled,
+			shadow_bias            = s.point_light.shadow_bias,
+			shadow_normal_bias     = s.point_light.shadow_normal_bias,
+			shadow_slope_bias      = s.point_light.shadow_slope_bias,
+			shadow_darkening       = s.point_light.shadow_darkening,
+			shadow_debug_mask      = s.point_light.shadow_debug_mask,
+			shadow_debug_mode      = s.point_light.shadow_debug_mode,
+			shadow_split_position  = s.point_light.shadow_split_position,
+			shadow_pcf_samples     = s.point_light.shadow_pcf_samples,
+			shadow_filter_radius       = s.point_light.shadow_filter_radius,
+			shadow_pcf_jitter          = s.point_light.shadow_pcf_jitter,
+			shadow_temporal_jitter     = s.point_light.shadow_temporal_jitter,
+			shadow_taa_enabled         = s.point_light.shadow_taa_enabled,
+			shadow_taa_mode            = s.point_light.shadow_taa_mode,
+			shadow_taa_alpha           = s.point_light.shadow_taa_alpha,
+			shadow_taa_depth_threshold = s.point_light.shadow_taa_depth_threshold,
+			shadow_taa_clamping        = s.point_light.shadow_taa_clamping,
+			phase_g                    = s.point_light.phase_g,
+			is_animated                = s.point_light.is_animated,
+			orbit_speed                = s.point_light.orbit_speed,
+			orbit_radius               = s.point_light.orbit_radius,
+			orbit_center               = s.point_light.orbit_center,
+			show_bulb                  = s.point_light.show_bulb,
+			bulb_radius                = s.point_light.bulb_radius,
+			show_gizmo                 = s.point_light.show_gizmo,
+			gizmo_op                   = s.point_light.gizmo_op,
+			gizmo_mode                 = s.point_light.gizmo_mode,
+			gizmo_snap                 = s.point_light.gizmo_snap,
+			gizmo_snap_value           = s.point_light.gizmo_snap_value,
+		},
+		optimization_profile = i32(s.optimization_profile),
 	}
 }
 
@@ -146,18 +220,148 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		application.camera_enabled = false
 	}
 	
-	if application.camera_enabled {
-		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
-	} else {
-		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
-	}
-	
-	if state.is_fullscreen {
-		monitor := glfw.GetPrimaryMonitor()
-		if monitor != nil {
-			mode := glfw.GetVideoMode(monitor)
-			glfw.SetWindowMonitor(application.window, monitor, 0, 0, mode.width, mode.height, mode.refresh_rate)
-			application.is_fullscreen = true
+	if application.window != nil {
+		if application.camera_enabled {
+			glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+		} else {
+			glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+		}
+		
+		if state.is_fullscreen {
+			monitor := glfw.GetPrimaryMonitor()
+			if monitor != nil {
+				mode := glfw.GetVideoMode(monitor)
+				glfw.SetWindowMonitor(application.window, monitor, 0, 0, mode.width, mode.height, mode.refresh_rate)
+				application.is_fullscreen = true
+			}
 		}
 	}
+
+	// Restore Environment Map index matching session
+	if len(state.env_path) > 0 {
+		for path, idx in s.hdr_files {
+			if path == state.env_path {
+				s.current_hdr_index = i32(idx)
+				break
+			}
+		}
+	}
+
+	// Restore volumetric parameters (if valid saved state with step_count > 0)
+	if state.volumetric.step_count > 0 {
+		s.volumetric.params.enabled                = state.volumetric.enabled
+		s.volumetric.params.composite_in_scene     = state.volumetric.composite_in_scene
+		s.volumetric.params.isolate_in_scene       = state.volumetric.isolate_in_scene
+		s.volumetric.params.shadows_enabled        = state.volumetric.shadows_enabled
+		s.volumetric.params.step_count             = state.volumetric.step_count
+		s.volumetric.params.scattering_coeff       = state.volumetric.scattering_coeff
+		s.volumetric.params.extinction_coeff       = state.volumetric.extinction_coeff
+		rendering.volumetric_set_anisotropy(&s.volumetric, &s.point_light, state.volumetric.anisotropy_g)
+		s.volumetric.params.intensity_mult         = state.volumetric.intensity_mult
+		s.volumetric.params.jitter_enabled         = state.volumetric.jitter_enabled
+		s.volumetric.params.taa_mode               = state.volumetric.taa_mode
+		s.volumetric.params.taa_alpha              = state.volumetric.taa_alpha
+		s.volumetric.params.taa_depth_threshold    = state.volumetric.taa_depth_threshold
+		s.volumetric.params.taa_clamping_enabled   = state.volumetric.taa_clamping_enabled
+		s.volumetric.params.blur_mode              = state.volumetric.blur_mode
+		s.volumetric.params.blur_sharpness         = state.volumetric.blur_sharpness
+		s.volumetric.params.viewport_debug_mode    = state.volumetric.viewport_debug_mode
+		s.volumetric.params.upsample_mode          = state.volumetric.upsample_mode
+		s.volumetric.params.upsample_sharpness     = state.volumetric.upsample_sharpness
+		if state.volumetric.resolution_divider > 0 {
+			s.volumetric.params.resolution_divider = state.volumetric.resolution_divider
+		}
+		s.volumetric.params.preview_mode           = state.volumetric.preview_mode
+		s.volumetric.params.preview_exposure_boost = state.volumetric.preview_exposure_boost
+		if state.volumetric.zoom_scale > 0 {
+			s.volumetric.params.zoom_scale = state.volumetric.zoom_scale
+		}
+		if state.volumetric.zoom_center.x != 0 || state.volumetric.zoom_center.y != 0 {
+			s.volumetric.params.zoom_center = state.volumetric.zoom_center
+		}
+		s.volumetric.history_valid                 = false
+
+		// Restore shadow cubemap caching, near/far planes and resolution
+		s.shadow_cubemap.shadow_cache = state.volumetric.shadow_cache
+		s.shadow_cubemap.time_slice_mode = state.volumetric.time_slice_mode
+		if state.volumetric.shadow_near_plane > 0 {
+			s.shadow_cubemap.near_plane = state.volumetric.shadow_near_plane
+		}
+		if state.volumetric.shadow_far_plane > 0 {
+			s.shadow_cubemap.far_plane = state.volumetric.shadow_far_plane
+		}
+		if state.volumetric.shadow_res_index >= 0 && state.volumetric.shadow_res_index < len(rendering.SHADOW_MAP_RESOLUTIONS) {
+			s.shadow_cubemap.res_index = state.volumetric.shadow_res_index
+			res := rendering.shadow_cubemap_res_for_index(s.shadow_cubemap.res_index)
+			if res != s.shadow_cubemap.resolution {
+				rendering.shadow_cubemap_resize(&s.shadow_cubemap, res)
+			}
+		}
+
+		// Restore depth downsample settings
+		if state.volumetric.depth_edge_threshold > 0 {
+			s.depth_downsample.edge_threshold = state.volumetric.depth_edge_threshold
+		}
+		s.depth_downsample.preview_mode = state.volumetric.depth_preview_mode
+		if state.volumetric.depth_preview_min > 0 {
+			s.depth_downsample.preview_min_depth = state.volumetric.depth_preview_min
+		}
+		if state.volumetric.depth_preview_max > 0 {
+			s.depth_downsample.preview_max_depth = state.volumetric.depth_preview_max
+		}
+	}
+
+	// Restore point light parameters (if valid saved radius > 0)
+	if state.point_light.radius > 0 {
+		s.point_light.position               = state.point_light.position
+		s.point_light.radius                 = state.point_light.radius
+		s.point_light.color                  = state.point_light.color
+		s.point_light.intensity              = state.point_light.intensity
+		s.point_light.enabled                = state.point_light.enabled
+		s.point_light.direct_shadows_enabled = state.point_light.direct_shadows_enabled
+		s.point_light.shadow_bias            = state.point_light.shadow_bias
+		s.point_light.shadow_normal_bias     = state.point_light.shadow_normal_bias
+		s.point_light.shadow_slope_bias      = state.point_light.shadow_slope_bias
+		s.point_light.shadow_darkening       = state.point_light.shadow_darkening
+		s.point_light.shadow_debug_mask      = state.point_light.shadow_debug_mask
+		s.point_light.shadow_debug_mode      = state.point_light.shadow_debug_mode
+		if state.point_light.shadow_split_position > 0.0 {
+			s.point_light.shadow_split_position = state.point_light.shadow_split_position
+		}
+		if state.point_light.shadow_pcf_samples > 0 {
+			s.point_light.shadow_pcf_samples = state.point_light.shadow_pcf_samples
+		}
+		if state.point_light.shadow_filter_radius > 0 {
+			s.point_light.shadow_filter_radius = state.point_light.shadow_filter_radius
+		}
+		s.point_light.shadow_pcf_jitter          = state.point_light.shadow_pcf_jitter
+		s.point_light.shadow_temporal_jitter     = state.point_light.shadow_temporal_jitter
+		s.point_light.shadow_taa_enabled         = state.point_light.shadow_taa_enabled
+		s.point_light.shadow_taa_mode            = state.point_light.shadow_taa_mode
+		if state.point_light.shadow_taa_alpha > 0 {
+			s.point_light.shadow_taa_alpha = state.point_light.shadow_taa_alpha
+		}
+		if state.point_light.shadow_taa_depth_threshold > 0 {
+			s.point_light.shadow_taa_depth_threshold = state.point_light.shadow_taa_depth_threshold
+		}
+		s.point_light.shadow_taa_clamping        = state.point_light.shadow_taa_clamping
+		rendering.volumetric_set_anisotropy(&s.volumetric, &s.point_light, state.point_light.phase_g)
+		s.point_light.is_animated                = state.point_light.is_animated
+		s.point_light.orbit_speed                = state.point_light.orbit_speed
+		s.point_light.orbit_radius               = state.point_light.orbit_radius
+		s.point_light.orbit_center               = state.point_light.orbit_center
+		s.point_light.show_bulb                  = state.point_light.show_bulb
+		s.point_light.bulb_radius                = state.point_light.bulb_radius
+		s.point_light.show_gizmo                 = state.point_light.show_gizmo
+		s.point_light.gizmo_op                   = state.point_light.gizmo_op
+		s.point_light.gizmo_mode                 = state.point_light.gizmo_mode
+		s.point_light.gizmo_snap                 = state.point_light.gizmo_snap
+		if state.point_light.gizmo_snap_value > 0 {
+			s.point_light.gizmo_snap_value = state.point_light.gizmo_snap_value
+		}
+		s.point_light.is_dirty                   = true
+	}
+
+	// Restore optimization profile preset
+	s.optimization_profile = rendering.Optimization_Profile(clamp(state.optimization_profile, 0, 3))
 }

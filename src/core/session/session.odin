@@ -14,6 +14,79 @@ Specular_AA_Settings :: struct {
 	split_position: f32  `json:"split_position"`,
 }
 
+Volumetric_Session_Settings :: struct {
+	enabled:                bool `json:"enabled"`,
+	composite_in_scene:     bool `json:"composite_in_scene"`,
+	isolate_in_scene:       bool `json:"isolate_in_scene"`,
+	shadows_enabled:        bool `json:"shadows_enabled"`,
+	step_count:             i32  `json:"step_count"`,
+	scattering_coeff:       f32  `json:"scattering_coeff"`,
+	extinction_coeff:       f32  `json:"extinction_coeff"`,
+	anisotropy_g:           f32  `json:"anisotropy_g"`,
+	intensity_mult:         f32  `json:"intensity_mult"`,
+	jitter_enabled:         bool `json:"jitter_enabled"`,
+	taa_mode:               i32  `json:"taa_mode"`,
+	taa_alpha:              f32  `json:"taa_alpha"`,
+	taa_depth_threshold:    f32  `json:"taa_depth_threshold"`,
+	taa_clamping_enabled:   bool `json:"taa_clamping_enabled"`,
+	blur_mode:              i32  `json:"blur_mode"`,
+	blur_sharpness:         f32  `json:"blur_sharpness"`,
+	viewport_debug_mode:    i32  `json:"viewport_debug_mode"`,
+	upsample_mode:          i32  `json:"upsample_mode"`,
+	upsample_sharpness:     f32  `json:"upsample_sharpness"`,
+	resolution_divider:     i32  `json:"resolution_divider"`,
+	shadow_cache:           bool    `json:"shadow_cache"`,
+	time_slice_mode:        i32     `json:"time_slice_mode"`,
+	shadow_res_index:       i32     `json:"shadow_res_index"`,
+	preview_mode:           i32     `json:"preview_mode"`,
+	preview_exposure_boost: f32     `json:"preview_exposure_boost"`,
+	depth_edge_threshold:   f32     `json:"depth_edge_threshold"`,
+	depth_preview_mode:     i32     `json:"depth_preview_mode"`,
+	depth_preview_min:      f32     `json:"depth_preview_min"`,
+	depth_preview_max:      f32     `json:"depth_preview_max"`,
+	shadow_near_plane:      f32     `json:"shadow_near_plane"`,
+	shadow_far_plane:       f32     `json:"shadow_far_plane"`,
+	zoom_scale:             f32     `json:"zoom_scale"`,
+	zoom_center:            mt.Vec2 `json:"zoom_center"`,
+}
+
+Point_Light_Session_Settings :: struct {
+	position:               mt.Vec3 `json:"position"`,
+	radius:                 f32     `json:"radius"`,
+	color:                  mt.Vec3 `json:"color"`,
+	intensity:              f32     `json:"intensity"`,
+	enabled:                bool    `json:"enabled"`,
+	direct_shadows_enabled: bool    `json:"direct_shadows_enabled"`,
+	shadow_bias:            f32     `json:"shadow_bias"`,
+	shadow_normal_bias:     f32     `json:"shadow_normal_bias"`,
+	shadow_slope_bias:      f32     `json:"shadow_slope_bias"`,
+	shadow_darkening:       f32     `json:"shadow_darkening"`,
+	shadow_debug_mask:      bool    `json:"shadow_debug_mask"`,
+	shadow_debug_mode:      i32     `json:"shadow_debug_mode"`,
+	shadow_split_position:  f32     `json:"shadow_split_position"`,
+	shadow_pcf_samples:     i32     `json:"shadow_pcf_samples"`,
+	shadow_filter_radius:       f32     `json:"shadow_filter_radius"`,
+	shadow_pcf_jitter:          bool    `json:"shadow_pcf_jitter"`,
+	shadow_temporal_jitter:     bool    `json:"shadow_temporal_jitter"`,
+	shadow_taa_enabled:         bool    `json:"shadow_taa_enabled"`,
+	shadow_taa_mode:            i32     `json:"shadow_taa_mode"`,
+	shadow_taa_alpha:           f32     `json:"shadow_taa_alpha"`,
+	shadow_taa_depth_threshold: f32     `json:"shadow_taa_depth_threshold"`,
+	shadow_taa_clamping:        bool    `json:"shadow_taa_clamping"`,
+	phase_g:                    f32     `json:"phase_g"`,
+	is_animated:                bool    `json:"is_animated"`,
+	orbit_speed:                f32     `json:"orbit_speed"`,
+	orbit_radius:               f32     `json:"orbit_radius"`,
+	orbit_center:               mt.Vec3 `json:"orbit_center"`,
+	show_bulb:                  bool    `json:"show_bulb"`,
+	bulb_radius:                f32     `json:"bulb_radius"`,
+	show_gizmo:                 bool    `json:"show_gizmo"`,
+	gizmo_op:                   i32     `json:"gizmo_op"`,
+	gizmo_mode:                 i32     `json:"gizmo_mode"`,
+	gizmo_snap:                 bool    `json:"gizmo_snap"`,
+	gizmo_snap_value:           f32     `json:"gizmo_snap_value"`,
+}
+
 // Session_State holds all runtime state to persist across runs.
 Session_State :: struct {
 	window_pos: [2]i32 `json:"window_pos"`,
@@ -36,6 +109,7 @@ Session_State :: struct {
 	sort_mode: i32 `json:"sort_mode"`,
 	edge_aa_enabled: bool `json:"edge_aa_enabled"`,
 	edge_aa_debug: bool `json:"edge_aa_debug"`,
+	env_path: string `json:"env_path"`,
 	
 	postfx_active: bool `json:"postfx_active"`,
 	postfx_settings: postfx.Settings_File `json:"postfx_settings"`,
@@ -50,6 +124,9 @@ Session_State :: struct {
 	camera_enabled: bool `json:"camera_enabled"`,
 	perf_mode_active: bool `json:"perf_mode_active"`,
 	specular_aa: Specular_AA_Settings `json:"specular_aa"`,
+	volumetric: Volumetric_Session_Settings `json:"volumetric"`,
+	point_light: Point_Light_Session_Settings `json:"point_light"`,
+	optimization_profile: i32 `json:"optimization_profile"`,
 }
 
 SESSION_FILE_PATH :: "session.json"
@@ -90,5 +167,6 @@ load_session :: proc(state: ^Session_State, path: string = SESSION_FILE_PATH) ->
 session_free :: proc(state: ^Session_State) {
 	delete(state.postfx_settings.name)
 	delete(state.postfx_settings.lut3d_path)
+	delete(state.env_path)
 }
 

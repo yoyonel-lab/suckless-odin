@@ -16,6 +16,8 @@ import postfx "../rendering/postfx"
 import rendering "../rendering"
 import dbg "../core/gl_debug"
 import gl_state "../core/gl_state"
+import itt "../core/itt"
+import renderdoc "../core/renderdoc"
 
 @(private)
 frame_zone_loc := tracy.Source_Location_Data{
@@ -110,6 +112,9 @@ App :: struct {
 
 	// Performance mode (GameMode / SCHED_FIFO / Nice)
 	perf:            perf_mode.Perf_Mode,
+
+	// Gamepad / Controller input (DualShock 4 / DualSense / Logitech / XInput)
+	gamepad:         Gamepad_State,
 }
 
 // Creates the application (allocates + creates window).
@@ -124,10 +129,19 @@ create :: proc(width, height: i32, title: cstring) -> ^App {
 }
 
 // Initializes the application: window, OpenGL context, callbacks.
-init :: proc(application: ^App, vsync: bool = false, compute_profile: settings.Compute_Shader_Profile = .Legacy) -> bool {
+init :: proc(
+	application: ^App,
+	vsync: bool = false,
+	compute_profile: settings.Compute_Shader_Profile = .Legacy,
+	capture_ibl: bool = false,
+) -> bool {
 	if application == nil { return false }
 
 	log.set_callback(tracy_log_callback)
+
+	// Probe Intel ITT and RenderDoc in-app APIs
+	itt.init()
+	renderdoc.init()
 
 	// Try to load previous session
 	session_state := session.Session_State{}
@@ -157,9 +171,15 @@ init :: proc(application: ^App, vsync: bool = false, compute_profile: settings.C
 	}
 	
 	if has_session {
-		glfw.SetWindowPos(application.window, session_state.window_pos[0], session_state.window_pos[1])
-		application.saved_x = session_state.window_pos[0]
-		application.saved_y = session_state.window_pos[1]
+		safe_x, safe_y := sanitize_window_position(
+			session_state.window_pos[0],
+			session_state.window_pos[1],
+			session_state.window_size[0] if session_state.window_size[0] > 0 else application.width,
+			session_state.window_size[1] if session_state.window_size[1] > 0 else application.height,
+		)
+		glfw.SetWindowPos(application.window, safe_x, safe_y)
+		application.saved_x = safe_x
+		application.saved_y = safe_y
 		application.saved_width = session_state.window_size[0]
 		application.saved_height = session_state.window_size[1]
 	}
@@ -185,14 +205,19 @@ init :: proc(application: ^App, vsync: bool = false, compute_profile: settings.C
 	glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 	application.camera_enabled = true
 
+	// Gamepad / Controller subsystem
+	gamepad_init(&application.gamepad)
+
 	// Load compute shader and slicing parameters from JSON file
 	tuning_params := settings.load_compute_tuning_params(compute_profile)
 
 	// Initialize scene
-	if !scene.scene_create(&application.scene, application.width, application.height, tuning_params) {
+	initial_env := session_state.env_path if has_session else ""
+	if !scene.scene_create(&application.scene, application.width, application.height, tuning_params, initial_env) {
 		log.log_error("suckless-odin.app", "Failed to create scene")
 		return false
 	}
+	application.scene.env_mgr.capture_ibl = capture_ibl
 
 	// Initialize GUI (Dear ImGui)
 	if !gui.init(&application.imgui, application.window) {
@@ -214,6 +239,14 @@ init :: proc(application: ^App, vsync: bool = false, compute_profile: settings.C
 
 	application.last_frame_time = glfw.GetTime()
 	application.running = true
+
+	// Log active optimization profile configurations
+	rendering.optimization_profile_log(
+		application.scene.optimization_profile,
+		&application.scene.volumetric,
+		&application.scene.point_light,
+		&application.scene.shadow_cubemap,
+	)
 
 	log.log_info("suckless-odin.app", "Application initialized (%dx%d)", application.width, application.height)
 	return true
@@ -268,6 +301,8 @@ run :: proc(application: ^App) {
 		if !gui.wants_keyboard(&application.imgui) {
 			process_keyboard(application)
 		}
+
+		gamepad_poll(application, &application.gamepad, application.delta_time)
 
 		update_start := time.tick_now()
 		// Update scene (camera physics, etc.)
@@ -338,8 +373,8 @@ run :: proc(application: ^App) {
 			rendering.overlay_render_splash(&application.scene.overlay, w, h, "SUCKLESS-ODIN", status_with_dots)
 		}
 
-		// GUI (Dear ImGui) — render on top of scene
-		if application.imgui.visible && !application.scene.env_mgr.is_first_load {
+		// GUI (Dear ImGui) & 3D Gizmo (ImGuizmo) — render on top of scene
+		if !application.scene.env_mgr.is_first_load {
 			dbg.push_group("GUI_ImGui")
 			gui.new_frame(&application.imgui)
 			gui.update(&application.imgui, gui.Scene_State{
@@ -370,10 +405,21 @@ run :: proc(application: ^App) {
 				env_texture_height  = application.scene.env_texture.height,
 				postfx              = &application.scene.postfx_pipeline,
 				perf                = &application.perf,
+				point_light         = &application.scene.point_light,
+				shadow_cubemap      = &application.scene.shadow_cubemap,
+				depth_downsample    = &application.scene.depth_downsample,
+				volumetric          = &application.scene.volumetric,
 				frame_time_ms       = application.scene.overlay.frame_time_display,
 				live_compute_tuning = &application.scene.env_mgr.compute_tuning,
 				apply_compute_tuning = apply_compute_tuning_callback,
 				scene_ptr           = &application.scene,
+				hdr_files            = application.scene.hdr_files[:],
+				current_hdr_index    = &application.scene.current_hdr_index,
+				env_thumbnails       = application.scene.env_thumbs.thumbnails[:],
+				env_transitioning    = (application.scene.env_mgr.transition_state != .Idle),
+				env_transition_alpha = application.scene.env_mgr.transition_alpha,
+				change_env           = change_env_callback,
+				optimization_profile = &application.scene.optimization_profile,
 			})
 			gui.render(&application.imgui)
 			gl_state.reset()
@@ -455,6 +501,15 @@ apply_postfx_options :: proc(application: ^App, enabled: bool, preset: Maybe(pos
 	application.scene.postfx_pipeline.enabled = enabled
 	if id, ok := preset.?; ok {
 		postfx.pipeline_apply_preset(&application.scene.postfx_pipeline, id)
+	}
+}
+
+// Apply CLI optimization profile.
+apply_optimization_profile :: proc(application: ^App, profile: Maybe(rendering.Optimization_Profile)) {
+	if prof, ok := profile.?; ok {
+		application.scene.optimization_profile = prof
+		rendering.optimization_profile_apply(prof, &application.scene.volumetric, &application.scene.point_light, &application.scene.shadow_cubemap)
+		rendering.optimization_profile_log(prof, &application.scene.volumetric, &application.scene.point_light, &application.scene.shadow_cubemap)
 	}
 }
 

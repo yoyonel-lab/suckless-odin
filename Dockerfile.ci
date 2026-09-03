@@ -1,41 +1,52 @@
+# syntax=docker/dockerfile:1
 # Dockerfile.ci — ISO reproduction of the GitHub Actions CI environment.
 # Mirrors ubuntu-latest + exact Odin/GLFW versions from ci.yml.
 #
 # Usage:
 #   docker build -f Dockerfile.ci -t suckless-odin-ci .
-#   docker run --rm -v $PWD:/workspace suckless-odin-ci [test-unit|test-gl|lint|build|all]
+#   docker run --rm -v $PWD:/workspace suckless-odin-ci [test-unit|test-gl|lint|build|test-win|package-win|all]
 #
 # The image caches Odin + GLFW + system deps so iterative runs are fast (~seconds).
 
 FROM ubuntu:24.04
 
-ARG ODIN_VERSION=dev-2026-05
-ARG ODIN_URL=https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz
+ARG ODIN_VERSION=dev-2026-09
+ARG ODIN_URL=https://github.com/odin-lang/Odin/releases/download/dev-2026-09/odin-linux-amd64-dev-2026-09.tar.gz
 ARG GLFW_VERSION=3.4
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ODIN_ROOT=/opt/odin
 
-# System dependencies (same as ci.yml install steps)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# System dependencies (cached via BuildKit cache mounts)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates git make cmake gcc g++ pkg-config \
-    clang lld llvm \
-    libgl1-mesa-dev libc++-dev libx11-dev \
+    clang-19 lld-19 llvm-19 libclang-rt-19-dev \
+    gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
+    wine wine64 libgl1-mesa-dev libc++-dev libx11-dev \
     libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
     libwayland-dev libxkbcommon-dev \
     xvfb mesa-utils libgl1-mesa-dri \
-    python3 python3-venv \
-    gdb \
-    && rm -rf /var/lib/apt/lists/*
+    python3 python3-venv python3-pip python3-ply \
+    zstd zip gdb rsync imagemagick \
+    && ln -sf /usr/bin/clang-19 /usr/local/bin/clang \
+
+    && ln -sf /usr/bin/clang++-19 /usr/local/bin/clang++ \
+    && ln -sf /usr/bin/lld-19 /usr/local/bin/lld \
+    && ln -sf /usr/bin/llvm-ar-19 /usr/local/bin/llvm-ar \
+    && (command -v wine >/dev/null || ln -sf /usr/bin/wine64 /usr/local/bin/wine || true) \
+    && sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
 # Install Odin compiler
 RUN mkdir -p /opt/odin && \
     curl -sSL "$ODIN_URL" | tar xz -C /opt/odin --strip-components=1 && \
-    make -C /opt/odin/vendor/stb/src
+    bash /opt/odin/vendor/stb/src/build_stb.sh
 ENV PATH="/opt/odin:${PATH}"
 
 # Build GLFW from source (shared library, same as CI)
-RUN git clone --depth 1 --branch ${GLFW_VERSION} https://github.com/glfw/glfw.git /tmp/glfw-src && \
+RUN mkdir -p /tmp/glfw-src && \
+    curl -sSL "https://github.com/glfw/glfw/archive/refs/tags/${GLFW_VERSION}.tar.gz" | tar xz -C /tmp/glfw-src --strip-components=1 && \
     cmake -S /tmp/glfw-src -B /tmp/glfw-build \
       -DCMAKE_INSTALL_PREFIX=/usr/local \
       -DBUILD_SHARED_LIBS=ON \

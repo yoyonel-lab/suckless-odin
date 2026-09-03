@@ -16,6 +16,10 @@ EXCLUDED_GUI_FIELDS = {
     "postfx",  # Handled via postfx_active and postfx_settings
     "perf",  # Handled via perf_mode_active
     "live_compute_tuning",  # Temporary runtime tuning parameters
+    "point_light",  # Handled via volumetric/light settings subsystem
+    "shadow_cubemap",  # Transient GPU framebuffer resource
+    "depth_downsample",  # Transient GPU depth downsampler resource
+    "volumetric",  # Transient GPU volumetric lighting resource
 }
 
 # Fields in Session_State that are handled directly in app initialization rather than restore_session_state
@@ -33,6 +37,7 @@ FIELD_MAPPING = {
     "specular_aa_debug_mode": "specular_aa",
     "specular_aa_split_enabled": "specular_aa",
     "specular_aa_split_position": "specular_aa",
+    "current_hdr_index": "env_path",
 }
 
 

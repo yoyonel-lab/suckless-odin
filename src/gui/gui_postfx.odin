@@ -5,10 +5,11 @@ import "core:math"
 import imgui "../../deps/odin-imgui"
 import perf_mode "../core/perf_mode"
 import postfx "../rendering/postfx"
+import rendering "../rendering"
 
 // ─── Post-FX Section (live controls) ───────────────────────────────────────────
 
-// Per-effect split line colors — indexed from Glasbey palette (maximin CIELAB).
+// Per-effect split line colors - indexed from Glasbey palette (maximin CIELAB).
 // Must match shader splitColors[] uniform (indexed by Post_Effect ordinal).
 
 // Show a colored "[S]" marker if the effect has an active A/B split.
@@ -44,7 +45,7 @@ draw_postfx_exposure :: proc(p: ^postfx.Pipeline) {
 			if exposure_split {
 				pos_pct := p.split_positions[.Exposure] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_exposure", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_exposure", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Exposure] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -77,7 +78,7 @@ draw_postfx_tonemapping :: proc(p: ^postfx.Pipeline) {
 			if tonemap_split {
 				pos_pct := p.split_positions[.Tonemap] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_tonemap", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_tonemap", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Tonemap] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -108,7 +109,7 @@ draw_postfx_vignette :: proc(p: ^postfx.Pipeline) {
 			if vignette_split {
 				pos_pct := p.split_positions[.Vignette] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_vignette", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_vignette", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Vignette] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -138,7 +139,7 @@ draw_postfx_grain :: proc(p: ^postfx.Pipeline) {
 			if grain_split {
 				pos_pct := p.split_positions[.Grain] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_grain", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_grain", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Grain] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -167,7 +168,7 @@ draw_postfx_ca :: proc(p: ^postfx.Pipeline) {
 			if ca_split {
 				pos_pct := p.split_positions[.Chrom_Abbr] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_ca", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_ca", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Chrom_Abbr] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -200,7 +201,7 @@ draw_postfx_color_grading :: proc(p: ^postfx.Pipeline) {
 			if cg_split {
 				pos_pct := p.split_positions[.Color_Grading] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_cg", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_cg", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Color_Grading] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -241,7 +242,7 @@ draw_postfx_bloom :: proc(p: ^postfx.Pipeline) {
 			if bloom_split {
 				pos_pct := p.split_positions[.Bloom] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_bloom", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_bloom", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Bloom] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -281,7 +282,7 @@ draw_postfx_fxaa :: proc(p: ^postfx.Pipeline) {
 			if fxaa_split {
 				pos_pct := p.split_positions[.FXAA] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_fxaa", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_fxaa", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.FXAA] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -318,7 +319,7 @@ draw_postfx_auto_exposure :: proc(p: ^postfx.Pipeline) {
 			if ae_split {
 				pos_pct := p.split_positions[.Auto_Exposure] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_ae", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_ae", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Auto_Exposure] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -360,7 +361,7 @@ draw_postfx_dof :: proc(p: ^postfx.Pipeline) {
 			if dof_split {
 				pos_pct := p.split_positions[.Dof] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_dof", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_dof", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Dof] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -461,7 +462,7 @@ draw_postfx_banding :: proc(p: ^postfx.Pipeline) {
 			if banding_split {
 				pos_pct := p.split_positions[.Banding] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_banding", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_banding", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Banding] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -503,7 +504,7 @@ draw_postfx_fog :: proc(p: ^postfx.Pipeline) {
 			if fog_split {
 				pos_pct := p.split_positions[.Fog] * 100.0
 				imgui.SetNextItemWidth(-1)
-				if imgui.SliderFloat("##split_pos_fog", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+				if imgui.SliderFloat("##split_pos_fog", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 					p.split_positions[.Fog] = pos_pct / 100.0
 					p.ubo_dirty = true
 				}
@@ -543,7 +544,7 @@ draw_postfx_lut3d :: proc(p: ^postfx.Pipeline) {
 				postfx.pipeline_disable(p, .LUT3D)
 			}
 		} else {
-			imgui.TextColored(imgui.Vec4{1.0, 0.6, 0.3, 1.0}, "No LUT loaded — enter path to a .cube file:")
+			imgui.TextColored(imgui.Vec4{1.0, 0.6, 0.3, 1.0}, "No LUT loaded - enter path to a .cube file:")
 			imgui.SetNextItemWidth(300)
 			imgui.InputText("##lut3d_path", cast(cstring)&lut_path_buf[0], len(lut_path_buf))
 			imgui.SameLine()
@@ -570,7 +571,7 @@ draw_postfx_lut3d :: proc(p: ^postfx.Pipeline) {
 		if lut_split {
 			pos_pct := p.split_positions[.LUT3D] * 100.0
 			imgui.SetNextItemWidth(-1)
-			if imgui.SliderFloat("##split_pos_lut3d", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+			if imgui.SliderFloat("##split_pos_lut3d", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 				p.split_positions[.LUT3D] = pos_pct / 100.0
 				p.ubo_dirty = true
 			}
@@ -664,14 +665,14 @@ draw_postfx_section :: proc(state: Scene_State) {
 	imgui.Spacing()
 }
 
-// GPU Timings tab — separate from Post-FX controls.
+// GPU Timings tab - separate from Post-FX controls.
 @(private)
 draw_gpu_timings_section :: proc(state: Scene_State) {
 	// Performance mode toggle (at the top of Profiling tab)
 	draw_perf_mode_widget(state)
 	imgui.Spacing()
 
-	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "GPU Profiling")
+	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "GPU Profiling (Hardware GL_TIME_ELAPSED)")
 	imgui.Separator()
 
 	p := state.postfx
@@ -680,77 +681,150 @@ draw_gpu_timings_section :: proc(state: Scene_State) {
 		return
 	}
 
-	imgui.Checkbox("Enable Profiling", &p.timers.enabled)
-	if !p.timers.enabled { return }
+	imgui.TextColored(imgui.Vec4{0.8, 0.9, 1.0, 1.0}, "1. Post-Processing Pipeline:")
+	imgui.Checkbox("Enable Post-FX Profiling", &p.timers.enabled)
 
-	total_avg, total_min, total_max := postfx.gpu_timer_get_total_metrics(&p.timers)
+	total_postfx_avg: f32 = 0.0
+	if p.timers.enabled {
+		total_avg, total_min, total_max := postfx.gpu_timer_get_total_metrics(&p.timers)
+		total_postfx_avg = total_avg
+
+		// Per-pass metrics table
+		table_flags := imgui.TableFlags_BordersInnerH | imgui.TableFlags_SizingFixedFit
+		if imgui.BeginTable("##gpu_timings", 5, table_flags) {
+			imgui.TableSetupColumn("Pass", {.WidthFixed}, 90)
+			imgui.TableSetupColumn("Avg (ms)", {.WidthFixed}, 75)
+			imgui.TableSetupColumn("Min (ms)", {.WidthFixed}, 75)
+			imgui.TableSetupColumn("Max (ms)", {.WidthFixed}, 75)
+			imgui.TableSetupColumn("%", {.WidthFixed}, 45)
+			imgui.TableHeadersRow()
+
+			pass_names := postfx.TIMER_PASS_NAMES
+			for pass in postfx.Timer_Pass {
+				avg, min_v, max_v := postfx.gpu_timer_get_metrics(&p.timers, pass)
+				pct := postfx.gpu_timer_get_pct(&p.timers, pass)
+
+				imgui.TableNextRow()
+				imgui.TableNextColumn()
+				imgui.Text("%s", pass_names[pass])
+				imgui.TableNextColumn()
+				imgui.Text("%.3f", avg)
+				imgui.TableNextColumn()
+				imgui.TextDisabled("%.3f", min_v)
+				imgui.TableNextColumn()
+				imgui.TextDisabled("%.3f", max_v)
+				imgui.TableNextColumn()
+				imgui.Text("%.0f%%", pct)
+			}
+
+			// Total row
+			imgui.TableNextRow()
+			imgui.TableNextColumn()
+			imgui.TextColored(imgui.Vec4{0.8, 0.9, 1.0, 1.0}, "Total Post-FX")
+			imgui.TableNextColumn()
+			imgui.TextColored(imgui.Vec4{0.8, 0.9, 1.0, 1.0}, "%.3f", total_avg)
+			imgui.TableNextColumn()
+			imgui.TextDisabled("%.3f", total_min)
+			imgui.TableNextColumn()
+			imgui.TextDisabled("%.3f", total_max)
+			imgui.TableNextColumn()
+			imgui.Text("")
+
+			imgui.EndTable()
+		}
+	}
+
+	// 2. Volumetric Lighting GPU Profiling
+	total_volumetric_avg: f32 = 0.0
+	vr := state.volumetric
+	if vr != nil {
+		imgui.Spacing()
+		imgui.Separator()
+		imgui.TextColored(imgui.Vec4{1.0, 0.8, 0.3, 1.0}, "2. Volumetric Lighting Pipeline:")
+		imgui.Checkbox("Enable Volumetric Profiling", &vr.timers.enabled)
+
+		if vr.timers.enabled {
+			vol_total_avg, vol_total_min, vol_total_max := rendering.volumetric_timer_get_total_metrics(&vr.timers)
+			total_volumetric_avg = vol_total_avg
+
+			table_flags := imgui.TableFlags_BordersInnerH | imgui.TableFlags_SizingFixedFit
+			if imgui.BeginTable("##volumetric_gpu_timings", 5, table_flags) {
+				imgui.TableSetupColumn("Pass", {.WidthFixed}, 140)
+				imgui.TableSetupColumn("Avg (ms)", {.WidthFixed}, 75)
+				imgui.TableSetupColumn("Min (ms)", {.WidthFixed}, 75)
+				imgui.TableSetupColumn("Max (ms)", {.WidthFixed}, 75)
+				imgui.TableSetupColumn("%", {.WidthFixed}, 45)
+				imgui.TableHeadersRow()
+
+				passes := [rendering.NUM_VOLUMETRIC_TIMER_PASSES]rendering.Volumetric_Timer_Pass{
+					.Shadow_Pass,
+					.Depth_Downsample,
+					.Raymarching,
+					.TAA_Blend,
+					.Bilateral_Blur,
+					.Composite_Upsample,
+				}
+
+				for pass in passes {
+					avg, min_v, max_v := rendering.volumetric_timer_get_metrics(&vr.timers, pass)
+					pct := rendering.volumetric_timer_get_pct(&vr.timers, pass)
+					name := rendering.volumetric_timer_pass_name(pass)
+
+					imgui.TableNextRow()
+					imgui.TableNextColumn()
+					imgui.Text("%s", name)
+					imgui.TableNextColumn()
+					imgui.Text("%.3f", avg)
+					imgui.TableNextColumn()
+					imgui.TextDisabled("%.3f", min_v)
+					imgui.TableNextColumn()
+					imgui.TextDisabled("%.3f", max_v)
+					imgui.TableNextColumn()
+					imgui.Text("%.0f%%", pct)
+				}
+
+				// Total row
+				imgui.TableNextRow()
+				imgui.TableNextColumn()
+				imgui.TextColored(imgui.Vec4{1.0, 0.85, 0.4, 1.0}, "Total Volumetric")
+				imgui.TableNextColumn()
+				imgui.TextColored(imgui.Vec4{1.0, 0.85, 0.4, 1.0}, "%.3f", vol_total_avg)
+				imgui.TableNextColumn()
+				imgui.TextDisabled("%.3f", vol_total_min)
+				imgui.TableNextColumn()
+				imgui.TextDisabled("%.3f", vol_total_max)
+				imgui.TableNextColumn()
+				imgui.Text("")
+
+				imgui.EndTable()
+			}
+		}
+	}
 
 	imgui.Spacing()
 	imgui.Separator()
 
-	// Per-pass metrics table
-	table_flags := imgui.TableFlags_BordersInnerH | imgui.TableFlags_SizingFixedFit
-	if imgui.BeginTable("##gpu_timings", 5, table_flags) {
-		imgui.TableSetupColumn("Pass", {.WidthFixed}, 90)
-		imgui.TableSetupColumn("Avg", {.WidthFixed}, 70)
-		imgui.TableSetupColumn("Min", {.WidthFixed}, 70)
-		imgui.TableSetupColumn("Max", {.WidthFixed}, 70)
-		imgui.TableSetupColumn("%", {.WidthFixed}, 45)
-		imgui.TableHeadersRow()
-
-		pass_names := postfx.TIMER_PASS_NAMES
-		for pass in postfx.Timer_Pass {
-			avg, min_v, max_v := postfx.gpu_timer_get_metrics(&p.timers, pass)
-			pct := postfx.gpu_timer_get_pct(&p.timers, pass)
-
-			imgui.TableNextRow()
-			imgui.TableNextColumn()
-			imgui.Text("%s", pass_names[pass])
-			imgui.TableNextColumn()
-			imgui.Text("%.3f", avg)
-			imgui.TableNextColumn()
-			imgui.TextDisabled("%.3f", min_v)
-			imgui.TableNextColumn()
-			imgui.TextDisabled("%.3f", max_v)
-			imgui.TableNextColumn()
-			imgui.Text("%.0f%%", pct)
-		}
-
-		// Total row
-		imgui.TableNextRow()
-		imgui.TableNextColumn()
-		imgui.TextColored(imgui.Vec4{0.8, 0.9, 1.0, 1.0}, "Total")
-		imgui.TableNextColumn()
-		imgui.TextColored(imgui.Vec4{0.8, 0.9, 1.0, 1.0}, "%.3f", total_avg)
-		imgui.TableNextColumn()
-		imgui.TextDisabled("%.3f", total_min)
-		imgui.TableNextColumn()
-		imgui.TextDisabled("%.3f", total_max)
-		imgui.TableNextColumn()
-		imgui.Text("")
-
-		imgui.EndTable()
-	}
-
-	imgui.Spacing()
-	// Frame budget: smoothed % of actual frame time consumed by PostFX
+	// Frame budget: smoothed % of actual frame time consumed by PostFX and Volumetric
 	frame_ms := state.frame_time_ms
-	budget_pct: f32 = 0
+	total_combined_avg := total_postfx_avg + total_volumetric_avg
+	combined_pct: f32 = 0
 	if frame_ms > 0 {
-		budget_pct = (total_avg / frame_ms) * 100.0
+		combined_pct = (total_combined_avg / frame_ms) * 100.0
 	}
 	budget_color: imgui.Vec4
-	if budget_pct < 25 {
+	if combined_pct < 30 {
 		budget_color = {0.3, 1.0, 0.3, 1.0} // green
-	} else if budget_pct < 50 {
+	} else if combined_pct < 60 {
 		budget_color = {1.0, 0.9, 0.3, 1.0} // yellow
 	} else {
 		budget_color = {1.0, 0.3, 0.3, 1.0} // red
 	}
-	imgui.TextColored(budget_color, "PostFX: %.1f%% of frame (%.2f ms)", budget_pct, frame_ms)
+	imgui.TextColored(budget_color, "Combined GPU Pipeline: %.1f%% of frame (%.2f ms / %.2f ms)", combined_pct, total_combined_avg, frame_ms)
+	imgui.TextDisabled("  |-- PostFX:     %.3f ms (%.1f%%)", total_postfx_avg, (total_postfx_avg / max(0.001, frame_ms)) * 100.0)
+	imgui.TextDisabled("  +-- Volumetric: %.3f ms (%.1f%%)", total_volumetric_avg, (total_volumetric_avg / max(0.001, frame_ms)) * 100.0)
 }
 
-// Shader Cache tab — separate from Post-FX controls.
+// Shader Cache tab - separate from Post-FX controls.
 @(private)
 draw_shader_cache_section :: proc(state: Scene_State) {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Shader Optimization")
@@ -764,7 +838,7 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 
 	imgui.Checkbox("Enable Variants", &p.shader_cache.enabled)
 	if !p.shader_cache.enabled {
-		imgui.TextDisabled("Disabled — using dynamic uber-shader with runtime branching")
+		imgui.TextDisabled("Disabled - using dynamic uber-shader with runtime branching")
 		return
 	}
 
@@ -826,13 +900,13 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 	if cached_program != 0 {
 		imgui.TextColored(imgui.Vec4{0.3, 1.0, 0.3, 1.0}, "Status: CACHED (program %d)", cached_program)
 	} else {
-		imgui.TextColored(imgui.Vec4{1.0, 0.7, 0.3, 1.0}, "Status: MISS — using dynamic branching")
+		imgui.TextColored(imgui.Vec4{1.0, 0.7, 0.3, 1.0}, "Status: MISS - using dynamic branching")
 	}
 
 	imgui.Spacing()
 
 	// --- Actions ---
-	can_compile := cached_program == 0 && p.shader_cache.count < i32(postfx.MAX_CACHED_VARIANTS)
+	can_compile := cached_program == 0
 	if !can_compile { imgui.BeginDisabled() }
 	if imgui.Button("Compile Current") {
 		postfx.pipeline_compile_variant(p)
@@ -843,7 +917,7 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 		imgui.TextDisabled("(already cached)")
 	} else if p.shader_cache.count >= i32(postfx.MAX_CACHED_VARIANTS) {
 		imgui.SameLine()
-		imgui.TextDisabled("(cache full)")
+		imgui.TextDisabled("(LRU eviction)")
 	}
 
 	imgui.SameLine()
@@ -897,7 +971,7 @@ draw_shader_cache_section :: proc(state: Scene_State) {
 	}
 }
 
-// PostFX filtered search entries — called from draw_filtered_view.
+// PostFX filtered search entries - called from draw_filtered_view.
 @(private)
 draw_postfx_filtered :: proc(state: Scene_State, filter: cstring) -> int {
 	p := state.postfx
@@ -1300,7 +1374,7 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 				case 3:
 					imgui.SetTooltip("3x3 dilated tile-max velocity\nBlue->Red heatmap\nEnsures blur extends beyond moving object edges")
 				case 4:
-					imgui.SetTooltip("Per-pixel velocity magnitude heatmap\nBlue->Red (0 -> max_velocity)\nFull resolution — shows exact motion boundaries")
+					imgui.SetTooltip("Per-pixel velocity magnitude heatmap\nBlue->Red (0 -> max_velocity)\nFull resolution - shows exact motion boundaries")
 				case 5:
 					imgui.SetTooltip("SDF arrow grid (48px spacing)\nArrow direction = motion direction\nArrow color (HSV) = direction angle\nArrow length = velocity magnitude")
 				}
@@ -1337,10 +1411,10 @@ draw_tab_motion_blur :: proc(state: Scene_State) {
 	// --- Active Effects Bitfield ---
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "Effect Bits")
 	imgui.Separator()
-	imgui.Text("Motion_Blur (bit 10): %s", mb_on ? "ON" : "OFF")
-	imgui.Text("Motion_Blur_Debug (bit 11): %s", mb_dbg ? "ON" : "OFF")
-	imgui.Text("Vector_Field_Debug (bit 22): %s", vf_dbg ? "ON" : "OFF")
-	imgui.Text("Synthetic Inject: %s", p.motion_blur.inject_enabled ? "ACTIVE" : "off")
+	imgui.TextUnformatted(fmt.ctprintf("Motion_Blur (bit 10): %s", "ON" if mb_on else "OFF"))
+	imgui.TextUnformatted(fmt.ctprintf("Motion_Blur_Debug (bit 11): %s", "ON" if mb_dbg else "OFF"))
+	imgui.TextUnformatted(fmt.ctprintf("Vector_Field_Debug (bit 22): %s", "ON" if vf_dbg else "OFF"))
+	imgui.TextUnformatted(fmt.ctprintf("Synthetic Inject: %s", "ACTIVE" if p.motion_blur.inject_enabled else "off"))
 }
 
 // ─── Performance Mode Widget ───────────────────────────────────────────────────
@@ -1359,13 +1433,13 @@ draw_perf_mode_widget :: proc(state: Scene_State) {
 		imgui.SetTooltip(
 			"Maximizes system resources for this application.\n\n" +
 			"Backends (tried in order):\n" +
-			"  1. GameMode — CPU governor 'performance', GPU boost\n" +
-			"  2. SCHED_FIFO — Real-time scheduling (needs root)\n" +
-			"  3. Nice -10 — Higher process priority\n\n" +
+			"  1. GameMode - CPU governor 'performance', GPU boost\n" +
+			"  2. SCHED_FIFO - Real-time scheduling (needs root)\n" +
+			"  3. Nice -10 - Higher process priority\n\n" +
 			"Also enables:\n" +
-			"  • mlockall — Locks memory, prevents stutter\n" +
-			"  • MESA_NO_ERROR — Skips GL validation (restart needed)\n" +
-			"  • mesa_glthread — Multi-threaded GL dispatch (restart needed)",
+			"  - mlockall - Locks memory, prevents stutter\n" +
+			"  - MESA_NO_ERROR - Skips GL validation (restart needed)\n" +
+			"  - mesa_glthread - Multi-threaded GL dispatch (restart needed)",
 		)
 	}
 	imgui.Separator()

@@ -22,6 +22,11 @@ previously chosen colors.
 > "Colour Displays for Categorical Images." *Color Research & Application*, 32(4),
 > 304–309. DOI: 10.1002/col.20327
 
+| Visualisation de la Palette Glasbey 256 Couleurs ($16 \times 16$ Échantillons) |
+| :---: |
+| ![Palette Glasbey 256](images/materials/05_glasbey_palette_256_swatches.webp) |
+| *256 couleurs distinctes maximisant la distance perceptive $\Delta E^*$ dans l'espace CIELAB ($L^* \in [20, 90], C^* \in [20, 100]$).* |
+
 ## Computational Complexity
 
 The underlying problem — selecting *k* colors from a discrete gamut of *N* candidates

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # interactive_runner.sh — Event-driven automation runner for profiling & integration sessions
 # Launches the engine, captures application log events, triggers inputs synchronously with state machine,
-# and exits cleanly without arbitrary sleep delays.
+# and synchronizes strictly on application log events instead of arbitrary sleep delays.
 
 TMP_DIR="${TMP_DIR:-/tmp}"
 RUNNER_LOG="${TMP_DIR}/runner_app_${USER}_$$.log"
@@ -12,7 +12,7 @@ touch "$RUNNER_LOG"
 
 LOG_LINE_OFFSET=0
 
-# Log synchronization helper: waits for a pattern appearing in log lines produced after LOG_LINE_OFFSET
+# Log synchronization helper: waits for a pattern appearing in log lines produced strictly after LOG_LINE_OFFSET
 wait_for_next_log() {
 	local pattern="$1"
 	local timeout="${2:-120}"
@@ -45,7 +45,7 @@ wait_for_next_log() {
 			LOG_LINE_OFFSET=$(wc -l <"$RUNNER_LOG" 2>/dev/null || echo "$LOG_LINE_OFFSET")
 			return 1
 		fi
-		sleep 0.05
+		sleep 0.01
 	done
 }
 
@@ -75,7 +75,7 @@ for _ in {1..50}; do
 	if [ -n "$WINDOW_ID" ]; then
 		break
 	fi
-	sleep 0.05
+	sleep 0.01
 done
 
 activate_window() {
@@ -101,37 +101,51 @@ else
 	echo "[Runner] AVERTISSEMENT : Fenêtre introuvable pour PID $APP_PID."
 fi
 
+TRACY_PID=""
+if [ -n "${TRACY_CAPTURE_BIN:-}" ] && [ -n "${TRACY_TRACE_FILE:-}" ]; then
+	wait_for_next_log "Application initialized" 60 "Application initialized pour Tracy" || true
+	echo "[Runner] Démarrage de tracy-capture connecté au port 8086..."
+	"$TRACY_CAPTURE_BIN" -o "$TRACY_TRACE_FILE" -s 60 -f >"${TMP_DIR}/tracy_capture.log" 2>&1 &
+	TRACY_PID=$!
+
+	echo "[Runner] Attente connexion active de tracy-capture..."
+	for _ in {1..100}; do
+		if grep -q "Timer resolution:" "${TMP_DIR}/tracy_capture.log" 2>/dev/null; then
+			echo "[Runner] Tracy Profiler connecté avec succès."
+			break
+		fi
+		if ! kill -0 "$TRACY_PID" 2>/dev/null; then
+			break
+		fi
+		sleep 0.02
+	done
+fi
+
 echo "[Runner] ⏳ Attente initialisation moteur & premier bake IBL (State -> Idle)..."
 wait_for_next_log "Transition state: .* -> Idle" 120 "Initialisation IBL Idle"
 
 echo "[Runner] 🌍 Changement environnement HDR #1 (Touche Page_Up)..."
 send_key "Page_Up"
-wait_for_next_log "Transition state: .* -> Idle" 120 "Bake HDR #1 Idle"
+wait_for_next_log "Transition state: Idle -> " 30 "Début transition HDR #1" || true
+wait_for_next_log "Transition state: .* -> Idle" 120 "Fin transition HDR #1 Idle"
 
 echo "[Runner] 🎥 Déplacement caméra vers l'avant (Touche W)..."
-wid=$(get_target_wid)
-if [ -n "$wid" ]; then
-	timeout 2 xdotool keydown --window "$wid" w 2>/dev/null || true
-	sleep 1.0
-	timeout 2 xdotool keyup --window "$wid" w 2>/dev/null || true
-fi
+send_key "w"
 
 echo "[Runner] 🌍 Changement environnement HDR #2 (Touche Page_Down)..."
 send_key "Page_Down"
-wait_for_next_log "Transition state: .* -> Idle" 120 "Bake HDR #2 Idle"
+wait_for_next_log "Transition state: Idle -> " 30 "Début transition HDR #2" || true
+wait_for_next_log "Transition state: .* -> Idle" 120 "Fin transition HDR #2 Idle"
 
 echo "[Runner] 🚪 Fermeture propre via Escape..."
 send_key "Escape"
+wait_for_next_log "Application destroyed" 10 "Fermeture application" || true
+wait "$APP_PID" 2>/dev/null || true
 
-# Attente de la fermeture normale
-for _ in {1..80}; do
-	if ! kill -0 "$APP_PID" 2>/dev/null; then
-		break
-	fi
-	sleep 0.1
-done
-
-
+if [ -n "$TRACY_PID" ]; then
+	echo "[Runner] Attente de la finalisation de la trace Tracy..."
+	wait "$TRACY_PID" 2>/dev/null || true
+fi
 
 # Arrêt forcé de sécurité si l'application ne s'est pas fermée
 if kill -0 "$APP_PID" 2>/dev/null; then
@@ -141,7 +155,7 @@ if kill -0 "$APP_PID" 2>/dev/null; then
 	for CPID in $CHILD_PIDS; do
 		kill -SIGTERM "$CPID" 2>/dev/null || true
 	done
-	sleep 0.5
+	wait "$APP_PID" 2>/dev/null || true
 	if kill -0 "$APP_PID" 2>/dev/null; then
 		kill -SIGKILL "$APP_PID" 2>/dev/null || true
 	fi
@@ -149,4 +163,3 @@ fi
 
 wait "$APP_PID" 2>/dev/null || true
 echo "[Runner] Session interactive terminée avec succès."
-

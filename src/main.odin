@@ -25,13 +25,14 @@ main :: proc() {
 	}
 	defer app.destroy(application)
 
-	if !app.init(application, vsync = opts.vsync, compute_profile = opts.compute_profile) {
+	if !app.init(application, vsync = opts.vsync, compute_profile = opts.compute_profile, capture_ibl = opts.capture_ibl) {
 		log.log_error("suckless-odin.main", "Failed to initialize application")
 		os.exit(1)
 	}
 
 	// Apply CLI postfx options after init (pipeline is ready)
 	app.apply_postfx_options(application, opts.postfx_enabled, opts.postfx_preset)
+	app.apply_optimization_profile(application, opts.opt_profile)
 
 	if opts.benchmark {
 		app.run_benchmark(application, opts.benchmark_frames, BENCHMARK_WARMUP_FRAMES)

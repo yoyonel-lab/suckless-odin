@@ -7,6 +7,7 @@ import "core:os"
 
 import scene "../scene"
 import postfx "../rendering/postfx"
+import rendering "../rendering"
 
 // Run a fixed-frame benchmark: enable all effects, render N frames, print stats.
 // Uses glFinish() per frame for accurate GPU timing (not just CPU submission).
@@ -28,15 +29,19 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 	// Disable GUI for clean measurement
 	application.imgui.visible = false
 
+	effective_warmup := min(warmup_frames, max(0, total_frames / 4))
+	measured_frames := max(1, total_frames - effective_warmup)
+
 	fmt.println("=== BENCHMARK START ===")
 	fmt.printfln("  GPU: %s", gl.GetString(gl.RENDERER))
-	fmt.printfln("  Frames: %d (warmup: %d, measured: %d)", total_frames, warmup_frames, total_frames - warmup_frames)
+	fmt.printfln("  Optimization Profile: %s", rendering.optimization_profile_name(application.scene.optimization_profile))
+	fmt.printfln("  Frames: %d (warmup: %d, measured: %d)", total_frames, effective_warmup, measured_frames)
 	fmt.printfln("  Effects: Vignette+Grain+Exposure+ChromAbbr+Bloom+ColorGrading+DoF+AutoExposure+FXAA+Tonemap+Banding")
 
 	w, h := glfw.GetFramebufferSize(application.window)
 	fmt.printfln("  Resolution: %dx%d", w, h)
 
-	measure_start: f64
+	measure_start := glfw.GetTime()
 	frame: i32
 
 	for frame < total_frames && application.running && !glfw.WindowShouldClose(application.window) {
@@ -55,7 +60,7 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 		gl.Finish()
 
 		// Dump frame after warmup for visual validation (BEFORE swap)
-		if frame == warmup_frames {
+		if frame == effective_warmup {
 			dump_benchmark_frame(application, bw, bh)
 		}
 
@@ -63,7 +68,7 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 
 		frame += 1
 
-		if frame == warmup_frames {
+		if frame == effective_warmup {
 			// Force a pipeline flush before measurement begins
 			gl.Finish()
 			measure_start = glfw.GetTime()
@@ -74,8 +79,7 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 	gl.Finish()
 	measure_end := glfw.GetTime()
 
-	measured_frames := total_frames - warmup_frames
-	elapsed := measure_end - measure_start
+	elapsed := max(0.0001, measure_end - measure_start)
 	avg_ms := (elapsed / f64(measured_frames)) * 1000.0
 	avg_fps := f64(measured_frames) / elapsed
 
@@ -94,15 +98,33 @@ BENCHMARK_SCREENSHOT_PATH :: "/tmp/benchmark_frame.ppm"
 
 @(private)
 dump_benchmark_frame :: proc(application: ^App, width, height: i32) {
-	// Read from scene FBO (COLOR_ATTACHMENT0 is the HDR render target)
-	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, application.scene.postfx_pipeline.scene_fbo)
-	gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
-	defer gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
-
 	pixels := make([]u8, int(width * height * 3))
 	defer delete(pixels)
 
+	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
+
+	// Read from default backbuffer (fully tone-mapped and resolved postfx frame)
+	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
+	gl.ReadBuffer(gl.BACK)
 	gl.ReadPixels(0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
+
+	// If backbuffer is completely zeroed (e.g. headless unmapped Xvfb under Wine),
+	// fallback to reading directly from scene HDR FBO
+	is_empty := true
+	for p in pixels {
+		if p != 0 {
+			is_empty = false
+			break
+		}
+	}
+
+	if is_empty && application.scene.postfx_pipeline.scene_fbo != 0 {
+		gl.BindFramebuffer(gl.READ_FRAMEBUFFER, application.scene.postfx_pipeline.scene_fbo)
+		gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
+		gl.ReadPixels(0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
+	}
+
+	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
 
 	fd, err := os.open(BENCHMARK_SCREENSHOT_PATH, os.O_WRONLY | os.O_CREATE | os.O_TRUNC)
 	if err != nil {
@@ -124,3 +146,4 @@ dump_benchmark_frame :: proc(application: ^App, width, height: i32) {
 
 	fmt.printfln("  Screenshot: %s", BENCHMARK_SCREENSHOT_PATH)
 }
+

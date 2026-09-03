@@ -1,6 +1,7 @@
 package gui
 
 import "core:math"
+import "core:strings"
 import "vendor:glfw"
 import gl "vendor:OpenGL"
 
@@ -9,6 +10,7 @@ import "../../deps/odin-imgui/imgui_impl_glfw"
 import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
+import mt "../core/math_types"
 import "../core/search"
 import settings "../core/settings"
 import perf_mode "../core/perf_mode"
@@ -45,6 +47,14 @@ Scene_State :: struct {
 	// Performance mode (optional — nil if not available)
 	perf: ^perf_mode.Perf_Mode,
 
+	// Point Light & Shadows (Phase 1)
+	point_light:    ^rendering.Point_Light,
+	shadow_cubemap: ^rendering.Shadow_Cubemap,
+
+	// Volumetric Lighting & Depth Downsampling (Phase 2 & 3)
+	depth_downsample: ^rendering.Depth_Downsample,
+	volumetric:       ^rendering.Volumetric_Renderer,
+
 	// Smoothed frame time from overlay (single source of truth)
 	frame_time_ms: f32,
 
@@ -60,6 +70,17 @@ Scene_State :: struct {
 	live_compute_tuning:  ^settings.Compute_Tuning_Params,
 	apply_compute_tuning: proc(scene_ptr: rawptr, params: settings.Compute_Tuning_Params) -> bool,
 	scene_ptr:            rawptr,
+
+	// Environment map gallery & transition state
+	hdr_files:            []string,
+	current_hdr_index:    ^i32,
+	env_thumbnails:       []rendering.Env_Thumbnail,
+	env_transitioning:    bool,
+	env_transition_alpha: f32,
+	change_env:           proc(scene_ptr: rawptr, path: string) -> bool,
+
+	// Optimization & performance profile preset
+	optimization_profile: ^rendering.Optimization_Profile,
 }
 
 IBL_Scroll_Target :: enum {
@@ -81,6 +102,7 @@ Gui :: struct {
 	restore_tab:      i32, // Frame counter for SetSelected (needs 2 frames)
 	search_buf:       [SEARCH_BUF_SIZE]u8,
 	focus_search:     bool,
+	focus_search_tab: bool,
 	ibl_debug_open:   bool,
 	ibl_scroll_target: IBL_Scroll_Target,
 	ibl_preview_size: f32,
@@ -143,6 +165,8 @@ init :: proc(g: ^Gui, window: glfw.WindowHandle) -> bool {
 		return false
 	}
 
+	guizmo_set_imgui_context(g.ctx)
+
 	return true
 }
 
@@ -151,103 +175,159 @@ new_frame :: proc(g: ^Gui) {
 	imgui_impl_opengl3.NewFrame()
 	imgui_impl_glfw.NewFrame()
 	imgui.NewFrame()
+	guizmo_begin_frame()
 }
 
 // Single window with search + tab bar for all engine controls.
 update :: proc(g: ^Gui, state: Scene_State) {
 	if g.ctx == nil { return }
-	if !g.visible { return }
 
-	imgui.SetNextWindowSize(imgui.Vec2{400, 560}, .FirstUseEver)
+	if g.visible {
+		imgui.SetNextWindowSize(imgui.Vec2{400, 560}, .FirstUseEver)
 
-	if imgui.Begin("Engine Controls", &g.visible) {
+		if imgui.Begin("Engine Controls", &g.visible) {
 		// Search bar at the top — focus on Ctrl+F
 		if g.focus_search {
 			imgui.SetKeyboardFocusHere()
 			g.focus_search = false
+			g.focus_search_tab = true
 		}
-		imgui.SetNextItemWidth(-1)
-		imgui.InputTextWithHint("##search", "Search parameters...",
-			cast(cstring)&g.search_buf[0], SEARCH_BUF_SIZE)
+		raw_filter := cstring(&g.search_buf[0])
+		trimmed := strings.trim_space(string(raw_filter))
+		has_filter := len(trimmed) > 0
 
-		filter := cstring(&g.search_buf[0])
-		has_filter := len(filter) > 0
+		if has_filter {
+			imgui.SetNextItemWidth(-65)
+			if imgui.InputTextWithHint("##search", "Search parameters...",
+				cast(cstring)&g.search_buf[0], SEARCH_BUF_SIZE) {
+				g.focus_search_tab = true
+			}
+			imgui.SameLine()
+			if imgui.Button("[x] Clear") {
+				g.search_buf = {}
+				has_filter = false
+			}
+		} else {
+			imgui.SetNextItemWidth(-1)
+			if imgui.InputTextWithHint("##search", "Search parameters...",
+				cast(cstring)&g.search_buf[0], SEARCH_BUF_SIZE) {
+				g.focus_search_tab = true
+			}
+		}
+
+		if imgui.IsItemActive() && imgui.IsKeyPressed(.Escape) {
+			g.search_buf = {}
+			has_filter = false
+		}
 
 		imgui.Separator()
 
-		if has_filter {
-			// Filtered flat view
-			draw_filtered_view(g, state, filter)
-		} else {
-			// Normal tab bar
-			if imgui.BeginTabBar("##tabs") {
-				tab_flags :: proc(g: ^Gui, idx: i32) -> imgui.TabItemFlags {
-					if g.restore_tab > 0 && g.active_tab == idx {
-						return {.SetSelected}
-					}
-					return {}
+		// Tab bar is ALWAYS displayed (permanent tabs)
+		if imgui.BeginTabBar("##tabs") {
+			tab_flags :: proc(g: ^Gui, idx: i32) -> imgui.TabItemFlags {
+				if g.restore_tab > 0 && g.active_tab == idx {
+					return {.SetSelected}
 				}
-				restoring := g.restore_tab > 0
-				if imgui.BeginTabItem("Camera", flags = tab_flags(g, 0)) {
-					if !restoring { g.active_tab = 0 }
-					draw_tab_camera(state.camera)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Scene", flags = tab_flags(g, 1)) {
-					if !restoring { g.active_tab = 1 }
-					draw_tab_scene(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Rendering", flags = tab_flags(g, 2)) {
-					if !restoring { g.active_tab = 2 }
-					draw_tab_rendering(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Post-FX", flags = tab_flags(g, 3)) {
-					if !restoring { g.active_tab = 3 }
-					draw_postfx_section(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("MBlur", flags = tab_flags(g, 4)) {
-					if !restoring { g.active_tab = 4 }
-					draw_tab_motion_blur(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Profiling", flags = tab_flags(g, 5)) {
-					if !restoring { g.active_tab = 5 }
-					draw_gpu_timings_section(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Shaders", flags = tab_flags(g, 6)) {
-					if !restoring { g.active_tab = 6 }
-					draw_shader_cache_section(state)
-					imgui.EndTabItem()
-				}
-				ibl_flags := tab_flags(g, 7)
-				if g.ibl_debug_open {
-					ibl_flags += {.SetSelected}
-				}
-				if imgui.BeginTabItem("IBL Debug", flags = ibl_flags) {
-					if !restoring { g.active_tab = 7 }
-					g.ibl_debug_open = false
-					draw_tab_ibl_debug(g, state)
-					imgui.EndTabItem()
-				} else {
-					g.ibl_debug_open = false
-				}
-				if imgui.BeginTabItem("Compute Tuning", flags = tab_flags(g, 8)) {
-					if !restoring { g.active_tab = 8 }
-					draw_tab_compute_tuning(g, state)
-					imgui.EndTabItem()
-				}
-				if g.restore_tab > 0 {
-					g.restore_tab -= 1
-				}
-				imgui.EndTabBar()
+				return {}
 			}
+			restoring := g.restore_tab > 0
+
+			// Dynamic Results tab when search filter is active
+			if has_filter {
+				search_tab_flags: imgui.TabItemFlags = {}
+				if g.focus_search_tab {
+					search_tab_flags += {.SetSelected}
+					g.focus_search_tab = false
+				}
+				if imgui.BeginTabItem("Search Results", flags = search_tab_flags) {
+					draw_filtered_view(g, state, raw_filter)
+					imgui.EndTabItem()
+				}
+			}
+
+			if imgui.BeginTabItem("Camera", flags = tab_flags(g, 0)) {
+				if !restoring { g.active_tab = 0 }
+				draw_tab_camera(state.camera)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Scene", flags = tab_flags(g, 1)) {
+				if !restoring { g.active_tab = 1 }
+				draw_tab_scene(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Rendering", flags = tab_flags(g, 2)) {
+				if !restoring { g.active_tab = 2 }
+				draw_tab_rendering(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Post-FX", flags = tab_flags(g, 3)) {
+				if !restoring { g.active_tab = 3 }
+				draw_postfx_section(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("MBlur", flags = tab_flags(g, 4)) {
+				if !restoring { g.active_tab = 4 }
+				draw_tab_motion_blur(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Profiling", flags = tab_flags(g, 5)) {
+				if !restoring { g.active_tab = 5 }
+				draw_gpu_timings_section(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Shaders", flags = tab_flags(g, 6)) {
+				if !restoring { g.active_tab = 6 }
+				draw_shader_cache_section(state)
+				imgui.EndTabItem()
+			}
+			ibl_flags := tab_flags(g, 7)
+			if g.ibl_debug_open {
+				ibl_flags += {.SetSelected}
+			}
+			if imgui.BeginTabItem("IBL Debug", flags = ibl_flags) {
+				if !restoring { g.active_tab = 7 }
+				g.ibl_debug_open = false
+				draw_tab_ibl_debug(g, state)
+				imgui.EndTabItem()
+			} else {
+				g.ibl_debug_open = false
+			}
+			if imgui.BeginTabItem("Compute Tuning", flags = tab_flags(g, 8)) {
+				if !restoring { g.active_tab = 8 }
+				draw_tab_compute_tuning(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Shadows", flags = tab_flags(g, 9)) {
+				if !restoring { g.active_tab = 9 }
+				draw_tab_shadows(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Volumetric", flags = tab_flags(g, 10)) {
+				if !restoring { g.active_tab = 10 }
+				draw_tab_volumetric(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Env Map", flags = tab_flags(g, 11)) {
+				if !restoring { g.active_tab = 11 }
+				draw_tab_env_map(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Optimisations", flags = tab_flags(g, 12)) {
+				if !restoring { g.active_tab = 12 }
+				draw_tab_optimizations(g, state)
+				imgui.EndTabItem()
+			}
+			if g.restore_tab > 0 {
+				g.restore_tab -= 1
+			}
+			imgui.EndTabBar()
 		}
 	}
 	imgui.End()
+}
+
+	// 3D Viewport Interactive Controls (ImGuizmo)
+	draw_point_light_gizmo(state)
 }
 
 render :: proc(g: ^Gui) {
@@ -294,9 +374,74 @@ wants_keyboard :: proc(g: ^Gui) -> bool {
 
 wants_mouse :: proc(g: ^Gui) -> bool {
 	if g.ctx == nil { return false }
+	if guizmo_is_over() || guizmo_is_using() { return true }
 	if !g.visible { return false }
 	io := imgui.GetIO()
 	return io.WantCaptureMouse
+}
+
+// ─── 3D Interactive Viewport Gizmo (ImGuizmo) ──────────────────────────────────
+
+@(private)
+draw_point_light_gizmo :: proc(state: Scene_State) {
+	light := state.point_light
+	c := state.camera
+	if light == nil || c == nil || !light.enabled || !light.show_gizmo {
+		return
+	}
+
+	io := imgui.GetIO()
+	guizmo_set_rect(0, 0, io.DisplaySize.x, io.DisplaySize.y)
+	guizmo_set_orthographic(false)
+
+	view := cam.get_view_matrix(c)
+	aspect := io.DisplaySize.x / max(io.DisplaySize.y, 1.0)
+	fov_rad := math.to_radians(c.zoom)
+	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
+
+	light_pos := light.orbit_center if light.is_animated else light.position
+	model := mt.mat4_translate(light_pos)
+
+	op: Guizmo_Operation
+	switch light.gizmo_op {
+	case 1: op = .Rotate
+	case 2: op = .Scale
+	case 3: op = .Universal
+	case:   op = .Translate
+	}
+
+	mode: Guizmo_Mode = .World if light.gizmo_mode == 0 else .Local
+
+	snap_val: mt.Vec3
+	snap_ptr: ^mt.Vec3 = nil
+	if light.gizmo_snap {
+		snap_val = {light.gizmo_snap_value, light.gizmo_snap_value, light.gizmo_snap_value}
+		snap_ptr = &snap_val
+	}
+
+	manipulated := guizmo_manipulate_mat4(
+		&view,
+		&proj,
+		op,
+		mode,
+		&model,
+		nil,
+		snap_ptr,
+	)
+
+	is_using := guizmo_is_using()
+	light.is_interacting = is_using
+
+	if manipulated || is_using {
+		new_pos := mt.Vec3{model[3][0], model[3][1], model[3][2]}
+		if light.is_animated {
+			light.orbit_center = new_pos
+		} else {
+			light.position = new_pos
+		}
+		light.motion_cooldown = 0.40
+		light.is_dirty = true
+	}
 }
 
 // ─── Tab: Camera ───────────────────────────────────────────────────────────────
@@ -442,11 +587,6 @@ draw_tab_scene :: proc(state: Scene_State) {
 			imgui.SliderFloat("Diff Gain", state.diff_gain, 1.0, 100.0)
 		}
 	}
-	imgui.Separator()
-
-	imgui.BeginDisabled()
-	imgui.SliderFloat("Exposure", state.exposure, 0.1, 10.0)
-	imgui.EndDisabled()
 	imgui.Separator()
 
 	imgui.Checkbox("Wireframe", state.wireframe_enabled)
@@ -833,7 +973,7 @@ draw_rendering_pbr_debug :: proc(state: Scene_State) {
 				}
 				if state.specular_aa_split_enabled^ && state.specular_aa_split_position != nil {
 					pos_pct := state.specular_aa_split_position^ * 100.0
-					if imgui.SliderFloat("##split_pos_specular", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					if imgui.SliderFloat("##split_pos_specular", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 						state.specular_aa_split_position^ = pos_pct / 100.0
 					}
 				}
@@ -882,18 +1022,6 @@ draw_rendering_scene_debug :: proc(state: Scene_State) {
 	gi_mode: i32 = 0
 	imgui.Combo("GI Mode", &gi_mode, "OFF\x00Volume 3D Tex\x00SSBO\x00")
 	imgui.EndDisabled()
-
-	if state.sort_mode != nil {
-		sort_val := i32(state.sort_mode^)
-		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
-			state.sort_mode^ = rendering.Sort_Mode(sort_val)
-		}
-		imgui.SameLine()
-		imgui.TextDisabled("(?)")
-		if imgui.IsItemHovered() {
-			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
-		}
-	}
 }
 
 @(private)
@@ -1060,7 +1188,7 @@ draw_filtered_scene :: proc(state: Scene_State, filter: cstring) -> int {
 					imgui.Checkbox("A/B Split##specular_filt", state.specular_aa_split_enabled)
 					if state.specular_aa_split_enabled^ && state.specular_aa_split_position != nil {
 						pos_pct := state.specular_aa_split_position^ * 100.0
-						if imgui.SliderFloat("##split_pos_specular_filt", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+						if imgui.SliderFloat("##split_pos_specular_filt", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 							state.specular_aa_split_position^ = pos_pct / 100.0
 						}
 					}
@@ -1282,6 +1410,42 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 		imgui.Spacing()
 	}
 
+	if section_has_matches(filter, SHADOW_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Shadows")
+		imgui.SameLine()
+		shadows_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_shadows(g, state, filter)
+		imgui.Spacing()
+	}
+
+	if section_has_matches(filter, VOLUMETRIC_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Volumetric")
+		imgui.SameLine()
+		volumetric_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_volumetric(g, state, filter)
+		imgui.Spacing()
+	}
+
+	if section_has_matches(filter, ENV_MAP_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Env Map")
+		imgui.SameLine()
+		env_map_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_env_map(g, state, filter)
+		imgui.Spacing()
+	}
+
+	if section_has_matches(filter, OPTIMIZATION_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Optimisations")
+		imgui.SameLine()
+		optimization_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_optimizations(g, state, filter)
+		imgui.Spacing()
+	}
+
 	if match_count == 0 {
 		imgui.TextColored(imgui.Vec4{1.0, 0.5, 0.5, 1.0}, "No matching parameters")
 	}
@@ -1317,6 +1481,54 @@ compute_goto_button :: proc(g: ^Gui) {
 	imgui.PopID()
 }
 
+// Navigate from search result to the Shadows tab.
+@(private)
+shadows_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_shadows")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 9
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+// Navigate from search result to the Volumetric tab.
+@(private)
+volumetric_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_volumetric")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 10
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+// Navigate from search result to the Env Map tab.
+@(private)
+env_map_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_env_map")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 11
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+// Navigate from search result to the Optimisations tab.
+@(private)
+optimization_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_optimizations")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 12
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
 // Keyword constants for section-level pre-filtering.
 @(private)
 CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov bobbing zoom projection mouse movement"
@@ -1334,7 +1546,19 @@ DEBUG_KEYWORDS :: "debug debug views bloom dof exposure luminance stops histogra
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"
 
 @(private)
+ENV_MAP_KEYWORDS :: "env map environment hdr gallery thumbnails miniatures skybox switch load preview cedar bridge garage neon photostudio cathedral"
+
+@(private)
+OPTIMIZATION_KEYWORDS :: "optimization profile presets performance quality balanced ultra-performance speed vs quality fps raymarch steps stochastic"
+
+@(private)
 IBL_KEYWORDS :: "ibl debug irradiance prefilter specular diffuse brdf lut split sum texture gpu memory estimate estimation vram mip roughness preview environment map hdr convolution ggx"
 
 @(private)
 COMPUTE_KEYWORDS :: "compute tuning shader progressive slicing dispatch samples workgroup spbrdf irmap spmap slices profile legacy optimized vram timing optimization"
+
+@(private)
+SHADOW_KEYWORDS :: "shadow shadows point light cubemap bias normal offset slope rnob ssdb bulb darkening omnidirectional atlas dirty cache time slicing near far pcf vogel disk filter radius jitter stochastic temporal taa reprojection alpha disocclusion clamping debug heatmap penumbra split delta"
+
+@(private)
+VOLUMETRIC_KEYWORDS :: "volumetric raymarch raymarching taa reprojection bilateral blur scattering extinction henyey greenstein anisotropy god rays jbu upsample downsample fog mist smoke atmosphere presets"

@@ -1,9 +1,16 @@
 # Build output
 build/
+build-release/
+site/
 suckless-odin
+*.exe
 
 # Odin build artifacts
 *.o
+*.obj
+*.lib
+!deps/*.lib
+deps/glfw_build_win/
 
 # IDE
 .vscode/settings.json
@@ -38,9 +45,15 @@ verification/*.svg
 # Local scratch directory
 scratch/
 
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Profiling dumps
 *.zst
 callgrind.out*
+
 
 
 
