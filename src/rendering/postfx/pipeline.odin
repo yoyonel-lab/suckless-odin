@@ -189,8 +189,8 @@ pipeline_begin :: proc(p: ^Pipeline) {
 	gl.GetIntegerv(gl.DRAW_FRAMEBUFFER_BINDING, &p.prev_fbo)
 	gl.GetIntegerv(gl.VIEWPORT, raw_data(&p.prev_viewport))
 
-	gl.BindFramebuffer(gl.FRAMEBUFFER, p.scene_fbo)
-	gl.Viewport(0, 0, p.width, p.height)
+	gl_state.bind_framebuffer(gl.FRAMEBUFFER, p.scene_fbo)
+	gl_state.set_viewport(0, 0, p.width, p.height)
 	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 }
 
@@ -258,15 +258,14 @@ pipeline_run_fxaa_prepass :: proc(p: ^Pipeline) -> bool {
 	if .FXAA in p.active_effects && .Motion_Blur in p.active_effects && p.fxaa_program != 0 {
 		dbg.push_group("PostFX_FXAA_Prepass")
 
-		gl.BindFramebuffer(gl.FRAMEBUFFER, p.fxaa_fbo)
-		gl.Viewport(0, 0, p.width, p.height)
+		gl_state.bind_framebuffer(gl.FRAMEBUFFER, p.fxaa_fbo)
+		gl_state.set_viewport(0, 0, p.width, p.height)
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
-		gl.UseProgram(p.fxaa_program)
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, p.scene_color_tex)
+		gl_state.use_program(p.fxaa_program)
+		gl_state.active_texture(gl.TEXTURE0)
+		gl_state.bind_texture(gl.TEXTURE_2D, p.scene_color_tex)
 		quad_draw(&p.quad)
-		gl.UseProgram(0)
 
 		dbg.pop_group()
 		return true
