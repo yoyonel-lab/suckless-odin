@@ -180,7 +180,7 @@ task run-proton
 
 ## 5. Validation Automatisée en CI/CD (`task test-steam-ci`)
 
-La suite de validation automatisée `scripts/test_steam_ci.py` permet de tester intégralement en CI/CD GitHub Actions le déploiement Steam et l'exécution graphique sans nécessiter de session utilisateur interactive :
+La suite de validation automatisée `scripts/test_steam_ci.py` permet de tester intégralement en CI/CD GitHub Actions le déploiement Steam, l'intégrité des structures VDF et l'exécution graphique avec assertions de pixels réels :
 
 ```bash
 task test-steam-ci
@@ -190,15 +190,18 @@ task test-steam-ci
 flowchart LR
     A["Génération Artworks<br/>(ImageMagick)"] --> B["Arborescence Mock<br/>(userdata/12345/config)"]
     B --> C["Injection VDF & Proton<br/>(shortcuts.vdf + config.vdf)"]
-    C --> D["Exécution Headless Wine<br/>(xvfb-run --benchmark)"]
-    D --> E["Preuve Visuelle PNG<br/>(Artifact GitHub Actions)"]
+    C --> D["Validation Invariants VDF<br/>(AllowOverlay=0, iris)"]
+    D --> E["Test Interactif Xvfb<br/>(Assertion mean_lum > 200)"]
+    E --> F["Benchmark Headless FBO<br/>(30 frames PPM -> PNG)"]
+    F --> G["Preuve Visuelle PNG<br/>(Artifact GitHub Actions)"]
 ```
 
 1. **Génération Déterministe des Assets** : Vérifie la création des 5 fichiers Steam Grid (`cover.png`, `hero.png`, `banner.png`, `logo.png`, `icon.ico`).
 2. **Mock Steam VDF Sandbox** : Initialise un environnement Steam virtuel et exécute `inject_steam_art.py`.
-3. **Validation Binaire VDF** : Parse le fichier binaire `shortcuts.vdf` et valide l'AppID, `Exe`, `StartDir` et les `LaunchOptions` (`LD_PRELOAD="" %command%`).
+3. **Validation Binaire VDF & Invariants** : Parse `shortcuts.vdf` et valide l'AppID, `Exe`, `StartDir`, `AllowOverlay == 0` (évite le hook destructeur du swapchain Steam Overlay) et `LaunchOptions` (`MESA_LOADER_DRIVER_OVERRIDE=iris PROTON_USE_WINED3D=1`).
 4. **Validation de Compatibilité Proton** : Vérifie que `CompatToolMapping` dans `config.vdf` contient bien l'entrée `proton_experimental` associée à l'AppID du jeu.
-5. **Vérification Runtime Headless** : Exécute `suckless-odin.exe` en mode benchmark sous Xvfb (`xvfb-run -a wine ... --benchmark --benchmark-frames=30`) et exporte un frame PNG de preuve de rendu.
+5. **Vérification Interactive & Assertion Anti-Écran Noir** : Exécute `suckless-odin.exe` en mode normal sous `xvfb-run`, capture le backbuffer d'affichage X11 réel via ImageMagick/ffmpeg et **affirme mathématiquement que la luminosité moyenne `mean_lum > 200.0`** (garantie stricte d'absence de régression d'écran noir).
+6. **Vérification Benchmark Headless FBO** : Exécute `suckless-odin.exe` en mode benchmark sous Xvfb (`xvfb-run -a wine ... --benchmark --benchmark-frames=30`) et exporte un frame PNG de preuve de rendu interne FBO.
 
 ---
 
@@ -207,13 +210,13 @@ flowchart LR
 | Tâche Taskfile | Description |
 | :--- | :--- |
 | `task steam-update` | **Commande maîtresse** : Rebuild package + Kill Steam + Artworks Grid + Injections VDF |
-| `task steam-launch` | Lance l'application via le client Steam officiel (`steam://rungameid/<id>`) |
-| `task steam-verify` | Script d'attente d'initialisation Steam et capture d'écran E2E de vérification |
-| `task test-steam-ci` | **Suite de test CI/CD** : Validation mock Steam VDF + Exécution headless Wine/Xvfb |
-| `task steam-art` | Régénère les assets ImageMagick et les injecte dans Steam `config/grid/` |
+| `task steam-launch` | Lance l'application via le client Steam officiel (`steam://rungameid/<id>`) avec monitoring de processus |
+| `task steam-verify` | Script d'attente d'initialisation Steam et capture d'écran E2E avec analyse de luminosité |
+| `task test-steam-ci` | **Suite de test CI/CD complète** : Mock Steam VDF + Test interactif pixel + Benchmark Wine/Xvfb |
+| `task steam-art` | Régénère les assets ImageMagick et les injecte dans Steam `config/grid/` et `shortcuts.vdf` |
 | `task steam-kill` | Arrête tous les processus Steam actifs (Flatpak & Natif) |
 | `task steam-gen-assets` | Génère les fichiers d'artworks PNG et l'icône ICO dans `assets/steam_grid/` |
-| `task run-proton` | Lance l'exécutable sous le runtime Proton directement depuis le terminal |
+| `task run-proton` | Lance l'exécutable sous le runtime Proton directement depuis le terminal avec flags iris & wined3d |
 
 ---
 
@@ -235,6 +238,7 @@ flowchart LR
 
 | Symptôme | Cause Probable | Solution |
 | :--- | :--- | :--- |
+| **Écran noir au lancement sous Proton** | 1. Steam Overlay bloque `wglSwapBuffers`<br/>2. Pilote Zink chargé au lieu d'Iris | Vérifier dans `shortcuts.vdf` que `AllowOverlay=0` et `LaunchOptions` contient `MESA_LOADER_DRIVER_OVERRIDE=iris PROTON_USE_WINED3D=1` (appliqué automatiquement par `task steam-art`). |
 | **Erreur *"Game configuration unavailable"*** | L'AppID n'est pas mappé à Proton dans `config.vdf` | Exécuter `task steam-kill && task steam-art` pour auto-injecter `CompatToolMapping` |
 | **Le jeu ne se lance pas sous Flatpak** | Steam Flatpak n'a pas accès au dossier de développement | Exécuter `flatpak override --user --filesystem="$HOME/Prog" com.valvesoftware.Steam` |
 | **Visuels Steam non affichés** | Steam était ouvert pendant l'injection des visuels | Exécuter `task steam-kill` puis `task steam-art`, puis rouvrir Steam |

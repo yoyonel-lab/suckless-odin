@@ -88,6 +88,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter la Spécification Technique](2026-09-03_pbr_direct_lighting_shadow_ibl_integration.md)
 
+-   :material-shield-check:{ .lg .middle } __Post-Mortem & Fiabilisation : Steam, Proton & Écran Noir__
+
+    ---
+
+    Analyse des causes racines de l'écran noir sous Steam Proton (FBO state cache, Steam overlay) et architecture des 4 verrous de sécurité automatisés (assertion de pixels réels).
+
+    [:octicons-arrow-right-24: Lire le Guide de Fiabilisation](2026-09-03_windows_cross_compilation_steam_proton_blackscreen_postmortem.md)
+
 </div>
 
 ---
