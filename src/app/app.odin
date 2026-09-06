@@ -484,6 +484,7 @@ run :: proc(application: ^App) {
 		}
 
 		application.total_frames += 1
+		free_all(context.temp_allocator)
 	}
 
 	log.log_info("app", "Total frames rendered during this run: %v", application.total_frames)
