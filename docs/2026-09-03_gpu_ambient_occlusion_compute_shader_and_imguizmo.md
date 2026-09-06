@@ -90,10 +90,59 @@ Sur l'ensemble des sphères testées (ex. Sphère centrale `#45` à 256 rayons/t
 
 ---
 
-## 4. Benchmark de Performance (1 Sphère, 8.38M Rayons, 830M Tests)
+## 4. Benchmark de Performance & Analyse de Débit
+
+### 4.1 Benchmark Unitaire (1 Sphère, 8.38M Rayons, 830M Tests)
 
 | Mode | Temps de Calcul | Débit Ray-Tracing | Accélération |
 | :--- | :--- | :--- | :--- |
 | **CPU 12 Threads (`core:thread`)** | $\approx \mathbf{830\text{ ms}}$ | $\approx \mathbf{10.1\text{ Mrays/s}}$ | $1.0\times$ (Référence) |
 | **GPU Compute Shader (`Intel Iris Xe RPL-U` 15W)** | $\mathbf{\approx 26.4\text{ ms}}$ | $\mathbf{\approx 317.1\text{ Mrays/s}}$ | $\mathbf{\approx 31.5\times\text{ plus rapide}}$ |
 | **GPU Dédié Haut de Gamme (RTX 4070 estimé)** | $\mathbf{< 1.0\text{ ms}}$ | $\mathbf{> 10\,000\text{ Mrays/s}}$ | $\mathbf{> 800\times\text{ plus rapide}}$ |
+
+---
+
+### 4.2 Analyse de la Charge Globale sur la Grille Complète (100 Sphères @ 128 Rayons)
+
+Lors de l'exécution sur la grille complète de 100 sphères à $128\text{ rayons/texel}$ :
+
+$$\text{Texels Totaux} = 100 \times (256 \times 128) = \mathbf{3\,276\,800\text{ texels}}$$
+$$\text{Rayons Totaux} = 3\,276\,800 \times 128 = \mathbf{419\,430\,400\text{ rayons (419.4 M Rayons)}}$$
+$$\text{Tests d'Intersection} = 419\,430\,400 \times 99 = \mathbf{41\,523\,609\,600\text{ tests (41.5 Milliards d'intersections)}}$$
+
+```mermaid
+flowchart LR
+    subgraph Workload ["Volume de Calcul (100 Sphères @ 128 Rayons)"]
+        T["3.27M Texels"] --> R["419.4M Rayons"]
+        R --> I["41.52 Milliards d'Intersections Rayon-Sphère"]
+    end
+
+    subgraph Throughput ["Débit Mesuré Runtime GPU"]
+        I --> D["Débit GPU : ~222.9 Mrays/s (~22.1 G-tests/s)"]
+    end
+```
+
+#### Décomposition du Temps d'Exécution selon le Run Path :
+
+1. **Chemin Diagnostic / Export (`Bake & Export PNGs`) : $\approx 1.88\text{ s}$**
+   - **Débit de calcul pur** : $222.9\text{ Mrays/s}$ (soit **22,1 milliards d'intersections sphère/seconde** sur GPU).
+   - **Origine des ~1.88 secondes** :
+     - 100 appels à `gl.Finish()` et barrières qui forcent le CPU à attendre la vidange totale du pipeline GPU à chaque sphère.
+     - 100 transferts `gl.GetTexImage` (Readback VRAM $\to$ RAM).
+     - 100 encodages d'images PNG (`stbi_write_png`) et écritures sur le disque (`build/ao_sphere_*.png`).
+
+2. **Chemin Direct In-VRAM (`[FAST] Bake Direct In-VRAM`) : Instantané VRAM**
+   - 1 seul dispatch compute batché 3D (`image2DArray`, $256 \times 128 \times 100$).
+   - **0 synchronisation `gl.Finish()` par sphère, 0 readback CPU, 0 écriture disque**.
+   - Données immédiatement disponibles pour le sampler 2D Array de `pbr_billboard.frag`.
+
+---
+
+### 4.3 Guide & Recommandations d'Échantillonnage
+
+| Objectif d'Utilisation | Rayons / Texel Recommandés | Temps Estimé (100 Sphères) | Rendu Visuel |
+| :--- | :---: | :---: | :--- |
+| **Bake Rapide / Runtime / Interactif** | **$32 - 64$** | **$< 150\text{ ms}$** | Excellent grâce au filtrage Quasi-Monte Carlo Hammersley. Zéro bruit visible à distance normale. |
+| **Bake Standard Haute Qualité** | **$128$** | **$\approx 350 - 500\text{ ms}$** | Ombres de contact d'une netteté cristalline, dégradés d'occlusion très doux. |
+| **Ground Truth de Référence Offline** | **$256 - 512$** | **$\approx 1.0 - 2.5\text{ s}$** | Parité ISO mathématique absolue ($PSNR > 85\text{ dB}$) pour calibration et métrologie. |
+

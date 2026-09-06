@@ -33,7 +33,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		return
 	}
 
-	log.log_info("suckless-odin.input", "Key pressed: %d (action=%d)", key, action)
+	log.log_debug("suckless-odin.input", "Key pressed: %d (action=%d)", key, action)
 
 	switch key {
 	case glfw.KEY_ESCAPE:
