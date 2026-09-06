@@ -308,6 +308,13 @@ tasks:
       - chmod +x scripts/test_integration_e2e.sh
       - ./scripts/test_integration_e2e.sh ./{{.BUILD_BASE}}/release/suckless-odin
 
+  test-early-exit:
+    desc: Run end-to-end early exit benchmark (measures minimal startup latency with Escape spam on boot)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_early_exit.sh
+      - ./scripts/test_early_exit.sh ./{{.BUILD_BASE}}/release/suckless-odin
+
   test-integration-xvfb:
     desc: Run end-to-end integration test scenario headless under Xvfb
     deps: [build-release]
@@ -381,9 +388,10 @@ tasks:
   # ─── LINT & VET ────────────────────────────────────────────────────────────
 
   lint:
-    desc: Full syntax, style, and documentation link integrity lint
+    desc: Full syntax, style, ImGui safety, and documentation link integrity lint
     cmds:
       - "{{.ODIN}} check src/ -vet -strict-style -warnings-as-errors"
+      - python3 scripts/check_imgui_safety.py
       - python3 scripts/verify_docs_links.py
 
   test-docs-links:

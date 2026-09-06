@@ -113,6 +113,7 @@ nav:
       - Ground Truth AO Full GPU & 3D ImGuizmo: 2026-09-03_gpu_ambient_occlusion_compute_shader_and_imguizmo.md
   - 🚀 Optimisation & Profiling:
       - Protocole Benchmarking & Roadmap: optimization-roadmap-and-benchmarking-protocol-2026-08-18.md
+      - Optimisation Latence Démarrage & Early-Exit: 2026-09-04_startup_latency_optimization_and_early_exit_benchmark.md
       - Rapport de Benchmark GPU Uncapped (VSync OFF): 2026-09-02_uncapped_gpu_benchmark_volumetric_shadows_cost_analysis.md
       - Profiling Tracy CPU: cpu-profiling-tracy-2026-05-23.md
       - Profiling GPU Automatisé: automated-profiling-real-gpu-2026-05-26.md
@@ -127,3 +128,4 @@ nav:
       - Sandbox Distrobox Optimus: distrobox-optimus-2026-05-24.md
   - 📋 Audits & Feuilles de Route:
       - Enrichissement Visuel de la Documentation (2026-08-27): documentation-visual-enrichment-analysis-and-roadmap-2026-08-27.md
+      - Audit Intégration Dear ImGui & Stabilité (2026-09-04): 2026-09-04_imgui_integration_audit_and_stability_recommendations.md
