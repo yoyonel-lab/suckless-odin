@@ -14,6 +14,7 @@ Env_Thumbnail :: struct {
 	tex_id:       u32,
 	width:        i32,
 	height:       i32,
+	loaded:       bool,
 }
 
 Env_Thumbnail_Manager :: struct {
@@ -48,23 +49,21 @@ format_hdr_display_name :: proc(filename: string) -> string {
 	return strings.clone(strings.to_string(b))
 }
 
-env_thumbnail_load :: proc(path: string) -> Env_Thumbnail {
-	thumb: Env_Thumbnail
-	thumb.path = strings.clone(path)
+// Ensure the thumbnail OpenGL texture is loaded (Lazy on-demand execution)
+env_thumbnail_ensure_loaded :: proc(thumb: ^Env_Thumbnail) {
+	if thumb == nil || thumb.loaded || thumb.tex_id != 0 {
+		return
+	}
+	thumb.loaded = true
 
-	last_slash := strings.last_index_byte(path, '/')
-	filename := path[last_slash+1:] if last_slash >= 0 else path
-	thumb.filename = strings.clone(filename)
-	thumb.display_name = format_hdr_display_name(filename)
-
-	path_c := strings.clone_to_cstring(path, context.temp_allocator)
+	path_c := strings.clone_to_cstring(thumb.path, context.temp_allocator)
 	stbi.set_flip_vertically_on_load(1)
 
 	w, h, channels: c.int
 	data := stbi.loadf(path_c, &w, &h, &channels, 4)
 	if data == nil {
-		log.log_warning("suckless-odin.texture", "Failed to load thumbnail HDR: %s", path)
-		return thumb
+		log.log_warning("suckless-odin.texture", "Failed to load thumbnail HDR: %s", thumb.path)
+		return
 	}
 	defer stbi.image_free(data)
 
@@ -85,16 +84,26 @@ env_thumbnail_load :: proc(path: string) -> Env_Thumbnail {
 	gl.GenerateMipmap(gl.TEXTURE_2D)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 
-	return thumb
+	log.log_debug("suckless-odin.texture", "Lazy-loaded thumbnail on demand: %s (%dx%d)", thumb.filename, thumb.width, thumb.height)
 }
 
 env_thumbnails_init :: proc(mgr: ^Env_Thumbnail_Manager, hdr_paths: []string) {
 	clear(&mgr.thumbnails)
 	for path in hdr_paths {
-		thumb := env_thumbnail_load(path)
+		thumb: Env_Thumbnail
+		thumb.path = strings.clone(path)
+
+		last_slash := strings.last_index_byte(path, '/')
+		filename := path[last_slash+1:] if last_slash >= 0 else path
+		thumb.filename = strings.clone(filename)
+		thumb.display_name = format_hdr_display_name(filename)
+		thumb.tex_id = 0
+		thumb.width = 0
+		thumb.height = 0
+		thumb.loaded = false
 		append(&mgr.thumbnails, thumb)
 	}
-	log.log_info("suckless-odin.texture", "Loaded %d environment map thumbnails", len(mgr.thumbnails))
+	log.log_info("suckless-odin.texture", "Registered %d environment map thumbnails (Lazy Load)", len(mgr.thumbnails))
 }
 
 env_thumbnails_destroy :: proc(mgr: ^Env_Thumbnail_Manager) {
