@@ -170,6 +170,23 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, xoffset, yoffset: f64) {
 	cam.process_scroll(&app.scene.camera, f32(yoffset))
 }
 
+// GLFW mouse button callback — raycast picking & 3D entity selection.
+@(private)
+mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
+	if action != glfw.PRESS { return }
+	context = runtime.default_context()
+
+	app := cast(^App)glfw.GetWindowUserPointer(window)
+	if app == nil { return }
+	if app.camera_enabled { return }
+	if gui.wants_mouse(&app.imgui) { return }
+
+	if button == glfw.MOUSE_BUTTON_LEFT || button == glfw.MOUSE_BUTTON_RIGHT {
+		xpos, ypos := glfw.GetCursorPos(window)
+		scene.scene_pick_entity(&app.scene, f32(xpos), f32(ypos), f32(app.width), f32(app.height))
+	}
+}
+
 // GLFW framebuffer resize callback — lightweight and passive (Deferred Resize pattern).
 // Does not reallocate GPU resources inside the synchronous GLFW/driver callback context.
 @(private)

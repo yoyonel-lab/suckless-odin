@@ -73,6 +73,7 @@ instanced_create :: proc(inst: ^Instanced_Spheres, mat_lib: ^Material_Lib) {
 			metallic    = mat.metallic,
 			roughness   = mat.roughness,
 			ao          = 1.0,
+			id          = i32(i),
 			prev_center = position,
 		}
 	}
@@ -109,33 +110,21 @@ instanced_init_storage :: proc(inst: ^Instanced_Spheres) {
 // Pack SoA → AoS staging buffer and upload to GPU SSBO.
 // Called once at init, and again if CPU-side data changes (animation, physics, sorting).
 instanced_upload :: proc(inst: ^Instanced_Spheres) {
-	count := int(inst.count)
-	if count == 0 do return
+	if inst == nil || inst.count == 0 || inst.ssbo == 0 do return
 
+	count := int(inst.count)
 	gpu_data := make([]types.Sphere_Instance, count, context.temp_allocator)
 	for i in 0..<count {
 		gpu_data[i] = inst.instances[i]
 	}
 
-	if inst.ssbo == 0 {
-		gl.GenBuffers(1, &inst.ssbo)
-		dbg.object_label(gl.BUFFER, inst.ssbo, "Sphere_Instances_SSBO")
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
-		gl.BufferData(
-			gl.SHADER_STORAGE_BUFFER,
-			count * size_of(types.Sphere_Instance),
-			raw_data(gpu_data),
-			gl.DYNAMIC_DRAW,
-		)
-	} else {
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
-		gl.BufferSubData(
-			gl.SHADER_STORAGE_BUFFER,
-			0,
-			count * size_of(types.Sphere_Instance),
-			raw_data(gpu_data),
-		)
-	}
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, inst.ssbo)
+	gl.BufferSubData(
+		gl.SHADER_STORAGE_BUFFER,
+		0,
+		count * size_of(types.Sphere_Instance),
+		raw_data(gpu_data),
+	)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, 0)
 }
 
@@ -189,3 +178,51 @@ instanced_destroy :: proc(inst: ^Instanced_Spheres) {
 	delete(inst.instances)
 	inst.count = 0
 }
+
+// Locate current array index for a given stable sphere id (0..99) across dynamic sorting
+instanced_find_index_by_id :: proc(inst: ^Instanced_Spheres, id: i32) -> int {
+	if inst == nil || inst.count == 0 do return -1
+	count := int(inst.count)
+	ids := inst.instances.id[:]
+	for i in 0 ..< count {
+		if ids[i] == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// Reset all 100 spheres to their canonical grid positions
+instanced_reset_grid :: proc(inst: ^Instanced_Spheres) {
+	if inst == nil || inst.count == 0 do return
+
+	cols :: settings.DEFAULT_COLS
+	max_count :: cols * cols
+	total_count := min(int(inst.count), max_count)
+	rows := (total_count + cols - 1) / cols
+	spacing := f32(settings.DEFAULT_SPACING)
+
+	grid_w := f32(cols - 1) * spacing
+	grid_h := f32(rows - 1) * spacing
+
+	for i in 0 ..< total_count {
+		id := inst.instances.id[i]
+		orig_idx := int(id)
+		grid_x := orig_idx % cols
+		grid_y := orig_idx / cols
+
+		pos_x := f32(grid_x) * spacing - grid_w * HALF_OFFSET_MULTIPLIER
+		pos_y := -(f32(grid_y) * spacing - grid_h * HALF_OFFSET_MULTIPLIER)
+		position := mt.Vec3{pos_x, pos_y, 0.0}
+
+		model := mt.MAT4_IDENTITY
+		model[3][0] = position.x
+		model[3][1] = position.y
+		model[3][2] = position.z
+
+		inst.instances.model[i] = model
+		inst.instances.prev_center[i] = position
+	}
+	instanced_upload(inst)
+}
+

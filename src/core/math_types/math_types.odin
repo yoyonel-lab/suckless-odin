@@ -104,3 +104,68 @@ mat4_mul :: proc(a, b: Mat4) -> Mat4 {
 mat4_inverse :: proc(m: Mat4) -> Mat4 {
 	return linalg.inverse(m)
 }
+
+// Translation matrix
+mat4_translate :: proc(v: Vec3) -> Mat4 {
+	result := MAT4_IDENTITY
+	result[3][0] = v.x
+	result[3][1] = v.y
+	result[3][2] = v.z
+	return result
+}
+
+// ─── 3D Raycasting & Intersection ──────────────────────────────────────────
+
+// 3D Ray in world space
+Ray :: struct {
+	origin:    Vec3,
+	direction: Vec3,
+}
+
+// Unproject screen 2D coordinates (pixels, top-left origin) to a 3D world-space Ray.
+ray_from_screen :: proc(screen_pos: Vec2, viewport_size: Vec2, view: Mat4, proj: Mat4) -> Ray {
+	if viewport_size.x <= 0 || viewport_size.y <= 0 {
+		return Ray{origin = VEC3_ZERO, direction = VEC3_FRONT}
+	}
+
+	// Normalized Device Coordinates (NDC) in [-1, 1]
+	ndc_x := (2.0 * screen_pos.x) / viewport_size.x - 1.0
+	ndc_y := 1.0 - (2.0 * screen_pos.y) / viewport_size.y
+
+	inv_vp := linalg.inverse(proj * view)
+
+	near_clip := Vec4{ndc_x, ndc_y, -1.0, 1.0}
+	far_clip  := Vec4{ndc_x, ndc_y,  1.0, 1.0}
+
+	near_world := inv_vp * near_clip
+	far_world  := inv_vp * far_clip
+
+	near_pos := near_world.xyz / max(near_world.w, 0.000001)
+	far_pos  := far_world.xyz / max(far_world.w, 0.000001)
+
+	dir := glsl.normalize(far_pos - near_pos)
+	return Ray{origin = near_pos, direction = dir}
+}
+
+// Tests analytic intersection between a ray and a sphere.
+// Returns (hit: bool, t: f32) where t is the distance along the ray to the closest positive intersection.
+ray_intersect_sphere :: proc(ray: Ray, center: Vec3, radius: f32) -> (hit: bool, t: f32) {
+	oc := ray.origin - center
+	b := glsl.dot(ray.direction, oc)
+	c := glsl.dot(oc, oc) - radius * radius
+	discriminant := b * b - c
+	if discriminant < 0 {
+		return false, 0
+	}
+	sqrt_disc := math.sqrt(discriminant)
+	t1 := -b - sqrt_disc
+	t2 := -b + sqrt_disc
+	if t1 > 0 {
+		return true, t1
+	}
+	if t2 > 0 {
+		return true, t2
+	}
+	return false, 0
+}
+

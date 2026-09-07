@@ -26,7 +26,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 		imgui.SliderFloat("Edge Relative Threshold (ε)", &dd.edge_threshold, 0.001, 0.100, "%.3f (Scale-Invariant)")
 
 		// Preview display modes
-		imgui.Text("Preview Mode:")
+		imgui.Text("Depth Preview Mode:")
 		imgui.SameLine()
 		if imgui.RadioButton("Turbo Heatmap", dd.preview_mode == 0) { dd.preview_mode = 0 }
 		imgui.SameLine()
@@ -98,7 +98,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 
 			// Atmosphere Scattering Presets (ISO legacy Volumetric_Dynamic_Lights)
 			imgui.Spacing()
-			imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Atmospheric & Cinematic Presets:")
+			imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Henyey-Greenstein Anisotropy (g) Presets:")
 			if imgui.Button("Isotropic (g=0.0)") { vr.params.anisotropy_g = 0.0 }
 			imgui.SameLine()
 			if imgui.Button("Dust / Sand (g=0.35)") { vr.params.anisotropy_g = 0.35 }
@@ -141,7 +141,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Separator()
 			imgui.Text("Volumetric In-Scattering Buffer (%dx%d):", vr.width, vr.height)
 
-			imgui.Text("Preview Mode:")
+			imgui.Text("Buffer Preview Mode:")
 			if imgui.RadioButton("Final Output##vol", vr.params.preview_mode == 0) { vr.params.preview_mode = 0 }
 			imgui.SameLine()
 			if imgui.RadioButton("Raw Grain##vol", vr.params.preview_mode == 1) { vr.params.preview_mode = 1 }
@@ -238,11 +238,8 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					imgui.SliderFloat("Disocclusion Depth Threshold", &vr.params.taa_depth_threshold, 0.05, 3.0, "%.2f m")
 				}
 				imgui.Checkbox("3x3 Color Neighborhood Clamping", &vr.params.taa_clamping_enabled)
-				imgui.SameLine()
-				imgui.Checkbox("Spatial Ray Jitter (IGN Grain)", &vr.params.jitter_enabled)
 			} else {
 				imgui.TextDisabled("Temporal accumulation disabled. Spatial ray jittering grain is active.")
-				imgui.Checkbox("Spatial Ray Jitter (IGN Grain)##raw", &vr.params.jitter_enabled)
 			}
 
 			imgui.Spacing()

@@ -114,6 +114,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 		orbit_center               = {0.0, 2.0, 0.0},
 		show_bulb                  = true,
 		bulb_radius                = 0.3,
+		show_gizmo                 = true,
+		gizmo_op                   = 0,
+		gizmo_mode                 = 1,
+		gizmo_snap                 = true,
+		gizmo_snap_value           = 0.25,
 	}
 	
 	// 1. Test save
@@ -202,6 +207,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.point_light.shadow_taa_clamping, true)
 	testing.expect_value(t, loaded_state.point_light.phase_g, 0.75)
 	testing.expect_value(t, loaded_state.point_light.is_animated, true)
+	testing.expect_value(t, loaded_state.point_light.show_gizmo, true)
+	testing.expect_value(t, loaded_state.point_light.gizmo_op, 0)
+	testing.expect_value(t, loaded_state.point_light.gizmo_mode, 1)
+	testing.expect_value(t, loaded_state.point_light.gizmo_snap, true)
+	testing.expect_value(t, loaded_state.point_light.gizmo_snap_value, f32(0.25))
 }
 
 @(test)
