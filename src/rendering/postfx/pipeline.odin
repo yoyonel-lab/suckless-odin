@@ -151,10 +151,11 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 	// GPU timers for profiling
 	gpu_timers_create(&p.timers)
 
-	// Eagerly precompile canonical shader variants to avoid first-frame / preset switch stalls
+	// Compile initial active variant only to minimize startup latency (presets compiled on-demand in LRU cache)
 	if p.shader_cache.enabled {
-		log.log_info("suckless-odin.postfx", "Eagerly precompiling canonical shader preset variants...")
-		pipeline_prewarm_presets(p)
+		if shader_cache_find(&p.shader_cache, p.active_effects) == 0 {
+			shader_cache_compile(&p.shader_cache, p.active_effects)
+		}
 	}
 
 	log.log_info("suckless-odin.postfx", "Pipeline created (%dx%d)", width, height)

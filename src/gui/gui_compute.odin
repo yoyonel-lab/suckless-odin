@@ -376,7 +376,7 @@ draw_reset_button :: proc(id: string, current_val: ^$T, default_val: T) {
 		current_val^ = default_val
 	}
 	if imgui.IsItemHovered() {
-		imgui.SetTooltip(fmt.ctprintf("Reset this parameter to default value: %v", default_val))
+		imgui.SetTooltip("%s", fmt.ctprintf("Reset this parameter to default value: %v", default_val))
 	}
 }
 
