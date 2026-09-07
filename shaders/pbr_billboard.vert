@@ -11,6 +11,7 @@ flat layout(location = 5) out float Metallic;
 flat layout(location = 6) out float Roughness;
 flat layout(location = 7) out float AO;
 flat layout(location = 8) out vec3 PrevSphereCenter;
+flat layout(location = 9) out int InstanceID;
 
 // Per-instance data from SSBO (128-byte stride, matches C SphereInstance)
 struct SphereInstance {
@@ -19,7 +20,7 @@ struct SphereInstance {
     float metallic;
     float roughness;
     float ao;
-    float padding;
+    int id;
     float prev_center_x;
     float prev_center_y;
     float prev_center_z;
@@ -158,6 +159,7 @@ void main()
     Metallic  = inst.metallic;
     Roughness = inst.roughness;
     AO        = inst.ao;
+    InstanceID = inst.id;
 
     // Camera-facing normal for the quad (real normal from raycasting in frag)
     Normal = -vec3(u_view[0][2], u_view[1][2], u_view[2][2]);

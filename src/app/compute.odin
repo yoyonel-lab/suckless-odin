@@ -30,3 +30,9 @@ apply_compute_tuning_callback :: proc(scene_ptr: rawptr, params: settings.Comput
 	log.log_info("suckless-odin.app", "Applied new compute tuning parameters and triggered IBL recalculation")
 	return true
 }
+
+change_env_callback :: proc(scene_ptr: rawptr, path: string) -> bool {
+	s := (^scene.Scene)(scene_ptr)
+	if s == nil do return false
+	return scene.scene_change_env(s, path)
+}

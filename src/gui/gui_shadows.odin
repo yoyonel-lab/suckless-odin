@@ -1,8 +1,42 @@
 package gui
 
+import "core:fmt"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
 import mt "../core/math_types"
+
+SHADOW_DEBUG_MODES_STRING :: "Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00PCF Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00Temporal Jitter Phase Heatmap\x00Only Shadow Factor (Grayscale White=Lit, Black=Shadow)\x00PBR Split-Screen (Left=No Shadows, Right=With Shadows)\x00Direct Shadow Delta Magnifier (Turbo Heatmap)\x00Specular Occlusion Factor (Grayscale White=Full Specular, Black=Occluded)\x00\x00"
+
+SHADOW_PCF_MODES_STRING :: "Off (1-tap Hard)\x00Vogel Disk 8-tap (Fast)\x00Vogel Disk 16-tap (Ultra HD Smooth)\x00\x00"
+
+draw_shadow_pcf_combo :: proc(label: cstring, light: ^rendering.Point_Light) -> bool {
+	if light == nil do return false
+	pcf_idx: i32 = 1
+	if light.shadow_pcf_samples <= 1 do pcf_idx = 0
+	else if light.shadow_pcf_samples >= 16 do pcf_idx = 2
+	else do pcf_idx = 1
+
+	if imgui.Combo(label, &pcf_idx, SHADOW_PCF_MODES_STRING) {
+		switch pcf_idx {
+		case 0: light.shadow_pcf_samples = 1
+		case 1: light.shadow_pcf_samples = 8
+		case 2: light.shadow_pcf_samples = 16
+		}
+		return true
+	}
+	return false
+}
+
+draw_shadow_debug_combo :: proc(label: cstring, light: ^rendering.Point_Light) -> bool {
+	if light == nil do return false
+	debug_mode_idx := light.shadow_debug_mode
+	if imgui.Combo(label, &debug_mode_idx, SHADOW_DEBUG_MODES_STRING) {
+		light.shadow_debug_mode = debug_mode_idx
+		light.shadow_debug_mask = (debug_mode_idx == 1)
+		return true
+	}
+	return false
+}
 
 // Dedicated Dear ImGui panel for Point Light & Shadow Cubemap (Phase 1)
 draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
@@ -21,7 +55,12 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 	if imgui.CollapsingHeader("Point Light Controls", imgui.TreeNodeFlags{.DefaultOpen}) {
 		imgui.Checkbox("Light Enabled", &light.enabled)
 		imgui.SameLine()
-		imgui.Checkbox("Orbit Animation", &light.is_animated)
+		if imgui.Checkbox("Orbit Animation", &light.is_animated) {
+			if light.is_animated && light.orbit_radius <= 0.001 {
+				light.orbit_radius = 5.0
+				light.orbit_center = light.position
+			}
+		}
 
 		if light.is_animated {
 			imgui.SliderFloat("Orbit Speed", &light.orbit_speed, 0.0, 2.0, "%.3f rad/s")
@@ -71,18 +110,7 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 			}
 
 			// PCF Soft Shadows
-			pcf_idx: i32 = 1
-			if light.shadow_pcf_samples <= 1 do pcf_idx = 0
-			else if light.shadow_pcf_samples >= 16 do pcf_idx = 2
-			else do pcf_idx = 1
-
-			if imgui.Combo("PCF Soft Shadows", &pcf_idx, "Off (1-tap Hard)\x00Vogel Disk 8-tap (Fast)\x00Vogel Disk 16-tap (Ultra HD Smooth)\x00\x00") {
-				switch pcf_idx {
-				case 0: light.shadow_pcf_samples = 1
-				case 1: light.shadow_pcf_samples = 8
-				case 2: light.shadow_pcf_samples = 16
-				}
-			}
+			draw_shadow_pcf_combo("PCF Soft Shadows", light)
 
 			if light.shadow_pcf_samples > 1 {
 				imgui.SliderFloat("Shadow Filter Radius", &light.shadow_filter_radius, 0.001, 0.050, "%.3f rad")
@@ -122,20 +150,27 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Spacing()
 			imgui.SeparatorText("Shadow Sampling & PCF Debug Inspector")
 
-			debug_mode_idx := light.shadow_debug_mode
-			if imgui.Combo(
-				"Shadow Debug View",
-				&debug_mode_idx,
-				"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00Temporal Jitter Phase Heatmap\x00Only Shadow Factor (Grayscale White=Lit, Black=Shadow)\x00\x00",
-			) {
-				light.shadow_debug_mode = debug_mode_idx
-				light.shadow_debug_mask = (debug_mode_idx == 1)
+			draw_shadow_debug_combo("Shadow Debug View", light)
+
+			if light.shadow_debug_mode == 4 || light.shadow_debug_mode == 7 {
+				imgui.SliderFloat("Split Position", &light.shadow_split_position, 0.0, 1.0, "%.2f")
+				if light.shadow_debug_mode == 7 {
+					imgui.TextColored(imgui.Vec4{0.1, 0.75, 1.0, 1.0}, "[ Left: No Direct Shadows (Lit) | Right: With Direct Shadows ]")
+				} else {
+					sample_name := "Vogel 8-tap" if light.shadow_pcf_samples == 8 else ("Vogel 16-tap" if light.shadow_pcf_samples >= 16 else "1-tap Hard")
+					imgui.TextColored(imgui.Vec4{0.1, 0.75, 1.0, 1.0}, fmt.ctprintf("[ Left: Hard 1-tap (Off) | Right: %s ]", sample_name))
+				}
 			}
 
-			if light.shadow_debug_mode == 4 {
-				imgui.SliderFloat("Split Position", &light.shadow_split_position, 0.0, 1.0, "%.2f")
-				sample_name := "Vogel 8-tap" if light.shadow_pcf_samples == 8 else ("Vogel 16-tap" if light.shadow_pcf_samples >= 16 else "1-tap Hard")
-				imgui.TextColored(imgui.Vec4{0.1, 0.75, 1.0, 1.0}, "[ Left: Hard 1-tap (Off) | Right: %s ]", sample_name)
+			if imgui.Button("Split: No Shadows vs Shadows") {
+				light.shadow_debug_mode = 7
+				light.shadow_split_position = 0.5
+				light.direct_shadows_enabled = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Shadow Delta Magnifier (Heatmap)") {
+				light.shadow_debug_mode = 8
+				light.direct_shadows_enabled = true
 			}
 
 			if imgui.Button("Compare Hard vs Vogel 8-tap") {
@@ -225,8 +260,8 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 
 	// 2. Shadow Cubemap Live Preview & Resolution Inspector
 	if imgui.CollapsingHeader("Shadow Cubemap Inspector (3x2 Atlas & Controls)", imgui.TreeNodeFlags{.DefaultOpen}) {
-		// Dynamic Resolution Control (ISO parity: 64, 128, 256, 512)
-		if imgui.Combo("Cube Shadow Map Res", &sc.res_index, "64x64\x00128x128\x00256x256 (Default)\x00512x512 (Ultra HD)\x00\x00") {
+		// Dynamic Resolution Control (64, 128, 256, 512, 1024, 2048)
+		if imgui.Combo("Cube Shadow Map Res", &sc.res_index, "64x64\x00128x128\x00256x256 (Default)\x00512x512 (Ultra HD)\x001024x1024 (Extreme)\x002048x2048 (Cinematic 4K)\x00\x00") {
 			new_res := rendering.shadow_cubemap_res_for_index(sc.res_index)
 			if new_res != sc.resolution {
 				rendering.shadow_cubemap_resize(sc, new_res)
@@ -304,7 +339,12 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		match_count += 1
 	}
 	if fuzzy_match(filter, "Orbit Animation", "light animation movement rotation speed radius") {
-		imgui.Checkbox("Orbit Animation##filt", &light.is_animated)
+		if imgui.Checkbox("Orbit Animation##filt", &light.is_animated) {
+			if light.is_animated && light.orbit_radius <= 0.001 {
+				light.orbit_radius = 5.0
+				light.orbit_center = light.position
+			}
+		}
 		if light.is_animated {
 			imgui.SliderFloat("Orbit Speed##filt", &light.orbit_speed, 0.0, 2.0, "%.3f rad/s")
 			imgui.SliderFloat("Orbit Radius##filt", &light.orbit_radius, 0.0, 20.0)
@@ -328,18 +368,7 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		match_count += 1
 	}
 	if fuzzy_match(filter, "PCF Soft Shadows", "shadow pcf soft vogel disk penumbra filtering anti-aliasing") {
-		pcf_idx: i32 = 1
-		if light.shadow_pcf_samples <= 1 do pcf_idx = 0
-		else if light.shadow_pcf_samples >= 16 do pcf_idx = 2
-		else do pcf_idx = 1
-
-		if imgui.Combo("PCF Soft Shadows##filt", &pcf_idx, "Off (1-tap Hard)\x00Vogel Disk 8-tap (Fast)\x00Vogel Disk 16-tap (Ultra HD Smooth)\x00\x00") {
-			switch pcf_idx {
-			case 0: light.shadow_pcf_samples = 1
-			case 1: light.shadow_pcf_samples = 8
-			case 2: light.shadow_pcf_samples = 16
-			}
-		}
+		draw_shadow_pcf_combo("PCF Soft Shadows##filt", light)
 		match_count += 1
 	}
 	if fuzzy_match(filter, "Shadow Filter Radius", "shadow filter radius pcf penumbra softness angular kernel") {
@@ -383,16 +412,8 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		match_count += 1
 	}
 	if fuzzy_match(filter, "Shadow Debug View", "shadow debug mask mode penumbra heatmap delta split screen comparison hard pcf grayscale graysc gray white black only shadow factor onlyshadow") {
-		debug_mode_idx := light.shadow_debug_mode
-		if imgui.Combo(
-			"Shadow Debug View##filt",
-			&debug_mode_idx,
-			"Off (Normal Shading)\x00Shadow Mask (Green=Lit, Red=Occluded)\x00Penumbra / Softness Heatmap\x00PCF vs Hard Delta Heatmap (|PCF - Hard|)\x00Split-Screen (Left=Hard 1-tap, Right=Active PCF)\x00Temporal Jitter Phase Heatmap\x00Only Shadow Factor (Grayscale White=Lit, Black=Shadow)\x00\x00",
-		) {
-			light.shadow_debug_mode = debug_mode_idx
-			light.shadow_debug_mask = (debug_mode_idx == 1)
-		}
-		if light.shadow_debug_mode == 4 {
+		draw_shadow_debug_combo("Shadow Debug View##filt", light)
+		if light.shadow_debug_mode == 4 || light.shadow_debug_mode == 7 {
 			imgui.SliderFloat("Split Position##filt", &light.shadow_split_position, 0.0, 1.0, "%.2f")
 		}
 		match_count += 1
@@ -428,8 +449,8 @@ draw_filtered_shadows :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		}
 		match_count += 1
 	}
-	if sc != nil && fuzzy_match(filter, "Cube Shadow Map Res", "shadow resolution cubemap atlas 64 128 256 512 res index") {
-		if imgui.Combo("Cube Shadow Map Res##filt", &sc.res_index, "64x64\x00128x128\x00256x256 (Default)\x00512x512 (Ultra HD)\x00\x00") {
+	if sc != nil && fuzzy_match(filter, "Cube Shadow Map Res", "shadow resolution cubemap atlas 64 128 256 512 1024 2048 res index") {
+		if imgui.Combo("Cube Shadow Map Res##filt", &sc.res_index, "64x64\x00128x128\x00256x256 (Default)\x00512x512 (Ultra HD)\x001024x1024 (Extreme)\x002048x2048 (Cinematic 4K)\x00\x00") {
 			new_res := rendering.shadow_cubemap_res_for_index(sc.res_index)
 			if new_res != sc.resolution {
 				rendering.shadow_cubemap_resize(sc, new_res)

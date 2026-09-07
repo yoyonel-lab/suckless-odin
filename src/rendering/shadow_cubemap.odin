@@ -122,13 +122,13 @@ point_light_update :: proc(light: ^Point_Light, dt: f32) {
 	light.prev_orbit_center = light.orbit_center
 }
 
-SHADOW_MAP_RESOLUTIONS :: [4]i32{64, 128, 256, 512}
+SHADOW_MAP_RESOLUTIONS :: [6]i32{64, 128, 256, 512, 1024, 2048}
 DEFAULT_SHADOW_RES_INDEX :: 2 // 256x256
 DEFAULT_SHADOW_RESOLUTION :: 256
 
 shadow_cubemap_res_for_index :: proc(index: i32) -> i32 {
-	resolutions := [4]i32{64, 128, 256, 512}
-	idx := clamp(index, 0, 3)
+	resolutions := SHADOW_MAP_RESOLUTIONS
+	idx := clamp(index, 0, len(resolutions) - 1)
 	return resolutions[idx]
 }
 

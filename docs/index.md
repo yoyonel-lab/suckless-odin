@@ -64,6 +64,70 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter la Spécification Picking](2026-09-06_3d_viewport_picking_and_selection_architecture.md)
 
+-   :material-weather-fog:{ .lg .middle } __Calibration Physique : Beer-Lambert, God Rays & RNOB__
+
+    ---
+
+    Analyse approfondie de la calibration de précision : équation de transfert radiatif de Beer-Lambert, puits de lumière contrastés, correction géométrique RNOB et upsampling JBU 2x2.
+
+    [:octicons-arrow-right-24: Lire l'Analyse Physique](2026-09-02_volumetric_godrays_beer_lambert_shadow_rnob_calibration.md)
+
+-   :material-speedometer:{ .lg .middle } __Benchmark GPU Uncapped (VSync OFF) & Analyse de Coût__
+
+    ---
+
+    Rapport de performance brute non-capée : décomposition nanoseconde du raymarch volumétrique Beer-Lambert, ombres PCF 16-tap, goulots d'étranglement iGPU et roadmap d'optimisation.
+
+    [:octicons-arrow-right-24: Consulter le Rapport de Benchmark](2026-09-02_uncapped_gpu_benchmark_volumetric_shadows_cost_analysis.md)
+
+-   :material-palette-swatch:{ .lg .middle } __Plan Directeur : Harmonisation PBR, Ombres & IBL__
+
+    ---
+
+    Feuille de route d'harmonisation physique : décomposition lumière directe Cook-Torrance, découplage ombres/ambiance IBL, Specular Occlusion (Lagarde) et couplage volumétrique.
+
+    [:octicons-arrow-right-24: Consulter le Plan Directeur](2026-09-02_pbr_direct_lighting_shadow_ibl_harmonization_plan.md)
+
+-   :material-lightbulb-cfl:{ .lg .middle } __Intégration PBR Direct, Shadow Mapping & IBL__
+
+    ---
+
+    Spécification d'implémentation : lobe Cook-Torrance direct GGX/Smith, découplage physique des ombres de l'ambiance IBL, vues de debug PBR Split-Screen & Delta Magnifier Turbo Heatmap, et validation E2E.
+
+    [:octicons-arrow-right-24: Consulter la Spécification Technique](2026-09-03_pbr_direct_lighting_shadow_ibl_integration.md)
+
+-   :material-diamond-stone:{ .lg .middle } __Phase 3 : Specular Occlusion & Horizon Clipping__
+
+    ---
+
+    Spécification d'implémentation : élimination des fuites spéculaires rasantes (Lagarde / Karis), Horizon Clipping analytique doux, intégration GLSL et persistance ImGui 100%.
+
+    [:octicons-arrow-right-24: Découvrir la Spécification Phase 3](2026-09-03_pbr_phase3_specular_horizon_occlusion_specification.md)
+
+-   :material-shield-check:{ .lg .middle } __Post-Mortem & Fiabilisation : Steam, Proton & Écran Noir__
+
+    ---
+
+    Analyse des causes racines de l'écran noir sous Steam Proton (FBO state cache, Steam overlay) et architecture des 4 verrous de sécurité automatisés (assertion de pixels réels).
+
+    [:octicons-arrow-right-24: Lire le Guide de Fiabilisation](2026-09-03_windows_cross_compilation_steam_proton_blackscreen_postmortem.md)
+
+-   :material-sun-angle:{ .lg .middle } __Ground Truth Ambient Occlusion & Ray-Tracing Baker__
+
+    ---
+
+    Méthodologie d'échantillonnage hémisphérique cosinus Hammersley 2D, ray-tracing analytique multi-cœurs CPU (>400 Mrays/s), sampling texturel équirectangulaire dans `pbr_billboard.frag` et Specular Occlusion.
+
+    [:octicons-arrow-right-24: Consulter le Guide Ground Truth AO](2026-09-03_ground_truth_ambient_occlusion_raytracing_baker_and_lighting.md)
+
+-   :material-gpu:{ .lg .middle } __Ground Truth AO Full GPU (Compute Shader) & ImGuizmo 3D__
+
+    ---
+
+    Calcul d'AO intégrale full GPU pour les 100 sphères en VRAM (Texture2DArray GL_R8, 3.28 Mo, >29 000 Mrays/s), validation de parité ISO contre Golden CPU (<0.4% delta), time-slicing amorti et gizmo interactif ImGuizmo.
+
+    [:octicons-arrow-right-24: Consulter le Guide Full GPU & ImGuizmo](2026-09-03_gpu_ambient_occlusion_compute_shader_and_imguizmo.md)
+
 </div>
 
 ---

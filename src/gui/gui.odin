@@ -1,6 +1,8 @@
 package gui
 
+import "core:fmt"
 import "core:math"
+import "core:strings"
 import "vendor:glfw"
 import gl "vendor:OpenGL"
 
@@ -40,6 +42,18 @@ Scene_State :: struct {
 	specular_aa_split_enabled:  ^bool,
 	specular_aa_split_position: ^f32,
 
+	// Specular Occlusion & Horizon Clipping (Phase 3 PBR)
+	specular_occlusion_enabled:        ^bool,
+	specular_occlusion_strength:       ^f32,
+	horizon_clipping_enabled:          ^bool,
+	specular_occlusion_debug_mode:     ^types.Specular_Occlusion_Debug_Mode,
+	specular_occlusion_split_enabled:  ^bool,
+	specular_occlusion_split_position: ^f32,
+	pbr_debug_mode:                    ^types.PBR_Debug_Mode,
+	grid_ao_enabled:                   ^bool,
+	grid_ao_intensity:                 ^f32,
+	use_baked_ao:                      ^bool,
+
 	// Post-processing pipeline (live controls)
 	postfx: ^postfx.Pipeline,
 
@@ -54,7 +68,8 @@ Scene_State :: struct {
 	depth_downsample: ^rendering.Depth_Downsample,
 	volumetric:       ^rendering.Volumetric_Renderer,
 
-	// Instanced spheres & Selection (3D Viewport Picking & ImGuizmo)
+	// Ground Truth AO Baker, Instanced Spheres & Selection (3D Viewport Picking & ImGuizmo)
+	ao_baker:         ^rendering.AO_Baker,
 	spheres:          ^rendering.Instanced_Spheres,
 	selection:        ^types.Selection_State,
 
@@ -73,6 +88,17 @@ Scene_State :: struct {
 	live_compute_tuning:  ^settings.Compute_Tuning_Params,
 	apply_compute_tuning: proc(scene_ptr: rawptr, params: settings.Compute_Tuning_Params) -> bool,
 	scene_ptr:            rawptr,
+
+	// Environment map gallery & transition state
+	hdr_files:            []string,
+	current_hdr_index:    ^i32,
+	env_thumbnails:       []rendering.Env_Thumbnail,
+	env_transitioning:    bool,
+	env_transition_alpha: f32,
+	change_env:           proc(scene_ptr: rawptr, path: string) -> bool,
+
+	// Optimization & performance profile preset
+	optimization_profile: ^rendering.Optimization_Profile,
 }
 
 IBL_Scroll_Target :: enum {
@@ -94,6 +120,7 @@ Gui :: struct {
 	restore_tab:      i32, // Frame counter for SetSelected (needs 2 frames)
 	search_buf:       [SEARCH_BUF_SIZE]u8,
 	focus_search:     bool,
+	focus_search_tab: bool,
 	ibl_debug_open:   bool,
 	ibl_scroll_target: IBL_Scroll_Target,
 	ibl_preview_size: f32,
@@ -172,108 +199,150 @@ new_frame :: proc(g: ^Gui) {
 // Single window with search + tab bar for all engine controls.
 update :: proc(g: ^Gui, state: Scene_State) {
 	if g.ctx == nil { return }
-	if !g.visible { return }
 
-	imgui.SetNextWindowSize(imgui.Vec2{400, 560}, .FirstUseEver)
+	if g.visible {
+		imgui.SetNextWindowSize(imgui.Vec2{400, 560}, .FirstUseEver)
 
-	if imgui.Begin("Engine Controls", &g.visible) {
+		if imgui.Begin("Engine Controls", &g.visible) {
 		// Search bar at the top — focus on Ctrl+F
 		if g.focus_search {
 			imgui.SetKeyboardFocusHere()
 			g.focus_search = false
+			g.focus_search_tab = true
 		}
-		imgui.SetNextItemWidth(-1)
-		imgui.InputTextWithHint("##search", "Search parameters...",
-			cast(cstring)&g.search_buf[0], SEARCH_BUF_SIZE)
+		raw_filter := cstring(&g.search_buf[0])
+		trimmed := strings.trim_space(string(raw_filter))
+		has_filter := len(trimmed) > 0
 
-		filter := cstring(&g.search_buf[0])
-		has_filter := len(filter) > 0
+		if has_filter {
+			imgui.SetNextItemWidth(-65)
+			if imgui.InputTextWithHint("##search", "Search parameters...",
+				cast(cstring)&g.search_buf[0], SEARCH_BUF_SIZE) {
+				g.focus_search_tab = true
+			}
+			imgui.SameLine()
+			if imgui.Button("[x] Clear") {
+				g.search_buf = {}
+				has_filter = false
+			}
+		} else {
+			imgui.SetNextItemWidth(-1)
+			if imgui.InputTextWithHint("##search", "Search parameters...",
+				cast(cstring)&g.search_buf[0], SEARCH_BUF_SIZE) {
+				g.focus_search_tab = true
+			}
+		}
+
+		if imgui.IsItemActive() && imgui.IsKeyPressed(.Escape) {
+			g.search_buf = {}
+			has_filter = false
+		}
 
 		imgui.Separator()
 
-		if has_filter {
-			// Filtered flat view
-			draw_filtered_view(g, state, filter)
-		} else {
-			// Normal tab bar
-			if imgui.BeginTabBar("##tabs") {
-				tab_flags :: proc(g: ^Gui, idx: i32) -> imgui.TabItemFlags {
-					if g.restore_tab > 0 && g.active_tab == idx {
-						return {.SetSelected}
-					}
-					return {}
+		// Tab bar is ALWAYS displayed (permanent tabs)
+		if imgui.BeginTabBar("##tabs") {
+			tab_flags :: proc(g: ^Gui, idx: i32) -> imgui.TabItemFlags {
+				if g.restore_tab > 0 && g.active_tab == idx {
+					return {.SetSelected}
 				}
-				restoring := g.restore_tab > 0
-				if imgui.BeginTabItem("Camera", flags = tab_flags(g, 0)) {
-					if !restoring { g.active_tab = 0 }
-					draw_tab_camera(state.camera)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Scene", flags = tab_flags(g, 1)) {
-					if !restoring { g.active_tab = 1 }
-					draw_tab_scene(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Rendering", flags = tab_flags(g, 2)) {
-					if !restoring { g.active_tab = 2 }
-					draw_tab_rendering(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Post-FX", flags = tab_flags(g, 3)) {
-					if !restoring { g.active_tab = 3 }
-					draw_postfx_section(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("MBlur", flags = tab_flags(g, 4)) {
-					if !restoring { g.active_tab = 4 }
-					draw_tab_motion_blur(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Profiling", flags = tab_flags(g, 5)) {
-					if !restoring { g.active_tab = 5 }
-					draw_gpu_timings_section(state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Shaders", flags = tab_flags(g, 6)) {
-					if !restoring { g.active_tab = 6 }
-					draw_shader_cache_section(state)
-					imgui.EndTabItem()
-				}
-				ibl_flags := tab_flags(g, 7)
-				if g.ibl_debug_open {
-					ibl_flags += {.SetSelected}
-				}
-				if imgui.BeginTabItem("IBL Debug", flags = ibl_flags) {
-					if !restoring { g.active_tab = 7 }
-					g.ibl_debug_open = false
-					draw_tab_ibl_debug(g, state)
-					imgui.EndTabItem()
-				} else {
-					g.ibl_debug_open = false
-				}
-				if imgui.BeginTabItem("Compute Tuning", flags = tab_flags(g, 8)) {
-					if !restoring { g.active_tab = 8 }
-					draw_tab_compute_tuning(g, state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Shadows", flags = tab_flags(g, 9)) {
-					if !restoring { g.active_tab = 9 }
-					draw_tab_shadows(g, state)
-					imgui.EndTabItem()
-				}
-				if imgui.BeginTabItem("Volumetric", flags = tab_flags(g, 10)) {
-					if !restoring { g.active_tab = 10 }
-					draw_tab_volumetric(g, state)
-					imgui.EndTabItem()
-				}
-				if g.restore_tab > 0 {
-					g.restore_tab -= 1
-				}
-				imgui.EndTabBar()
+				return {}
 			}
+			restoring := g.restore_tab > 0
+
+			// Dynamic Results tab when search filter is active
+			if has_filter {
+				search_tab_flags: imgui.TabItemFlags = {}
+				if g.focus_search_tab {
+					search_tab_flags += {.SetSelected}
+					g.focus_search_tab = false
+				}
+				if imgui.BeginTabItem("Search Results", flags = search_tab_flags) {
+					draw_filtered_view(g, state, raw_filter)
+					imgui.EndTabItem()
+				}
+			}
+
+			if imgui.BeginTabItem("Camera", flags = tab_flags(g, 0)) {
+				if !restoring { g.active_tab = 0 }
+				draw_tab_camera(state.camera)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Scene", flags = tab_flags(g, 1)) {
+				if !restoring { g.active_tab = 1 }
+				draw_tab_scene(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Rendering", flags = tab_flags(g, 2)) {
+				if !restoring { g.active_tab = 2 }
+				draw_tab_rendering(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Post-FX", flags = tab_flags(g, 3)) {
+				if !restoring { g.active_tab = 3 }
+				draw_postfx_section(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("MBlur", flags = tab_flags(g, 4)) {
+				if !restoring { g.active_tab = 4 }
+				draw_tab_motion_blur(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Profiling", flags = tab_flags(g, 5)) {
+				if !restoring { g.active_tab = 5 }
+				draw_gpu_timings_section(state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Shaders", flags = tab_flags(g, 6)) {
+				if !restoring { g.active_tab = 6 }
+				draw_shader_cache_section(state)
+				imgui.EndTabItem()
+			}
+			ibl_flags := tab_flags(g, 7)
+			if g.ibl_debug_open {
+				ibl_flags += {.SetSelected}
+			}
+			if imgui.BeginTabItem("IBL Debug", flags = ibl_flags) {
+				if !restoring { g.active_tab = 7 }
+				g.ibl_debug_open = false
+				draw_tab_ibl_debug(g, state)
+				imgui.EndTabItem()
+			} else {
+				g.ibl_debug_open = false
+			}
+			if imgui.BeginTabItem("Compute Tuning", flags = tab_flags(g, 8)) {
+				if !restoring { g.active_tab = 8 }
+				draw_tab_compute_tuning(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Shadows", flags = tab_flags(g, 9)) {
+				if !restoring { g.active_tab = 9 }
+				draw_tab_shadows(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Volumetric", flags = tab_flags(g, 10)) {
+				if !restoring { g.active_tab = 10 }
+				draw_tab_volumetric(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Env Map", flags = tab_flags(g, 11)) {
+				if !restoring { g.active_tab = 11 }
+				draw_tab_env_map(g, state)
+				imgui.EndTabItem()
+			}
+			if imgui.BeginTabItem("Optimisations", flags = tab_flags(g, 12)) {
+				if !restoring { g.active_tab = 12 }
+				draw_tab_optimizations(g, state)
+				imgui.EndTabItem()
+			}
+			if g.restore_tab > 0 {
+				g.restore_tab -= 1
+			}
+			imgui.EndTabBar()
 		}
 	}
 	imgui.End()
+}
 
 	// 3D Viewport Interactive Controls (ImGuizmo)
 	draw_point_light_gizmo(state)
@@ -400,19 +469,19 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 	gizmo_mode := light.gizmo_mode if light != nil else 0
 	mode: Guizmo_Mode = .World if gizmo_mode == 0 else .Local
 
-	snap_val: [3]f32
-	snap_ptr: [^]f32 = nil
+	snap_val: mt.Vec3
+	snap_ptr: ^mt.Vec3 = nil
 	if light != nil && light.gizmo_snap {
 		snap_val = {light.gizmo_snap_value, light.gizmo_snap_value, light.gizmo_snap_value}
-		snap_ptr = &snap_val[0]
+		snap_ptr = &snap_val
 	}
 
-	manipulated := guizmo_manipulate(
-		&view[0][0],
-		&proj[0][0],
+	manipulated := guizmo_manipulate_mat4(
+		&view,
+		&proj,
 		op,
 		mode,
-		&model[0][0],
+		&model,
 		nil,
 		snap_ptr,
 	)
@@ -942,11 +1011,18 @@ draw_rendering_pbr_debug :: proc(state: Scene_State) {
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "PBR Debug Modes")
 	imgui.Separator()
 
-	imgui.BeginDisabled()
-	pbr_debug_mode: i32 = 0
-	imgui.Combo("Debug Mode", &pbr_debug_mode,
-		"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance (Diff)\x00Prefilter (Spec)\x00BRDF LUT\x00GI Probes\x00")
-	imgui.EndDisabled()
+	if state.pbr_debug_mode != nil {
+		pbr_val := i32(state.pbr_debug_mode^)
+		if imgui.Combo("PBR Diagnostic View", &pbr_val,
+			"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance (Diff)\x00Prefilter (Spec)\x00BRDF LUT\x00SO Grayscale Mask\x00SO Delta Heatmap\x00\x00") {
+			state.pbr_debug_mode^ = types.PBR_Debug_Mode(pbr_val)
+		}
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Direct visual diagnostic inspection of PBR material channels, environment maps, and occlusion buffers")
+		}
+	}
 
 	if state.specular_aa_enabled != nil {
 		imgui.Checkbox("Specular Anti-Aliasing", state.specular_aa_enabled)
@@ -988,11 +1064,83 @@ draw_rendering_pbr_debug :: proc(state: Scene_State) {
 				}
 				if state.specular_aa_split_enabled^ && state.specular_aa_split_position != nil {
 					pos_pct := state.specular_aa_split_position^ * 100.0
-					if imgui.SliderFloat("##split_pos_specular", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+					if imgui.SliderFloat("##split_pos_specular", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 						state.specular_aa_split_position^ = pos_pct / 100.0
 					}
 				}
 			}
+		}
+	}
+
+	imgui.Spacing()
+	if state.specular_occlusion_enabled != nil {
+		imgui.Checkbox("Specular Occlusion (SO)", state.specular_occlusion_enabled)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Eliminates skybox specular light leaks in crevices and contact regions\nusing Sébastien Lagarde (Frostbite) & Brian Karis (UE4) analytical cone occlusion")
+		}
+
+		if state.specular_occlusion_enabled^ {
+			imgui.Indent()
+			if state.specular_occlusion_strength != nil {
+				imgui.SliderFloat("SO Strength", state.specular_occlusion_strength, 0.0, 1.0, "%.2f")
+			}
+
+			if state.specular_occlusion_debug_mode != nil {
+				so_dbg_val := i32(state.specular_occlusion_debug_mode^)
+				if imgui.Combo("Debug View##so_dbg", &so_dbg_val, "Off\x00Grayscale Mask (SO * Horizon)\x00Occluded Specular Delta Heatmap\x00Horizon Clipping Factor\x00\x00") {
+					state.specular_occlusion_debug_mode^ = types.Specular_Occlusion_Debug_Mode(so_dbg_val)
+				}
+				imgui.SameLine()
+				imgui.TextDisabled("(?)")
+				if imgui.IsItemHovered() {
+					imgui.SetTooltip("Diagnostic modes for Specular Occlusion:\n- Off: Normal rendering\n- Grayscale Mask: Multiplier factor (White=100% lit specular, Black=occluded)\n- Delta Heatmap: Turbo false-color map of blocked specular energy (crevices)\n- Horizon Clipping Factor: Attenuation curve grazing surface tangent")
+				}
+			}
+
+			if state.specular_occlusion_split_enabled != nil {
+				imgui.Checkbox("A/B Split##so_split", state.specular_occlusion_split_enabled)
+				imgui.SameLine()
+				imgui.TextDisabled("(?)")
+				if imgui.IsItemHovered() {
+					imgui.SetTooltip("Compare Specular Occlusion ON (left) vs Bypassed/raw specular leaks (right)")
+				}
+				if state.specular_occlusion_split_enabled^ && state.specular_occlusion_split_position != nil {
+					pos_pct := state.specular_occlusion_split_position^ * 100.0
+					if imgui.SliderFloat("##split_pos_so", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
+						state.specular_occlusion_split_position^ = pos_pct / 100.0
+					}
+				}
+			}
+			imgui.Unindent()
+		}
+	}
+
+	if state.horizon_clipping_enabled != nil {
+		imgui.Checkbox("Horizon Clipping", state.horizon_clipping_enabled)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Smoothly attenuates specular reflections that graze below the surface tangent horizon\nusing Marmet / Neubelt quadratic horizon smoothing")
+		}
+	}
+
+	imgui.Spacing()
+	if state.grid_ao_enabled != nil {
+		imgui.Checkbox("Grid Mutual AO", state.grid_ao_enabled)
+		imgui.SameLine()
+		imgui.TextDisabled("(?)")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Precomputed analytical mutual sphere-sphere ambient occlusion across the 10x10 grid.\nProvides realistic contact shadowing and reveals specular occlusion attenuation in central spheres.")
+		}
+
+		if state.grid_ao_enabled^ {
+			imgui.Indent()
+			if state.grid_ao_intensity != nil {
+				imgui.SliderFloat("AO Intensity", state.grid_ao_intensity, 0.0, 2.0, "%.2f")
+			}
+			imgui.Unindent()
 		}
 	}
 }
@@ -1055,10 +1203,196 @@ draw_rendering_env :: proc() {
 }
 
 @(private)
+g_iso_tested:  bool = false
+g_iso_max_delta: f32 = 0.0
+g_iso_avg_delta: f32 = 0.0
+
+@(private)
+draw_rendering_ao_baker :: proc(state: Scene_State) {
+	if state.ao_baker == nil do return
+	baker := state.ao_baker
+
+	if state.use_baked_ao != nil {
+		imgui.Checkbox("Apply Baked AO to PBR Billboard Spheres##ao_apply_pbr", state.use_baked_ao)
+		if state.use_baked_ao^ {
+			imgui.SameLine()
+			imgui.TextColored(imgui.Vec4{0.4, 1.0, 0.4, 1.0}, "(Active: Layer i -> Sphere #i)")
+		}
+	}
+	maps_status := fmt.tprintf("Baked Maps in VRAM: %d/100 (Texture Array ID %d)", baker.loaded_maps_count, baker.ao_array_texture_id)
+	imgui.TextUnformatted(strings.clone_to_cstring(maps_status, context.temp_allocator))
+	imgui.SameLine()
+	if imgui.SmallButton("Reload Maps (build/)##ao_reload_maps") {
+		rendering.ao_baker_load_all_maps_from_disk(baker, "build")
+	}
+
+	imgui.Spacing()
+
+	// ─── 1. Baking Method Selection ───────────────────────────────────────────
+	imgui.Text("Baking Methods:")
+	imgui.SameLine()
+	imgui.Checkbox("CPU (Multi-Thread)##ao_m_cpu", &baker.bake_cpu_enabled)
+	imgui.SameLine()
+	imgui.Checkbox("GPU (Compute Shader)##ao_m_gpu", &baker.bake_gpu_enabled)
+
+	// ─── 2. Sphere Range Selection ────────────────────────────────────────────
+	imgui.SliderInt("Start Sphere ID##ao_r_start", &baker.range_start, 0, 99)
+	imgui.SliderInt("End Sphere ID##ao_r_end", &baker.range_end, 0, 99)
+
+	// Quick Range Presets
+	if imgui.SmallButton("Center Sphere (#45)##ao_p45") {
+		baker.range_start = 45
+		baker.range_end = 45
+	}
+	imgui.SameLine()
+	if imgui.SmallButton("Middle Row (#40..#49)##ao_prow") {
+		baker.range_start = 40
+		baker.range_end = 49
+	}
+	imgui.SameLine()
+	if imgui.SmallButton("All 100 Spheres (#0..#99)##ao_pall") {
+		baker.range_start = 0
+		baker.range_end = 99
+	}
+
+	// ─── 3. Quality & Sample Settings ─────────────────────────────────────────
+	samples := baker.num_samples
+	if imgui.SliderInt("Rays per Texel##ao_samples", &samples, 16, 1024) {
+		baker.num_samples = samples
+	}
+
+	// ─── 4. Launch Bake Buttons ───────────────────────────────────────────────
+	if state.spheres != nil {
+		num_spheres_selected := int(abs(baker.range_end - baker.range_start) + 1)
+		fast_label := fmt.tprintf("⚡ Fast Bake Direct In-VRAM (%d Spheres)##ao_fast", num_spheres_selected)
+		if imgui.Button(strings.clone_to_cstring(fast_label, context.temp_allocator)) {
+			rendering.ao_baker_bake_direct_vram(
+				baker,
+				state.spheres,
+				baker.range_start,
+				baker.range_end,
+				baker.num_samples,
+				2,
+			)
+		}
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("100% In-VRAM GPU Compute Shader (Zero-Disk, Zero-Copy).\nDispatches directly to Texture 2D Array in milliseconds.")
+		}
+
+		imgui.SameLine()
+		btn_label := fmt.tprintf("Bake & Export PNGs (%d Spheres)##ao_launch", num_spheres_selected)
+		if imgui.Button(strings.clone_to_cstring(btn_label, context.temp_allocator)) {
+			rendering.ao_baker_bake_range(
+				baker,
+				state.spheres,
+				baker.range_start,
+				baker.range_end,
+				baker.num_samples,
+				baker.bake_cpu_enabled,
+				baker.bake_gpu_enabled,
+				2,
+			)
+		}
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip("Offline Diagnostic Bake (CPU/GPU) with PNG file export to build/ and ISO comparison.")
+		}
+	}
+
+	// ─── 5. Results & Metrics ─────────────────────────────────────────────────
+	if baker.is_baked {
+		imgui.Spacing()
+		imgui.SeparatorText("Performance & Comparison Metrics")
+
+		summary_line := fmt.tprintf(
+			"Bake Summary: %d Spheres (#%d..#%d) | Resolution: %dx%d @ %d Rays/Texel",
+			baker.spheres_baked_count,
+			baker.range_start,
+			baker.range_end,
+			baker.width,
+			baker.height,
+			baker.num_samples,
+		)
+		imgui.TextUnformatted(strings.clone_to_cstring(summary_line, context.temp_allocator))
+
+		if baker.bake_cpu_enabled && baker.bake_gpu_enabled {
+			status_color := imgui.Vec4{0.4, 1.0, 0.4, 1.0} if baker.is_iso_match else imgui.Vec4{1.0, 0.4, 0.4, 1.0}
+			status_str := "PASS (ISO Parity 100% Conforme)" if baker.is_iso_match else "FAIL"
+			status_line := fmt.tprintf(
+				"Comparison: %s | Max Delta: %.4f | MAE: %.5f | PSNR: %.1f dB",
+				status_str,
+				baker.max_delta,
+				baker.mae,
+				baker.psnr_db,
+			)
+			imgui.TextColored(status_color, "%s", strings.clone_to_cstring(status_line, context.temp_allocator))
+
+			match_line := fmt.tprintf(
+				"Exact Bit-Match: %.2f%% | <= 1 LSB (1/255): %.2f%%",
+				baker.exact_match_pct,
+				baker.le_1lsb_pct,
+			)
+			imgui.TextUnformatted(strings.clone_to_cstring(match_line, context.temp_allocator))
+		}
+
+		png_line := fmt.tprintf(
+			"Exported PNGs: 'build/ao_sphere_*.png' in build/ folder",
+		)
+		imgui.TextUnformatted(strings.clone_to_cstring(png_line, context.temp_allocator))
+
+		imgui.Spacing()
+		imgui.Columns(2, "ao_preview_cols", false)
+
+		// Column 1: CPU Map
+		if baker.bake_cpu_enabled {
+			cpu_title := fmt.tprintf("CPU Ground Truth (#%d)", baker.target_sphere)
+			imgui.TextColored(imgui.Vec4{0.6, 0.9, 1.0, 1.0}, "%s", strings.clone_to_cstring(cpu_title, context.temp_allocator))
+			if baker.cpu_texture_id != 0 {
+				imgui.Image(gl_tex_ref(baker.cpu_texture_id), imgui.Vec2{220, 110})
+				if imgui.IsItemHovered() {
+					tt := fmt.tprintf("CPU Multi-threaded Ground Truth Raytracer (%d threads)\nTop = Sky (AO=1.0), Equator = Occlusion", baker.cpu_threads_used)
+					imgui.SetTooltip(strings.clone_to_cstring(tt, context.temp_allocator))
+				}
+				t_line := fmt.tprintf("CPU Total Time: %.2f ms (%d Cores)", baker.cpu_time_ms, baker.cpu_threads_used)
+				imgui.TextUnformatted(strings.clone_to_cstring(t_line, context.temp_allocator))
+				tp_line := fmt.tprintf("Throughput: %.1f Mrays/s", baker.cpu_mrays_per_sec)
+				imgui.TextUnformatted(strings.clone_to_cstring(tp_line, context.temp_allocator))
+			}
+		} else {
+			imgui.TextDisabled("(CPU bake disabled)")
+		}
+
+		imgui.NextColumn()
+
+		// Column 2: GPU Map
+		if baker.bake_gpu_enabled {
+			gpu_title := fmt.tprintf("GPU Compute Shader (#%d)", baker.target_sphere)
+			imgui.TextColored(imgui.Vec4{0.4, 1.0, 0.5, 1.0}, "%s", strings.clone_to_cstring(gpu_title, context.temp_allocator))
+			if baker.gpu_texture_id != 0 {
+				imgui.Image(gl_tex_ref(baker.gpu_texture_id), imgui.Vec2{220, 110})
+				if imgui.IsItemHovered() {
+					tt := fmt.tprintf("GPU Compute Shader (OpenGL 4.5 GL_R8 Image)\nExecuted directly in VRAM and exported to PNG.")
+					imgui.SetTooltip(strings.clone_to_cstring(tt, context.temp_allocator))
+				}
+				t_line := fmt.tprintf("GPU Total Time: %.2f ms", baker.gpu_time_ms)
+				imgui.TextUnformatted(strings.clone_to_cstring(t_line, context.temp_allocator))
+				tp_line := fmt.tprintf("Throughput: %.1f Mrays/s", baker.gpu_mrays_per_sec)
+				imgui.TextUnformatted(strings.clone_to_cstring(tp_line, context.temp_allocator))
+			}
+		} else {
+			imgui.TextDisabled("(GPU bake disabled)")
+		}
+
+		imgui.Columns(1)
+	}
+}
+
+@(private)
 draw_tab_rendering :: proc(state: Scene_State) {
 	draw_rendering_edge_aa(state)
 	imgui.Spacing()
 	draw_rendering_pbr_debug(state)
+	imgui.Spacing()
+	draw_rendering_ao_baker(state)
 	imgui.Spacing()
 	draw_rendering_debug_views()
 	imgui.Spacing()
@@ -1185,33 +1519,139 @@ draw_filtered_scene :: proc(state: Scene_State, filter: cstring) -> int {
 		}
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Specular Anti-Aliasing", "specular aa roughness clamping varef") {
+	return match_count
+}
+
+@(private)
+draw_filtered_rendering :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> int {
+	match_count := 0
+
+	if fuzzy_match(filter, "PBR Diagnostic View", "pbr debug mode albedo normal metallic roughness ao irradiance prefilter brdf lut specular occlusion heatmap diagnostic") {
+		if state.pbr_debug_mode != nil {
+			pbr_val := i32(state.pbr_debug_mode^)
+			if imgui.Combo("PBR Diagnostic View##filt", &pbr_val,
+				"Final PBR\x00Albedo\x00Normal\x00Metallic\x00Roughness\x00AO\x00Irradiance (Diff)\x00Prefilter (Spec)\x00BRDF LUT\x00SO Grayscale Mask\x00SO Delta Heatmap\x00\x00") {
+				state.pbr_debug_mode^ = types.PBR_Debug_Mode(pbr_val)
+			}
+			match_count += 1
+		}
+	}
+
+	if fuzzy_match(filter, "Edge Anti-Aliasing", "edge aa smoothing silhouette analytic") {
+		if state.edge_aa_enabled != nil {
+			imgui.Checkbox("Edge AA##filt_edge", state.edge_aa_enabled)
+			match_count += 1
+		}
+		if state.edge_aa_debug != nil {
+			imgui.Checkbox("Edge AA Debug View##filt_edge_dbg", state.edge_aa_debug)
+			match_count += 1
+		}
+	}
+
+	if fuzzy_match(filter, "Specular Anti-Aliasing", "specular aa anti-aliasing screen space curvature varef roughness clamping split variance") {
 		if state.specular_aa_enabled != nil {
-			imgui.Checkbox("Specular Anti-Aliasing", state.specular_aa_enabled)
-			if state.specular_aa_enabled^ && state.specular_aa_mode != nil {
-				mode_val := i32(state.specular_aa_mode^)
-				if imgui.Combo("Specular AA Mode##filt", &mode_val, "Screen-Space\x00Curvature\x00") {
-					state.specular_aa_mode^ = types.Specular_AA_Mode(mode_val)
+			imgui.Checkbox("Specular Anti-Aliasing##filt_spec", state.specular_aa_enabled)
+			if state.specular_aa_enabled^ {
+				if state.specular_aa_mode != nil {
+					mode_val := i32(state.specular_aa_mode^)
+					if imgui.Combo("Specular AA Mode##filt_spec_mode", &mode_val, "Screen-Space\x00Curvature\x00") {
+						state.specular_aa_mode^ = types.Specular_AA_Mode(mode_val)
+					}
 				}
 				if state.specular_aa_debug_mode != nil {
 					debug_val := i32(state.specular_aa_debug_mode^)
-					if imgui.Combo("Debug View##spec_dbg_filt", &debug_val, "Off\x00Grayscale Variance\x00Amplified Difference\x00") {
+					if imgui.Combo("Specular AA Debug View##filt_spec_dbg", &debug_val, "Off\x00Grayscale Variance\x00Amplified Difference\x00") {
 						state.specular_aa_debug_mode^ = types.Specular_AA_Debug_Mode(debug_val)
 					}
 				}
 				if state.specular_aa_split_enabled != nil {
-					imgui.Checkbox("A/B Split##specular_filt", state.specular_aa_split_enabled)
+					imgui.Checkbox("Specular AA A/B Split##filt_spec_split", state.specular_aa_split_enabled)
 					if state.specular_aa_split_enabled^ && state.specular_aa_split_position != nil {
 						pos_pct := state.specular_aa_split_position^ * 100.0
-						if imgui.SliderFloat("##split_pos_specular_filt", &pos_pct, 0.0, 100.0, "← %.0f%% →") {
+						if imgui.SliderFloat("##split_pos_spec_filt", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
 							state.specular_aa_split_position^ = pos_pct / 100.0
 						}
 					}
 				}
 			}
+			match_count += 1
 		}
-		match_count += 1
 	}
+
+	if fuzzy_match(filter, "Specular Occlusion (SO)", "specular occlusion so strength crevice light leak lagarde karis pbr ambient ao cavities split heatmap delta") {
+		if state.specular_occlusion_enabled != nil {
+			imgui.Checkbox("Specular Occlusion (SO)##filt_so", state.specular_occlusion_enabled)
+			if state.specular_occlusion_enabled^ {
+				if state.specular_occlusion_strength != nil {
+					imgui.SliderFloat("SO Strength##filt_so_str", state.specular_occlusion_strength, 0.0, 1.0, "%.2f")
+				}
+				if state.specular_occlusion_debug_mode != nil {
+					so_dbg_val := i32(state.specular_occlusion_debug_mode^)
+					if imgui.Combo("SO Debug View##filt_so_dbg", &so_dbg_val, "Off\x00Grayscale Mask (SO * Horizon)\x00Occluded Specular Delta Heatmap\x00Horizon Clipping Factor\x00\x00") {
+						state.specular_occlusion_debug_mode^ = types.Specular_Occlusion_Debug_Mode(so_dbg_val)
+					}
+				}
+				if state.specular_occlusion_split_enabled != nil {
+					imgui.Checkbox("SO A/B Split##filt_so_split", state.specular_occlusion_split_enabled)
+					if state.specular_occlusion_split_enabled^ && state.specular_occlusion_split_position != nil {
+						pos_pct := state.specular_occlusion_split_position^ * 100.0
+						if imgui.SliderFloat("##split_pos_so_filt", &pos_pct, 0.0, 100.0, "<- %.0f%% ->") {
+							state.specular_occlusion_split_position^ = pos_pct / 100.0
+						}
+					}
+				}
+			}
+			match_count += 1
+		}
+	}
+
+	if fuzzy_match(filter, "Horizon Clipping", "horizon clipping marmet neubelt specular grazing tangent angle terminator") {
+		if state.horizon_clipping_enabled != nil {
+			imgui.Checkbox("Horizon Clipping##filt_horiz", state.horizon_clipping_enabled)
+			match_count += 1
+		}
+	}
+
+	if fuzzy_match(filter, "Grid Mutual AO", "grid mutual ao ambient occlusion sphere contact shadowing shading precomputed proximity") {
+		if state.grid_ao_enabled != nil {
+			imgui.Checkbox("Grid Mutual AO##filt_grid_ao", state.grid_ao_enabled)
+			if state.grid_ao_enabled^ {
+				if state.grid_ao_intensity != nil {
+					imgui.SliderFloat("AO Intensity##filt_grid_ao_int", state.grid_ao_intensity, 0.0, 2.0, "%.2f")
+				}
+			}
+			match_count += 1
+		}
+	}
+
+	if fuzzy_match(filter, "Ground Truth AO Baker", "ao ambient occlusion offline bake fast in-vram vram ray tracing ground truth compare cpu gpu png exporter range start end billboard pbr") {
+		if state.ao_baker != nil {
+			baker := state.ao_baker
+			if state.use_baked_ao != nil {
+				imgui.Checkbox("Apply Baked AO to PBR Billboard##filt_ao_pbr", state.use_baked_ao)
+			}
+			if state.spheres != nil {
+				if imgui.SmallButton("⚡ Fast Bake Direct In-VRAM##filt_ao_fast") {
+					rendering.ao_baker_bake_direct_vram(
+						baker,
+						state.spheres,
+						baker.range_start,
+						baker.range_end,
+						baker.num_samples,
+						2,
+					)
+				}
+				imgui.SameLine()
+			}
+			imgui.Checkbox("Bake CPU##filt_ao_cpu", &baker.bake_cpu_enabled)
+			imgui.SameLine()
+			imgui.Checkbox("Bake GPU##filt_ao_gpu", &baker.bake_gpu_enabled)
+			imgui.SliderInt("Start Sphere ID##filt_ao_start", &baker.range_start, 0, 99)
+			imgui.SliderInt("End Sphere ID##filt_ao_end", &baker.range_end, 0, 99)
+			match_count += 1
+		}
+	}
+
 	return match_count
 }
 
@@ -1294,22 +1734,22 @@ draw_filtered_debug :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> int
 draw_filtered_env :: proc(filter: cstring) -> int {
 	match_count := 0
 	placeholder := false
-	placeholder_f: f32 = 0.5
+	placeholder_f: f32 = 0.0
 	env_idx: i32 = 0
 
-	if fuzzy_match(filter, "HDR Env Index", "environment map cycling skybox") {
+	if fuzzy_match(filter, "HDR Env Index", "environment cycling switch skybox") {
 		imgui.SliderInt("HDR Env Index", &env_idx, 0, 5)
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Env LOD Blur", "environment mip background") {
+	if fuzzy_match(filter, "Env LOD Blur", "background blur lod roughness") {
 		imgui.SliderFloat("Env LOD Blur", &placeholder_f, 0.0, 8.0)
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Screenshot", "capture image save") {
+	if fuzzy_match(filter, "Screenshot", "capture frame save png") {
 		imgui.Checkbox("Screenshot", &placeholder)
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Hot-Reload Shaders", "reload recompile glsl") {
+	if fuzzy_match(filter, "Hot-Reload Shaders", "recompile shaders live glsl") {
 		imgui.Checkbox("Hot-Reload Shaders", &placeholder)
 		match_count += 1
 	}
@@ -1370,6 +1810,8 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 
 	if section_has_matches(filter, CAMERA_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Camera")
+		imgui.SameLine()
+		camera_goto_button(g)
 		imgui.Separator()
 		match_count += draw_filtered_camera(state.camera, filter)
 		imgui.Spacing()
@@ -1377,6 +1819,8 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 
 	if section_has_matches(filter, SCENE_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Scene")
+		imgui.SameLine()
+		scene_goto_button(g)
 		imgui.Separator()
 		match_count += draw_filtered_scene(state, filter)
 		imgui.Spacing()
@@ -1384,6 +1828,17 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 
 	if section_has_matches(filter, RENDERING_KEYWORDS) {
 		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Rendering")
+		imgui.SameLine()
+		rendering_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_rendering(g, state, filter)
+		imgui.Spacing()
+	}
+
+	if section_has_matches(filter, POSTFX_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Post-FX")
+		imgui.SameLine()
+		postfx_goto_button(g)
 		imgui.Separator()
 		match_count += draw_postfx_filtered(state, filter)
 		imgui.Spacing()
@@ -1443,6 +1898,24 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 		imgui.Spacing()
 	}
 
+	if section_has_matches(filter, ENV_MAP_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Env Map")
+		imgui.SameLine()
+		env_map_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_env_map(g, state, filter)
+		imgui.Spacing()
+	}
+
+	if section_has_matches(filter, OPTIMIZATION_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Optimisations")
+		imgui.SameLine()
+		optimization_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_optimizations(g, state, filter)
+		imgui.Spacing()
+	}
+
 	if match_count == 0 {
 		imgui.TextColored(imgui.Vec4{1.0, 0.5, 0.5, 1.0}, "No matching parameters")
 	}
@@ -1452,6 +1925,51 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 @(private)
 section_has_matches :: proc(filter: cstring, section_keywords: string) -> bool {
 	return search.section_has_matches(string(filter), section_keywords)
+}
+
+// Navigate from search result to a specific tab / section.
+@(private)
+camera_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_camera")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 0
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+@(private)
+scene_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_scene")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 1
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+@(private)
+rendering_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_rendering")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 2
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+@(private)
+postfx_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_postfx")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 3
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
 }
 
 // Navigate from search result to a specific IBL texture section.
@@ -1502,6 +2020,30 @@ volumetric_goto_button :: proc(g: ^Gui) {
 	imgui.PopID()
 }
 
+// Navigate from search result to the Env Map tab.
+@(private)
+env_map_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_env_map")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 11
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+// Navigate from search result to the Optimisations tab.
+@(private)
+optimization_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_optimizations")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 12
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
 // Keyword constants for section-level pre-filtering.
 @(private)
 CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov bobbing zoom projection mouse movement"
@@ -1510,13 +2052,22 @@ CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov
 SCENE_KEYWORDS :: "scene skybox blur exposure wireframe toggle environment background tone mapping hdr mesh polygon sort mode radix cubemap equirectangular projection"
 
 @(private)
-RENDERING_KEYWORDS :: "rendering postfx post-processing post processing pbr debug mode albedo normal metallic roughness ao bloom dof depth field fxaa motion blur vignette grain aberration grading lut irradiance prefilter brdf specular anti-aliasing post effect glow focus exposure tonemap tonemapping saturation contrast gamma"
+RENDERING_KEYWORDS :: "rendering edge aa anti-aliasing specular pbr diagnostic debug mode albedo normal metallic roughness ao grid mutual ao baked ao map ground truth ray tracing occlusion specular occlusion so strength crevice light leak lagarde karis horizon clipping split difference variance false color heatmap bloom post-processing post processing"
+
+@(private)
+POSTFX_KEYWORDS :: "post-fx postfx post-processing post processing bloom dof depth field fxaa motion blur vignette grain aberration grading lut tonemap tonemapping saturation contrast gamma glow focus exposure"
 
 @(private)
 DEBUG_KEYWORDS :: "debug debug views bloom dof exposure luminance stops histogram fxaa stencil gpu timeline metrics perf profiling probes gi n-body simulation physics visualization performance gamemode sched nice cpu boost priority"
 
 @(private)
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"
+
+@(private)
+ENV_MAP_KEYWORDS :: "env map environment hdr gallery thumbnails miniatures skybox switch load preview cedar bridge garage neon photostudio cathedral"
+
+@(private)
+OPTIMIZATION_KEYWORDS :: "optimization profile presets performance quality balanced ultra-performance speed vs quality fps raymarch steps stochastic"
 
 @(private)
 IBL_KEYWORDS :: "ibl debug irradiance prefilter specular diffuse brdf lut split sum texture gpu memory estimate estimation vram mip roughness preview environment map hdr convolution ggx"

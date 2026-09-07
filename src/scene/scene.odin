@@ -35,6 +35,7 @@ Scene :: struct {
 
 	// Environment manager (async loading + IBL transitions)
 	env_mgr:     Env_Manager,
+	env_thumbs:  rendering.Env_Thumbnail_Manager,
 
 	// Post-processing pipeline
 	postfx_pipeline: postfx.Pipeline,
@@ -47,6 +48,12 @@ Scene :: struct {
 	// Volumetric Lighting Depth Downsampling (Phase 2)
 	depth_downsample: rendering.Depth_Downsample,
 	volumetric:       rendering.Volumetric_Renderer,
+
+	// Ground Truth AO Baker (Offline Inspector & Exporter)
+	ao_baker:         rendering.AO_Baker,
+
+	// Optimization & performance profile preset
+	optimization_profile: rendering.Optimization_Profile,
 
 	// Text overlay (F1)
 	overlay:     rendering.Text_Overlay,
@@ -84,6 +91,16 @@ Scene :: struct {
 	loc_point_shadow_temporal_jitter: i32,
 	loc_frame_count:              i32,
 
+	// Phase 3: Specular Occlusion & Horizon Clipping
+	loc_specular_occlusion_enabled:        i32,
+	loc_specular_occlusion_strength:       i32,
+	loc_horizon_clipping_enabled:          i32,
+	loc_specular_occlusion_debug_mode:     i32,
+	loc_specular_occlusion_split_enabled:  i32,
+	loc_specular_occlusion_split_position: i32,
+	loc_pbr_debug_mode:                    i32,
+	loc_use_baked_ao:                      i32,
+
 	// Cached uniform values to filter redundant driver uploads
 	cached_screen_w:             i32,
 	cached_screen_h:             i32,
@@ -103,17 +120,30 @@ Scene :: struct {
 	current_hdr_index: i32,
 
 	// Runtime toggles
-	skybox_visible:      bool,
-	wireframe_enabled:   bool,
-	exposure:            f32,
-	sort_mode:           rendering.Sort_Mode,
-	edge_aa_enabled:     bool,
-	edge_aa_debug:       bool,
-	specular_aa_enabled: bool,
-	specular_aa_mode:    types.Specular_AA_Mode,
-	specular_aa_debug_mode: types.Specular_AA_Debug_Mode,
-	specular_aa_split_enabled:  bool,
-	specular_aa_split_position: f32,
+	skybox_visible:                    bool,
+	wireframe_enabled:                 bool,
+	exposure:                          f32,
+	diff_gain:                         f32,
+	sort_mode:                         rendering.Sort_Mode,
+	edge_aa_enabled:                   bool,
+	edge_aa_debug:                     bool,
+	specular_aa_enabled:               bool,
+	specular_aa_mode:                  types.Specular_AA_Mode,
+	specular_aa_debug_mode:            types.Specular_AA_Debug_Mode,
+	specular_aa_split_enabled:         bool,
+	specular_aa_split_position:        f32,
+	specular_occlusion_enabled:        bool,
+	specular_occlusion_strength:       f32,
+	horizon_clipping_enabled:          bool,
+	specular_occlusion_debug_mode:     types.Specular_Occlusion_Debug_Mode,
+	specular_occlusion_split_enabled:  bool,
+	specular_occlusion_split_position: f32,
+	pbr_debug_mode:                    types.PBR_Debug_Mode,
+	grid_ao_enabled:                   bool,
+	grid_ao_intensity:                 f32,
+	cached_grid_ao_enabled:            bool,
+	cached_grid_ao_intensity:          f32,
+	use_baked_ao:                      bool,
 	frame_count:         int,
 	dt:                  f32,
 }
@@ -122,7 +152,7 @@ HDR_DIR        :: "assets/textures/hdr"
 HDR_PATH       :: "assets/textures/hdr/cedar_bridge_2_4k.hdr"
 MATERIALS_PATH :: "assets/materials/pbr_materials.json"
 
-scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.DEFAULT_COMPUTE_TUNING) -> (ok: bool) {
+scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.DEFAULT_COMPUTE_TUNING, initial_env_path: string = "") -> (ok: bool) {
 	defer if !ok { scene_destroy(s) }
 	// Camera (ISO: same defaults as C — distance=20, yaw=-90, pitch=0)
 	cam.init(
@@ -165,9 +195,22 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 
 	// Scan HDR directory for environment cycling (PAGE_UP/PAGE_DOWN)
 	scene_scan_hdr_files(s)
+	rendering.env_thumbnails_init(&s.env_thumbs, s.hdr_files[:])
+
+	// Determine initial HDR path (from session or default)
+	target_hdr := HDR_PATH
+	if len(initial_env_path) > 0 {
+		for path, idx in s.hdr_files {
+			if path == initial_env_path {
+				target_hdr = path
+				s.current_hdr_index = i32(idx)
+				break
+			}
+		}
+	}
 
 	// Trigger initial environment load through the async pipeline
-	env_manager_trigger_initial(&s.env_mgr, HDR_PATH)
+	env_manager_trigger_initial(&s.env_mgr, target_hdr)
 
 	// PBR billboard shader
 	s.pbr_program = load_shader("shaders/pbr_billboard.vert", "shaders/pbr_billboard.frag") or_return
@@ -201,6 +244,20 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_point_shadow_pcf_jitter = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_pcf_jitter")
 	s.loc_point_shadow_temporal_jitter = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_temporal_jitter")
 	s.loc_frame_count = gl.GetUniformLocation(s.pbr_program, "u_frame_count")
+	s.loc_specular_occlusion_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_occlusion_enabled")
+	s.loc_specular_occlusion_strength = gl.GetUniformLocation(s.pbr_program, "u_specular_occlusion_strength")
+	s.loc_horizon_clipping_enabled = gl.GetUniformLocation(s.pbr_program, "u_horizon_clipping_enabled")
+	s.loc_specular_occlusion_debug_mode = gl.GetUniformLocation(s.pbr_program, "u_specular_occlusion_debug_mode")
+	s.loc_specular_occlusion_split_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_occlusion_split_enabled")
+	s.loc_specular_occlusion_split_position = gl.GetUniformLocation(s.pbr_program, "u_specular_occlusion_split_position")
+	s.loc_pbr_debug_mode = gl.GetUniformLocation(s.pbr_program, "u_pbr_debug_mode")
+	s.loc_use_baked_ao = gl.GetUniformLocation(s.pbr_program, "u_use_baked_ao")
+	loc_baked_ao_sampler := gl.GetUniformLocation(s.pbr_program, "u_baked_ao_maps")
+	if loc_baked_ao_sampler >= 0 {
+		gl.UseProgram(s.pbr_program)
+		gl.Uniform1i(loc_baked_ao_sampler, 19)
+		gl.UseProgram(0)
+	}
 
 	s.cached_screen_w = -1
 	s.cached_screen_h = -1
@@ -224,6 +281,18 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.specular_aa_debug_mode = .Off
 	s.specular_aa_split_enabled = false
 	s.specular_aa_split_position = 0.5
+	s.specular_occlusion_enabled = true
+	s.specular_occlusion_strength = 1.0
+	s.horizon_clipping_enabled = true
+	s.specular_occlusion_debug_mode = .Off
+	s.specular_occlusion_split_enabled = false
+	s.specular_occlusion_split_position = 0.5
+	s.pbr_debug_mode = .Final_PBR
+	s.grid_ao_enabled = false
+	s.grid_ao_intensity = 1.0
+	s.cached_grid_ao_enabled = false
+	s.cached_grid_ao_intensity = 1.0
+	s.use_baked_ao = true
 
 	// Post-processing pipeline
 	if !postfx.pipeline_create(&s.postfx_pipeline, width, height) {
@@ -237,7 +306,7 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		radius                     = 22.0,
 		color                      = mt.Vec3{1.0, 0.50, 0.25},
 		intensity                  = 2.8,
-		enabled                    = true,
+		enabled                    = false,
 		direct_shadows_enabled     = false,
 		shadow_bias                = 0.0015,
 		shadow_normal_bias         = 0.025,
@@ -292,6 +361,9 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		return false
 	}
 
+	// Initialize Ground Truth AO Baker (Offline Inspector & Exporter)
+	rendering.ao_baker_init(&s.ao_baker)
+
 	// Text overlay
 	if !rendering.overlay_create(&s.overlay) {
 		log.log_warning("suckless-odin.scene", "Failed to create text overlay (non-fatal)")
@@ -331,7 +403,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
 
 	// 1. Skybox (drawn first, depth <= 1.0)
-	skip_skybox_for_shadow_debug := (s.point_light.enabled && s.point_light.shadow_debug_mode == 6)
+	skip_skybox_for_shadow_debug := (s.point_light.enabled && (s.point_light.shadow_debug_mode == 6 || s.point_light.shadow_debug_mode == 9)) || (s.specular_occlusion_debug_mode != .Off) || (s.pbr_debug_mode != .Final_PBR)
 	if s.skybox_visible && !skip_skybox_for_shadow_debug && (!s.volumetric.params.enabled || !s.volumetric.params.isolate_in_scene) {
 		dbg.push_group("Skybox_Pass")
 		rendering.skybox_render(&s.skybox, view, proj, s.specular_aa_split_enabled, s.specular_aa_split_position)
@@ -404,6 +476,15 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// Bind IBL textures (units 15, 16, 17)
 	rendering.ibl_bind(&s.ibl)
 
+	// Phase 3: Upload Specular Occlusion & Horizon Clipping uniforms
+	gl.Uniform1i(s.loc_specular_occlusion_enabled, 1 if s.specular_occlusion_enabled else 0)
+	gl.Uniform1f(s.loc_specular_occlusion_strength, s.specular_occlusion_strength)
+	gl.Uniform1i(s.loc_horizon_clipping_enabled, 1 if s.horizon_clipping_enabled else 0)
+	gl.Uniform1i(s.loc_specular_occlusion_debug_mode, i32(s.specular_occlusion_debug_mode))
+	gl.Uniform1i(s.loc_specular_occlusion_split_enabled, 1 if s.specular_occlusion_split_enabled else 0)
+	gl.Uniform1f(s.loc_specular_occlusion_split_position, s.specular_occlusion_split_position)
+	gl.Uniform1i(s.loc_pbr_debug_mode, i32(s.pbr_debug_mode))
+
 	// Upload point light & shadow map uniforms
 	light_pos := rendering.point_light_get_position(&s.point_light, f32(s.frame_count) * 0.016)
 	gl.Uniform3f(s.loc_point_light_pos, light_pos.x, light_pos.y, light_pos.z)
@@ -429,6 +510,16 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 		gl.ActiveTexture(gl.TEXTURE18)
 		gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.shadow_cubemap.linear_depth_cubemap)
 	}
+
+	// Bind Baked AO Texture Array (unit 19)
+	if s.ao_baker.ao_array_texture_id != 0 {
+		gl.ActiveTexture(gl.TEXTURE19)
+		gl.BindTexture(gl.TEXTURE_2D_ARRAY, s.ao_baker.ao_array_texture_id)
+		gl.Uniform1i(s.loc_use_baked_ao, 1 if s.use_baked_ao else 0)
+	} else {
+		gl.Uniform1i(s.loc_use_baked_ao, 0)
+	}
+
 	gl.ActiveTexture(gl.TEXTURE0)
 
 	// Bind SSBO and draw all instances
@@ -562,6 +653,13 @@ scene_update :: proc(s: ^Scene, dt: f32) {
 	// Environment manager: poll async loader, advance IBL, update transitions
 	env_manager_update(&s.env_mgr, s, dt)
 
+	// Update sphere grid mutual ambient occlusion if setting changed
+	if s.grid_ao_enabled != s.cached_grid_ao_enabled || s.grid_ao_intensity != s.cached_grid_ao_intensity {
+		rendering.instanced_apply_grid_ao(&s.spheres, s.grid_ao_enabled, s.grid_ao_intensity)
+		s.cached_grid_ao_enabled = s.grid_ao_enabled
+		s.cached_grid_ao_intensity = s.grid_ao_intensity
+	}
+
 	// Update prev_centers for motion blur (before camera/positions change)
 	rendering.instanced_update_prev_centers(&s.spheres)
 
@@ -684,11 +782,13 @@ scene_destroy :: proc(s: ^Scene) {
 	}
 	delete(s.hdr_files)
 
+	rendering.env_thumbnails_destroy(&s.env_thumbs)
 	env_manager_destroy(&s.env_mgr)
 	rendering.shadow_taa_destroy(&s.shadow_taa)
 	rendering.shadow_cubemap_destroy(&s.shadow_cubemap)
 	rendering.depth_downsample_destroy(&s.depth_downsample)
 	rendering.volumetric_destroy(&s.volumetric)
+	rendering.ao_baker_destroy(&s.ao_baker)
 	postfx.pipeline_destroy(&s.postfx_pipeline)
 	rendering.overlay_destroy(&s.overlay)
 	if s.pbr_program != 0 {

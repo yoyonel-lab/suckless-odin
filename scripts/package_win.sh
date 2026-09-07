@@ -58,7 +58,7 @@ else
     echo "==> Generating tar.zst archive (Level ${ZSTD_LEVEL}, rsyncable)..."
     cd "${RELEASE_BASE_DIR}"
     tar -I "zstd -T0 -${ZSTD_LEVEL} --rsyncable" -cf "${ARCHIVE_NAME}.tmp" "${RELEASE_NAME}"
-    mv "${ARCHIVE_NAME}.tmp" "${ARCHIVE_NAME}"
+    mv -f "${ARCHIVE_NAME}.tmp" "${ARCHIVE_NAME}"
     cd - > /dev/null
 fi
 
@@ -68,7 +68,7 @@ if command -v zip >/dev/null 2>&1; then
     (
         cd "${RELEASE_BASE_DIR}"
         zip -q -r "${ZIP_NAME}.tmp" "${RELEASE_NAME}"
-        mv "${ZIP_NAME}.tmp" "${ZIP_NAME}"
+        mv -f "${ZIP_NAME}.tmp" "${ZIP_NAME}"
     )
 fi
 

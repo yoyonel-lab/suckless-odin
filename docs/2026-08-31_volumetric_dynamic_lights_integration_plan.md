@@ -159,11 +159,10 @@ flowchart TD
 - **Description** : Panneau de contrôle centralisé dans l'interface ImGui (`gui/gui.odin`), presets physiques (Brouillard matinal, God Rays, Lampe torche, Isotropie, Poussière), monitoring GPU complet et tests dorés headless (`task test-cli`).
 - **Composants** :
   - Onglet dédié ImGui : `Volumetric Fog & Lighting`.
-  - Sauvegarde/chargement JSON dans `assets/postfx/`.
-  - Captures de référence dorées dans `tests/references/ref_volumetric_*.png`.
+  - Presets physiques natifs compilés dans `src/rendering/volumetric_presets.odin` (zéro I/O tas, performance instantanée et persistance automatique dans `session.json`).
+  - Validation par suites de tests unitaires dédiées (`tests/test_volumetric.odin`) et tests GL de liaison des shaders (`tests/gl/test_gl_shaders.odin`).
 - **Contrôle Programmatique** :
-  - `task test-cli` : Rendu headless de 10 trames et validation du code de retour.
-  - Comparaison d'images automatisée (SSIM / MSE) contre l'image dorée de référence.
+  - `task test-unit` / `task test-shader` : Validation mathématique, conservation énergétique et continuité du modèle.
 - **Intégration & Contrôle Visuel ImGui** :
   - **Hub Global ImGui** :
     - Sélecteur de Presets Rapides : `[Isotropic Gas]`, `[Morning Fog]`, `[God Rays]`, `[Flashlight]`, `[Dense Dust]`.
@@ -175,17 +174,27 @@ flowchart TD
 ## 🎛️ 3. Spécification des Types & Vues Débogage ImGui (Odin)
 
 ```odin
-// Types pour le système de débogage volumétrique
-Volumetric_Debug_View :: enum u32 {
-    Disabled               = 0,
-    Shadow_Cubemap_Cross   = 1, // Phase 1 : Vue des 6 faces du shadow map
-    Low_Res_Depth          = 2, // Phase 2 : Profondeur basse résolution
-    Depth_Discontinuities  = 3, // Phase 2 : Carte des arêtes géométriques
-    Raw_Raymarching        = 4, // Phase 3 : In-scattering brut (sans TAA/flou)
-    TAA_Acceptance_Map     = 5, // Phase 4 : Carte RVB réutilisation historique
-    Bilateral_Blur_Diff    = 6, // Phase 5 : Différence avant/après floutage
-    Volumetric_Only        = 7, // Phase 6 : Lumière volumétrique isolée
-    AB_Split_Comparison    = 8, // Phase 6 : Comparaison A/B split-screen
+// Modes de prévisualisation dans l'inspecteur de textures ImGui
+Volumetric_Preview_Mode :: enum i32 {
+    Final_Output       = 0, // In-scattering actif filtré / composite
+    Raw_Raymarching    = 1, // Bruit brut du raymarching sans TAA ni flou
+    Heatmap            = 2, // Carte de chaleur Turbo colormap
+    TAA_Acceptance_Map = 3, // Carte RVB d'acceptation historique TAA
+    Post_Blur_HDR      = 4, // Tampon HDR filtré bilatéral
+    Bilateral_Diff     = 5, // Différence bilatérale (|flouté - brut| x 10)
+    Edge_Overlay       = 6, // Masque de discontinuité magenta
+    Silhouette_Only    = 7, // Silhouettes géométriques isolées
+    Weight_Attenuation = 8, // Atténuation des poids bilatéraux
+    Transmittance      = 9, // Carte de transmittance alpha du milieu
+}
+
+// Modes de débogage pour le compositing dans le viewport 3D plein écran
+Volumetric_Composite_Mode :: enum i32 {
+    Normal_Scene         = 0, // Composite additif standard dans la scène
+    Neon_Silhouette      = 1, // Surlignage néon vert/magenta des arêtes
+    Isolated_Silhouettes = 2, // Scène noire avec silhouettes isolées
+    Difference_Map       = 3, // Carte de différence en direct
+    Weight_Attenuation   = 4, // Visualisation des poids de l'upsampling
 }
 
 Volumetric_Params :: struct {
