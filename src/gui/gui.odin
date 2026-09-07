@@ -9,6 +9,7 @@ import "../../deps/odin-imgui/imgui_impl_glfw"
 import "../../deps/odin-imgui/imgui_impl_opengl3"
 
 import cam "../camera"
+import mt "../core/math_types"
 import "../core/search"
 import settings "../core/settings"
 import perf_mode "../core/perf_mode"
@@ -52,6 +53,10 @@ Scene_State :: struct {
 	// Volumetric Lighting & Depth Downsampling (Phase 2 & 3)
 	depth_downsample: ^rendering.Depth_Downsample,
 	volumetric:       ^rendering.Volumetric_Renderer,
+
+	// Instanced spheres & Selection (3D Viewport Picking & ImGuizmo)
+	spheres:          ^rendering.Instanced_Spheres,
+	selection:        ^types.Selection_State,
 
 	// Smoothed frame time from overlay (single source of truth)
 	frame_time_ms: f32,
@@ -151,6 +156,8 @@ init :: proc(g: ^Gui, window: glfw.WindowHandle) -> bool {
 		return false
 	}
 
+	guizmo_set_imgui_context(g.ctx)
+
 	return true
 }
 
@@ -159,6 +166,7 @@ new_frame :: proc(g: ^Gui) {
 	imgui_impl_opengl3.NewFrame()
 	imgui_impl_glfw.NewFrame()
 	imgui.NewFrame()
+	guizmo_begin_frame()
 }
 
 // Single window with search + tab bar for all engine controls.
@@ -266,6 +274,9 @@ update :: proc(g: ^Gui, state: Scene_State) {
 		}
 	}
 	imgui.End()
+
+	// 3D Viewport Interactive Controls (ImGuizmo)
+	draw_point_light_gizmo(state)
 }
 
 render :: proc(g: ^Gui) {
@@ -312,9 +323,140 @@ wants_keyboard :: proc(g: ^Gui) -> bool {
 
 wants_mouse :: proc(g: ^Gui) -> bool {
 	if g.ctx == nil { return false }
+	if guizmo_is_over() || guizmo_is_using() { return true }
 	if !g.visible { return false }
 	io := imgui.GetIO()
 	return io.WantCaptureMouse
+}
+
+// ─── 3D Interactive Viewport Gizmo (ImGuizmo) ──────────────────────────────────
+
+@(private)
+draw_point_light_gizmo :: proc(state: Scene_State) {
+	light := state.point_light
+	c := state.camera
+	sel := state.selection
+	if c == nil do return
+
+	// Determine what entity is targeted
+	is_light_target := false
+	is_sphere_target := false
+	sphere_idx := -1
+
+	if sel != nil {
+		switch sel.type {
+		case .Light:
+			is_light_target = true
+		case .Sphere:
+			is_sphere_target = true
+			if state.spheres != nil {
+				idx := rendering.instanced_find_index_by_id(state.spheres, sel.sphere_id)
+				if idx >= 0 {
+					sphere_idx = idx
+					sel.sphere_index = idx
+				} else {
+					return
+				}
+			} else {
+				return
+			}
+		case .None:
+			return // Nothing selected, gizmo inactive
+		}
+	} else if light != nil && light.enabled && light.show_gizmo {
+		is_light_target = true
+	}
+
+	if !is_light_target && !is_sphere_target do return
+	if is_light_target && (light == nil || !light.enabled) do return
+	if is_sphere_target && (state.spheres == nil || sphere_idx < 0 || sphere_idx >= int(state.spheres.count)) do return
+
+	io := imgui.GetIO()
+	guizmo_set_rect(0, 0, io.DisplaySize.x, io.DisplaySize.y)
+	guizmo_set_orthographic(false)
+
+	view := cam.get_view_matrix(c)
+	aspect := io.DisplaySize.x / max(io.DisplaySize.y, 1.0)
+	fov_rad := math.to_radians(c.zoom)
+	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
+
+	model: mt.Mat4
+	if is_light_target {
+		light_pos := light.orbit_center if light.is_animated else light.position
+		model = mt.mat4_translate(light_pos)
+	} else if is_sphere_target {
+		model = state.spheres.instances[sphere_idx].model
+	}
+
+	op: Guizmo_Operation
+	gizmo_op := light.gizmo_op if light != nil else 0
+	switch gizmo_op {
+	case 1: op = .Rotate
+	case 2: op = .Scale
+	case 3: op = .Universal
+	case:   op = .Translate
+	}
+
+	gizmo_mode := light.gizmo_mode if light != nil else 0
+	mode: Guizmo_Mode = .World if gizmo_mode == 0 else .Local
+
+	snap_val: [3]f32
+	snap_ptr: [^]f32 = nil
+	if light != nil && light.gizmo_snap {
+		snap_val = {light.gizmo_snap_value, light.gizmo_snap_value, light.gizmo_snap_value}
+		snap_ptr = &snap_val[0]
+	}
+
+	manipulated := guizmo_manipulate(
+		&view[0][0],
+		&proj[0][0],
+		op,
+		mode,
+		&model[0][0],
+		nil,
+		snap_ptr,
+	)
+
+	is_using := guizmo_is_using()
+	if light != nil {
+		light.is_interacting = is_using
+	}
+
+	if manipulated || is_using {
+		if is_light_target && light != nil {
+			new_pos := mt.Vec3{model[3][0], model[3][1], model[3][2]}
+			if light.is_animated {
+				light.orbit_center = new_pos
+			} else {
+				light.position = new_pos
+			}
+			light.motion_cooldown = 0.40
+			light.is_dirty = true
+		} else if is_sphere_target && state.spheres != nil && sphere_idx >= 0 && sphere_idx < int(state.spheres.count) {
+			// Enforce billboard constraints:
+			// Spheres are procedural raymarched billboards.
+			// Their orientation is camera-aligned (normal computed analytically).
+			// Only translation (model[3].xyz) and uniform scale are valid.
+			new_center := mt.Vec3{model[3][0], model[3][1], model[3][2]}
+			scale_x := mt.vec3_length(mt.Vec3{model[0][0], model[0][1], model[0][2]})
+			scale_y := mt.vec3_length(mt.Vec3{model[1][0], model[1][1], model[1][2]})
+			scale_z := mt.vec3_length(mt.Vec3{model[2][0], model[2][1], model[2][2]})
+			uniform_scale := max(scale_x, max(scale_y, scale_z))
+			if uniform_scale <= 0.001 do uniform_scale = 1.0
+
+			clean_model := mt.MAT4_IDENTITY
+			clean_model[0][0] = uniform_scale
+			clean_model[1][1] = uniform_scale
+			clean_model[2][2] = uniform_scale
+			clean_model[3][0] = new_center.x
+			clean_model[3][1] = new_center.y
+			clean_model[3][2] = new_center.z
+
+			state.spheres.instances[sphere_idx].model = clean_model
+			state.spheres.instances[sphere_idx].prev_center = new_center
+			rendering.instanced_upload(state.spheres)
+		}
+	}
 }
 
 // ─── Tab: Camera ───────────────────────────────────────────────────────────────
@@ -460,11 +602,6 @@ draw_tab_scene :: proc(state: Scene_State) {
 			imgui.SliderFloat("Diff Gain", state.diff_gain, 1.0, 100.0)
 		}
 	}
-	imgui.Separator()
-
-	imgui.BeginDisabled()
-	imgui.SliderFloat("Exposure", state.exposure, 0.1, 10.0)
-	imgui.EndDisabled()
 	imgui.Separator()
 
 	imgui.Checkbox("Wireframe", state.wireframe_enabled)
@@ -900,18 +1037,6 @@ draw_rendering_scene_debug :: proc(state: Scene_State) {
 	gi_mode: i32 = 0
 	imgui.Combo("GI Mode", &gi_mode, "OFF\x00Volume 3D Tex\x00SSBO\x00")
 	imgui.EndDisabled()
-
-	if state.sort_mode != nil {
-		sort_val := i32(state.sort_mode^)
-		if imgui.Combo("Sort Mode", &sort_val, "None\x00CPU (qsort)\x00CPU (Radix)\x00") {
-			state.sort_mode^ = rendering.Sort_Mode(sort_val)
-		}
-		imgui.SameLine()
-		imgui.TextDisabled("(?)")
-		if imgui.IsItemHovered() {
-			imgui.SetTooltip("Billboard draw order for correct transparency:\n- None: arbitrary (fast, may have artifacts)\n- CPU qsort: O(n log n) comparison sort\n- CPU Radix: O(n) stable sort (recommended)")
-		}
-	}
 }
 
 @(private)

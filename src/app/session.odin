@@ -132,6 +132,11 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			orbit_center               = s.point_light.orbit_center,
 			show_bulb                  = s.point_light.show_bulb,
 			bulb_radius                = s.point_light.bulb_radius,
+			show_gizmo                 = s.point_light.show_gizmo,
+			gizmo_op                   = s.point_light.gizmo_op,
+			gizmo_mode                 = s.point_light.gizmo_mode,
+			gizmo_snap                 = s.point_light.gizmo_snap,
+			gizmo_snap_value           = s.point_light.gizmo_snap_value,
 		},
 	}
 }
@@ -302,6 +307,13 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.point_light.orbit_center               = state.point_light.orbit_center
 		s.point_light.show_bulb                  = state.point_light.show_bulb
 		s.point_light.bulb_radius                = state.point_light.bulb_radius
+		s.point_light.show_gizmo                 = state.point_light.show_gizmo
+		s.point_light.gizmo_op                   = state.point_light.gizmo_op
+		s.point_light.gizmo_mode                 = state.point_light.gizmo_mode
+		s.point_light.gizmo_snap                 = state.point_light.gizmo_snap
+		if state.point_light.gizmo_snap_value > 0 {
+			s.point_light.gizmo_snap_value = state.point_light.gizmo_snap_value
+		}
 		s.point_light.is_dirty                   = true
 	}
 }

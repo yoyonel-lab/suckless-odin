@@ -51,6 +51,9 @@ Scene :: struct {
 	// Text overlay (F1)
 	overlay:     rendering.Text_Overlay,
 
+	// 3D Viewport Entity Selection
+	selection:   types.Selection_State,
+
 	// Cached uniform locations for PBR shader
 	loc_view:           i32,
 	loc_projection:     i32,
@@ -736,3 +739,74 @@ read_shader_file :: proc(path: string) -> ([]u8, bool) {
 	}
 	return data, true
 }
+
+// ─── 3D Viewport Entity Picking ────────────────────────────────────────────
+
+// Performs a 3D raycast picking test from screen coordinates against scene entities
+// (light bulb, 100 instanced spheres, or skybox background).
+// Updates s.selection and returns true if an object was selected.
+scene_pick_entity :: proc(s: ^Scene, mouse_x, mouse_y, screen_w, screen_h: f32) -> bool {
+	if s == nil || screen_w <= 0 || screen_h <= 0 {
+		return false
+	}
+
+	view := cam.get_view_matrix(&s.camera)
+	aspect := screen_w / max(screen_h, 1.0)
+	fov_rad := mt.radians(s.camera.zoom)
+	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
+
+	ray := mt.ray_from_screen(
+		mt.Vec2{mouse_x, mouse_y},
+		mt.Vec2{screen_w, screen_h},
+		view,
+		proj,
+	)
+
+	closest_t: f32 = math.F32_MAX
+	hit_type: types.Selection_Type = .None
+	hit_sphere_idx: int = -1
+
+	// 1. Test Light Bulb
+	if s.point_light.enabled && s.point_light.show_bulb {
+		light_pos := s.point_light.orbit_center if s.point_light.is_animated else s.point_light.position
+		bulb_r := max(s.point_light.bulb_radius, 0.4) // Comfortable picking volume
+		hit, t := mt.ray_intersect_sphere(ray, light_pos, bulb_r)
+		if hit && t < closest_t {
+			closest_t = t
+			hit_type = .Light
+		}
+	}
+
+	// 2. Test Instanced Spheres
+	sphere_r: f32 = 1.0
+	for i in 0..<s.spheres.count {
+		idx := int(i)
+		sphere_pos := s.spheres.instances[idx].model[3].xyz
+		hit, t := mt.ray_intersect_sphere(ray, sphere_pos, sphere_r)
+		if hit && t < closest_t {
+			closest_t = t
+			hit_type = .Sphere
+			hit_sphere_idx = idx
+		}
+	}
+
+	// Update selection
+	s.selection.type = hit_type
+	s.selection.sphere_index = hit_sphere_idx
+	if hit_type == .Sphere && hit_sphere_idx >= 0 {
+		s.selection.sphere_id = s.spheres.instances.id[hit_sphere_idx]
+	} else {
+		s.selection.sphere_id = -1
+	}
+
+	if hit_type != .None {
+		s.point_light.show_gizmo = true
+		log.log_info("suckless-odin.picking", "Selected %v (id=%d, index=%d, t=%.2f)", hit_type, s.selection.sphere_id, hit_sphere_idx, closest_t)
+		return true
+	} else {
+		s.point_light.show_gizmo = false
+		log.log_info("suckless-odin.picking", "Deselected all (clicked skybox)")
+		return false
+	}
+}
+

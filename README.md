@@ -144,7 +144,7 @@ Detailed reports:
 ## Quick Start & Task Commands
 
 ### Prerequisites
-- [Odin Compiler](https://odin-lang.org/) (`dev-2026-05` or newer)
+- [Odin Compiler](https://odin-lang.org/) (`dev-2026-09` or newer)
 - [Task](https://taskfile.dev) (`go-task`)
 - OpenGL 4.5+ capable GPU & drivers
 - System libraries: `libglfw3-dev`, `libx11-dev`
