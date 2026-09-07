@@ -4,11 +4,11 @@ inputs:
   odin-version:
     description: "Odin compiler release version"
     required: false
-    default: "dev-2026-05"
+    default: "dev-2026-09"
   odin-url:
     description: "URL to Odin release archive"
     required: false
-    default: "https://github.com/odin-lang/Odin/releases/download/dev-2026-05/odin-linux-amd64-dev-2026-05.tar.gz"
+    default: "https://github.com/odin-lang/Odin/releases/download/dev-2026-09/odin-linux-amd64-dev-2026-09.tar.gz"
 
 runs:
   using: "composite"
