@@ -116,4 +116,10 @@ $CC_MIN_WIN -c -O3 -mavx2 -mf16c -I "$DEPS_DIR/glad/include" "$DEPS_DIR/glad/src
 "$AR_TOOL" rcs "$DEPS_DIR/libtracy_windows_x64.lib" "$DEPS_DIR/TracyClient_win.o" "$DEPS_DIR/tracy_gpu_win.o" "$DEPS_DIR/glad_win.o"
 rm -f "$DEPS_DIR/TracyClient_win.o" "$DEPS_DIR/tracy_gpu_win.o" "$DEPS_DIR/glad_win.o"
 
+echo "==> [7/7] Building Windows ImGuizmo library (libimguizmo_windows_x64.lib)..."
+$CXX_MIN_WIN -c -O3 -mavx2 -mf16c -std=c++17 -I "$DEPS_DIR/odin-imgui/imgui" -I "$DEPS_DIR/imguizmo" "$DEPS_DIR/imguizmo/ImGuizmo.cpp" -o "$DEPS_DIR/ImGuizmo_win.o"
+$CXX_MIN_WIN -c -O3 -mavx2 -mf16c -std=c++17 -I "$DEPS_DIR/odin-imgui/imgui" -I "$DEPS_DIR/imguizmo" "$DEPS_DIR/imguizmo/cimguizmo.cpp" -o "$DEPS_DIR/cimguizmo_win.o"
+"$AR_TOOL" rcs "$DEPS_DIR/libimguizmo_windows_x64.lib" "$DEPS_DIR/ImGuizmo_win.o" "$DEPS_DIR/cimguizmo_win.o"
+rm -f "$DEPS_DIR/ImGuizmo_win.o" "$DEPS_DIR/cimguizmo_win.o"
+
 echo "[✓] All Windows dependencies built successfully."
