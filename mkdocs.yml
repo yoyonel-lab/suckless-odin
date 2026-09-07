@@ -105,6 +105,8 @@ nav:
       - Améliorations Shadow Mapping & PCF Vogel-Disk: 2026-09-01_shadow_mapping_improvements_antialiasing_pcf_bias_analysis.md
       - Architecture Cubemap & Ombres Dynamiques: 2026-09-01_shadow_cubemap_mrt_depth_vs_color_architecture.md
       - Intégration Éclairage Volumétrique: 2026-08-31_volumetric_dynamic_lights_integration_plan.md
+      - Manuel ImGuizmo, Ombres PCF & Éclairage Volumétrique: 2026-09-01_imguizmo_shadow_volumetric_gui_reference_guide.md
+      - Sélection 3D Viewport & Picking ImGuizmo: 2026-09-06_3d_viewport_picking_and_selection_architecture.md
   - 🚀 Optimisation & Profiling:
       - Protocole Benchmarking & Roadmap: optimization-roadmap-and-benchmarking-protocol-2026-08-18.md
       - Profiling Tracy CPU: cpu-profiling-tracy-2026-05-23.md
@@ -114,6 +116,7 @@ nav:
       - Analyse RenderDoc: renderdoc-frame-analysis-2026-05-19.md
   - 🛠️ Build & CI/CD:
       - Guide Build & CI/CD: ci-build.md
+      - Stacked PRs & Workflow Git Town: 2026-09-06_stacked_prs_and_git_town_workflow.md
       - Comparatif & Roadmap Windows CI/CD: windows-cicd-comparison-and-roadmap-2026-08-18.md
       - Quotas & Optimisation GitHub Actions: github-actions-quota-management-and-optimization-guide-2026-08-20.md
       - Sandbox Distrobox Optimus: distrobox-optimus-2026-05-24.md
