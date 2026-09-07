@@ -45,6 +45,14 @@ Scene_State :: struct {
 	// Performance mode (optional — nil if not available)
 	perf: ^perf_mode.Perf_Mode,
 
+	// Point Light & Shadows (Phase 1)
+	point_light:    ^rendering.Point_Light,
+	shadow_cubemap: ^rendering.Shadow_Cubemap,
+
+	// Volumetric Lighting & Depth Downsampling (Phase 2 & 3)
+	depth_downsample: ^rendering.Depth_Downsample,
+	volumetric:       ^rendering.Volumetric_Renderer,
+
 	// Smoothed frame time from overlay (single source of truth)
 	frame_time_ms: f32,
 
@@ -238,6 +246,16 @@ update :: proc(g: ^Gui, state: Scene_State) {
 				if imgui.BeginTabItem("Compute Tuning", flags = tab_flags(g, 8)) {
 					if !restoring { g.active_tab = 8 }
 					draw_tab_compute_tuning(g, state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("Shadows", flags = tab_flags(g, 9)) {
+					if !restoring { g.active_tab = 9 }
+					draw_tab_shadows(g, state)
+					imgui.EndTabItem()
+				}
+				if imgui.BeginTabItem("Volumetric", flags = tab_flags(g, 10)) {
+					if !restoring { g.active_tab = 10 }
+					draw_tab_volumetric(g, state)
 					imgui.EndTabItem()
 				}
 				if g.restore_tab > 0 {
@@ -1282,6 +1300,24 @@ draw_filtered_view :: proc(g: ^Gui, state: Scene_State, filter: cstring) {
 		imgui.Spacing()
 	}
 
+	if section_has_matches(filter, SHADOW_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Shadows")
+		imgui.SameLine()
+		shadows_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_shadows(g, state, filter)
+		imgui.Spacing()
+	}
+
+	if section_has_matches(filter, VOLUMETRIC_KEYWORDS) {
+		imgui.TextColored(imgui.Vec4{0.4, 0.9, 0.4, 1.0}, "Volumetric")
+		imgui.SameLine()
+		volumetric_goto_button(g)
+		imgui.Separator()
+		match_count += draw_filtered_volumetric(g, state, filter)
+		imgui.Spacing()
+	}
+
 	if match_count == 0 {
 		imgui.TextColored(imgui.Vec4{1.0, 0.5, 0.5, 1.0}, "No matching parameters")
 	}
@@ -1317,6 +1353,30 @@ compute_goto_button :: proc(g: ^Gui) {
 	imgui.PopID()
 }
 
+// Navigate from search result to the Shadows tab.
+@(private)
+shadows_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_shadows")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 9
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
+// Navigate from search result to the Volumetric tab.
+@(private)
+volumetric_goto_button :: proc(g: ^Gui) {
+	imgui.PushID("goto_volumetric")
+	if imgui.SmallButton("Go To") {
+		g.active_tab = 10
+		g.restore_tab = 1
+		g.search_buf = {}
+	}
+	imgui.PopID()
+}
+
 // Keyword constants for section-level pre-filtering.
 @(private)
 CAMERA_KEYWORDS :: "camera speed acceleration friction sensitivity smoothing fov bobbing zoom projection mouse movement"
@@ -1338,3 +1398,9 @@ IBL_KEYWORDS :: "ibl debug irradiance prefilter specular diffuse brdf lut split 
 
 @(private)
 COMPUTE_KEYWORDS :: "compute tuning shader progressive slicing dispatch samples workgroup spbrdf irmap spmap slices profile legacy optimized vram timing optimization"
+
+@(private)
+SHADOW_KEYWORDS :: "shadow shadows point light cubemap bias normal offset slope rnob ssdb bulb darkening omnidirectional atlas dirty cache time slicing near far pcf vogel disk filter radius jitter stochastic temporal taa reprojection alpha disocclusion clamping debug heatmap penumbra split delta"
+
+@(private)
+VOLUMETRIC_KEYWORDS :: "volumetric raymarch raymarching taa reprojection bilateral blur scattering extinction henyey greenstein anisotropy god rays jbu upsample downsample fog mist smoke atmosphere presets"
