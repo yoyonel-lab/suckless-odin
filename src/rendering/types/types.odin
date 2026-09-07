@@ -20,6 +20,7 @@ Sphere_Instance :: struct #align(64) {
 // Section boundary offsets catch accidental field reordering.
 #assert(size_of(Sphere_Instance) == 128)
 #assert(offset_of(Sphere_Instance, albedo)      == 64)  // after mat4
+#assert(offset_of(Sphere_Instance, id)          == 88)  // after ao
 #assert(offset_of(Sphere_Instance, prev_center) == 92)  // after id
 
 // Anti-Aliasing modes
@@ -63,4 +64,23 @@ Selection_State :: struct {
 	sphere_id:    i32, // Stable sphere identifier (0..99) across dynamic sorting
 }
 
+Specular_Occlusion_Debug_Mode :: enum {
+	Off              = 0,
+	Grayscale_Factor = 1,
+	Delta_Heatmap    = 2,
+	Horizon_Clipping = 3,
+}
 
+PBR_Debug_Mode :: enum {
+	Final_PBR    = 0,
+	Albedo       = 1,
+	Normal       = 2,
+	Metallic     = 3,
+	Roughness    = 4,
+	AO           = 5,
+	Irradiance   = 6,
+	Prefilter    = 7,
+	BRDF_LUT     = 8,
+	SO_Grayscale = 9,
+	SO_Heatmap   = 10,
+}

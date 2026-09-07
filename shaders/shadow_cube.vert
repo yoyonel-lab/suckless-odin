@@ -13,7 +13,7 @@ struct SphereInstance {
     float metallic;
     float roughness;
     float ao;
-    float padding;
+    int id;
     float prev_center_x;
     float prev_center_y;
     float prev_center_z;

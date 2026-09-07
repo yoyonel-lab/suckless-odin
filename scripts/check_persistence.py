@@ -22,6 +22,9 @@ EXCLUDED_GUI_FIELDS = {
     "volumetric",  # Transient GPU volumetric lighting resource
     "spheres",  # Transient GPU instanced mesh buffer
     "selection",  # Transient interactive viewport selection state
+    "ao_baker",  # Transient AO baker resource
+    "gpu_ao_baker",  # Transient GPU AO baker resource
+    "sphere_gizmo_interacting",  # Transient interaction flag
 }
 
 # Fields in Session_State that are handled directly in app initialization rather than restore_session_state
@@ -39,6 +42,7 @@ FIELD_MAPPING = {
     "specular_aa_debug_mode": "specular_aa",
     "specular_aa_split_enabled": "specular_aa",
     "specular_aa_split_position": "specular_aa",
+    "current_hdr_index": "env_path",
 }
 
 

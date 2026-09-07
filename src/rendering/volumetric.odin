@@ -55,17 +55,27 @@ srcloc_volumetric_composite := tracy.Source_Location_Data{
 	color    = 0xA3BE8C,
 }
 
-// Debug view enumeration for volumetric lighting pipeline inspection
-Volumetric_Debug_View :: enum u32 {
-	Disabled               = 0,
-	Shadow_Cubemap_Cross   = 1, // Phase 1: Shadow cubemap unfolded inspection
-	Low_Res_Depth          = 2, // Phase 2: Downsampled linear depth map
-	Depth_Discontinuities  = 3, // Phase 2: Silhouette edge discontinuity mask
-	Raw_Raymarching        = 4, // Phase 3: Raw in-scattering without TAA/blur
-	TAA_Acceptance_Map     = 5, // Phase 4: History reprojection validity RGB map
-	Bilateral_Blur_Diff    = 6, // Phase 5: Blur delta map (|blurred - raw|)
-	Volumetric_Only        = 7, // Phase 6: Isolated in-scattering buffer
-	AB_Split_Comparison    = 8, // Phase 6: A/B interactive split comparison
+// Preview visualization modes for the ImGui texture inspector
+Volumetric_Preview_Mode :: enum i32 {
+	Final_Output       = 0, // Composite / Filtered active output
+	Raw_Raymarching    = 1, // Raw raymarching grain (no TAA / blur)
+	Heatmap            = 2, // Turbo colormap of in-scattering intensity
+	TAA_Acceptance_Map = 3, // Reprojection validity RGB map (Green=Acc, Red=Disocc, Blue=Offscreen)
+	Post_Blur_HDR      = 4, // Bilateral filtered HDR buffer
+	Bilateral_Diff     = 5, // Delta map (|blurred - raw| * 10)
+	Edge_Overlay       = 6, // Low-res depth edge mask overlay (Magenta)
+	Silhouette_Only    = 7, // Isolated silhouette edges
+	Weight_Attenuation = 8, // Bilateral depth weight attenuation map
+	Transmittance      = 9, // Transmittance alpha channel map
+}
+
+// Fullscreen viewport compositing debug modes
+Volumetric_Composite_Mode :: enum i32 {
+	Normal_Scene         = 0, // Normal additive in-scene composite
+	Neon_Silhouette      = 1, // Neon green/magenta geometric silhouette highlights
+	Isolated_Silhouettes = 2, // Black scene with isolated silhouette edges
+	Difference_Map       = 3, // Delta visualization between filtered and raw
+	Weight_Attenuation   = 4, // Upsample bilateral depth weight map
 }
 
 // Tunable volumetric medium & filtering parameters (serializable for presets)
@@ -238,7 +248,7 @@ volumetric_intersect_ray_sphere :: proc(
 // Initializes the volumetric lighting pipeline and GPU resources
 volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32) -> bool {
 	vr.params = Volumetric_Params{
-		enabled                = true,
+		enabled                = false,
 		composite_in_scene     = true,
 		isolate_in_scene       = false,
 		shadows_enabled        = true,
@@ -987,4 +997,15 @@ volumetric_destroy :: proc(vr: ^Volumetric_Renderer) {
 		vr.composite_program = 0
 	}
 	vr^ = {}
+}
+
+// Synchronizes Henyey-Greenstein phase anisotropy across volumetric medium parameters and light
+volumetric_set_anisotropy :: proc(vr: ^Volumetric_Renderer, light: ^Point_Light, g: f32) {
+	clamped_g := clamp(g, -0.90, 0.90)
+	if vr != nil {
+		vr.params.anisotropy_g = clamped_g
+	}
+	if light != nil {
+		light.phase_g = clamped_g
+	}
 }
