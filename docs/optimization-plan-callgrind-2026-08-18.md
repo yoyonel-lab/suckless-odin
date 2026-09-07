@@ -19,6 +19,11 @@ Profil capturé sur session interactive normalisée (initialisation + cycle HDR 
   6. `overlay::append_text_vertices` : **16.16 M Ir (0.92%)** (Tessellation texte à chaque frame)
   7. `_int_malloc` / `free` : **29.91 M Ir (1.70%)** (Allocations mémoire transitoires)
 
+| Distribution des Hotspots CPU Callgrind / KCachegrind (Instructions CPU & Arbre d'Appel) |
+| :---: |
+| ![Callgrind Callgraph Hotspots](images/profiling/07_callgrind_callgraph_hotspots.webp) |
+| *Visualisation de la répartition du coût CPU : fonctions SIMD vectorisées (38.4%), soumission de rendu (26.2%) et post-processing (18.5%).* |
+
 ---
 
 ## 2. Plans Détaillés par Piste d'Amélioration
@@ -27,13 +32,13 @@ Profil capturé sur session interactive normalisée (initialisation + cycle HDR 
 
 ### 🎯 Plan A : Turbo-Inlining RLE & Vectorisation Pure FP16
 
-* **Fichier cible** : [`deps/simd_utils.c`](file:///home/latty/Prog/__PERSO__/suckless-odin/deps/simd_utils.c)
+* **Fichier cible** : [`deps/simd_utils.c`](../deps/simd_utils.c)
 * **Composant** : Décodeur Radiance RGBE 4K multi-threadé (`decode_scanline_slice`).
 
 #### 1. Description Technique & Modifications
 1. **Inlining des micro-runs RLE (`memset` / `memcpy` inline)** :
-   * Remplacer les appels `memset(chan + x, val, run)` par des écritures inlinées 64-bit (`uint64_t v64 = val * 0x0101010101010101ULL;`) pour les paquets $\ge 8$ octets et terminaison scalaire.
-   * Remplacer les appels `memcpy(chan + x, ptr, run)` par des transferts 128-bit `_mm_loadu_si128` / `_mm_storeu_si128` pour les paquets $\ge 16$ octets, 64-bit pour $\ge 8$, et terminaison scalaire.
+   * Remplacer les appels `memset(chan + x, val, run)` par des écritures inlinées 64-bit (`uint64_t v64 = val * 0x0101010101010101ULL;`) pour les paquets ≥ 8 octets et terminaison scalaire.
+   * Remplacer les appels `memcpy(chan + x, ptr, run)` par des transferts 128-bit `_mm_loadu_si128` / `_mm_storeu_si128` pour les paquets ≥ 16 octets, 64-bit pour ≥ 8, et terminaison scalaire.
    * Élimine l'overhead des prologues/épilogues PLT libc sur 33.5M de micro-runs par image 4K.
 2. **Suppression du tableau intermédiaire pile & Vectorisation directe** :
    * Supprimer le buffer scalaire temporaire `float f_rgba[32]` sur la pile (responsable de pénalités *Store-to-Load Forwarding*).
@@ -68,7 +73,7 @@ task profile-tracy      # Réduction de la durée 'Async Loader: Decode File'
 
 ### 🎯 Plan B : Caching des Uniforms & Dirty-Checking Text Overlay
 
-* **Fichier cible** : [`src/rendering/overlay.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/rendering/overlay.odin)
+* **Fichier cible** : [`src/rendering/overlay.odin`](../src/rendering/overlay.odin)
 * **Composant** : Rendu de l'overlay texte de debug / HUD (`overlay_render`, `append_text_vertices`).
 
 #### 1. Description Technique & Modifications

@@ -13,6 +13,11 @@ Scene Render → HDR FBO (RGBA16F) → Bloom Multi-Pass → DoF Quarter-Res → 
   → [FXAA Pre-Pass if FXAA+MB] → Mipmap Gen → Composite (uber-shader) → Screen
 ```
 
+| Scène Brute HDR (FBO RGBA16F sans PostFX) | Rendu Composite Tonemappé (Baseline UE4) |
+| :---: | :---: |
+| ![Scène Brute HDR](images/postfx/01_scene_raw_hdr.webp) | ![Rendu Composite Baseline](images/postfx/02_baseline_tonemapped.webp) |
+| *Pass 0 : Rendu 3D direct sans correction d'exposition ni tonemapping.* | *Pass Finale : Exposition équilibrée et courbe filmique UE4.* |
+
 ## Package Layout
 
 ```
@@ -91,6 +96,11 @@ Scene → Prefilter (threshold) → Down[0] → Down[1] → ... → Down[4]
 - **Upsample**: 9-tap tent filter with additive blending (GL_ONE, GL_ONE)
 
 Internal format: `R11F_G11F_B10F` (HDR, compact, no alpha needed)
+
+| Texture Bloom Isolée (Pyramide de Mips R11F_G11F_B10F) | Rendu Composite avec Bloom Additif |
+| :---: | :---: |
+| ![Texture Bloom Isolée](images/postfx/03_bloom_texture_isolated.webp) | ![Bloom Composite](images/postfx/04_bloom_composite.webp) |
+| *Extraction du seuil quadratique UE4 & upsample tent 9-tap.* | *Intégration additive HDR équilibrée dans la scène finale.* |
 
 ### GPU Timer Queries
 
@@ -192,6 +202,11 @@ WIP presets are greyed out in GUI (non-selectable) until their dependencies are 
 
 Applied via CLI (`--postfx-preset=cinematic`) or GUI dropdown.
 
+| Preset "Cinematic" | Preset "Matrix" | Preset "Nordic Noir" |
+| :---: | :---: | :---: |
+| ![Preset Cinematic](images/postfx/08_preset_cinematic.webp) | ![Preset Matrix](images/postfx/09_preset_matrix.webp) | ![Preset Nordic Noir](images/postfx/10_preset_nordic_noir.webp) |
+| *Contraste cinématographique, grain fin & bloom subtil.* | *Teinte verte caractéristique & contraste poussé.* | *Atmosphère nordique froide, désaturée avec vignetage.* |
+
 ## Debug Views & A/B Split
 
 ### Per-Effect Debug
@@ -201,6 +216,9 @@ Applied via CLI (`--postfx-preset=cinematic`) or GUI dropdown.
 - **FXAA Debug**: Edge detection visualization (red=edge, blue=subpixel, gray=untouched)
 
 Debug toggles live inside each effect's Settings tree in the Post-FX GUI tab.
+
+![Depth of Field Bokeh](images/postfx/05_dof_focal_blur.webp)
+*Flou de profondeur de champ (DoF) au quart de résolution avec dispersion bokeh sur l'arrière-plan.*
 
 ### Luminance Stops Debug (2026-05-23)
 
@@ -216,6 +234,11 @@ Filament-style luminance visualization applied as the final step of the post-pro
 | +7 to +10 EV | Magenta/Purple/White | Clipping/overexposed |
 
 Toggled via standalone checkbox at the bottom of the Post-FX section. Uses `log2(luma / 0.18)` to map luminance to stops relative to middle gray.
+
+| Visualisation False-Color (16 Luminance Stops) | Mode Debug Split-Screen A/B |
+| :---: | :---: |
+| ![Luminance Stops](images/postfx/06_luminance_stops_false_color.webp) | ![Debug Split A/B](images/postfx/07_debug_split_ab.webp) |
+| *Palette Filament 16 stops (cyan = gris moyen 18%).* | *Comparaison temps réel A/B (gauche: avec effets / droite: bypass).* |
 
 ### A/B Split-Screen
 

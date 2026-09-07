@@ -16,6 +16,11 @@ This ensures the developer can run `task build` directly from the host terminal,
 > [!IMPORTANT]
 > The engine's source code depends on `base` packages located in `/usr/lib/odin`. Because `distrobox enter` does not invoke an interactive login shell, `.bashrc` isn't invariably sourced. The `Taskfile.yml` explicitly sets `env ODIN_ROOT=/usr/lib/odin` before injecting the compiler call to prevent an `Internal Compiler Error`.
 
+| Architecture de Sandboxing Distrobox & Commutation GPU Hybride Optimus |
+| :---: |
+| ![Distrobox Optimus Architecture](images/ci/03_distrobox_optimus_architecture.webp) |
+| *Compilation isolée dans conteneur sans pollution hôte, et rendu graphique direct avec accélération NVIDIA Prime Offload.* |
+
 ## 2. Native Execution & NVIDIA Optimus Offloading
 
 While the application **compiles** inside the container, it must **run** directly on the host to properly leverage the proprietary NVIDIA kernel drivers (`libGLX_nvidia.so`) via PRIME Render Offloading.

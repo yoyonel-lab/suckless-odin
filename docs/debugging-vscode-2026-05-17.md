@@ -17,6 +17,11 @@
 
 Le champ `"type"` dans launch.json doit être **`"lldb-dap"`** (pas `"lldb"`).
 
+| Architecture de l'Environnement de Développement & Débogage VS Code / OLS / GDB |
+| :---: |
+| ![VS Code OLS GDB Environment](images/gui/04_vscode_ols_gdb_environment.webp) |
+| *Intégration complète : Autocomplétion OLS native, raccourcis Taskfile et sessions de débogage pas-à-pas GDB/LLDB.* |
+
 ## Configuration
 
 ### `.vscode/tasks.json`

@@ -62,6 +62,11 @@ and GPU compute stalls (frame time spikes up to 140ms).
 No barrier needed between slices of the same mip (disjoint Y-ranges).
 `IMAGE_ACCESS` barrier between mip levels.
 
+| Pipeline de Streaming Asynchrone Ring PBO (3 Slots Coordonnés) |
+| :---: |
+| ![Async Ring PBO Pipeline](images/ibl/02_async_ring_pbo_pipeline.webp) |
+| *Découpage en 16 tranches consécutives de 8 Mo via PBO persistants sans aucun blocage du thread principal.* |
+
 ### 5. Proper Memory Barriers at Completion
 
 **Problem**: The final barrier used only `SHADER_IMAGE_ACCESS_BARRIER_BIT`.
