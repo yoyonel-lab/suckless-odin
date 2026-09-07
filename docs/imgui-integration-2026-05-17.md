@@ -61,6 +61,11 @@ src/gui/gui.odin          ← Package GUI
 └── wants_mouse()         ← Query: ImGui capture-t-il la souris ?
 ```
 
+| Interface Graphique Développeur Dear ImGui ([F2] Docking & Multi-Onglets) |
+| :---: |
+| ![Dear ImGui Control Panel](images/gui/01_imgui_menu_main_panel.webp) |
+| *Panneau unifié : Recherche floue (Fuzzy Search), onglets Camera / Scene / Rendering / Telemetry, sliders PBR et toggles PostFX.* |
+
 ## Design decisions
 
 | Décision | Justification |
