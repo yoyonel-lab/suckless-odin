@@ -104,3 +104,43 @@ test_instanced_update_prev_centers :: proc(t: ^testing.T) {
 	testing.expect_value(t, inst.instances[1].prev_center, mt.Vec3{2, 3, 4})
 	testing.expect_value(t, inst.instances[2].prev_center, mt.Vec3{4, 6, 8})
 }
+
+// --- Instanced apply_grid_ao tests ---
+
+@(test)
+test_instanced_apply_grid_ao :: proc(t: ^testing.T) {
+	inst: rendering.Instanced_Spheres
+	inst.instances = make(#soa [dynamic]types.Sphere_Instance, 3)
+	defer delete(inst.instances)
+	inst.count = 3
+
+	// Position 3 spheres along X axis: -2.5, 0.0, +2.5
+	positions := [3]mt.Vec3{
+		{-2.5, 0.0, 0.0},
+		{ 0.0, 0.0, 0.0},
+		{ 2.5, 0.0, 0.0},
+	}
+	for i in 0..<3 {
+		model := mt.MAT4_IDENTITY
+		model[3][0] = positions[i].x
+		model[3][1] = positions[i].y
+		model[3][2] = positions[i].z
+		inst.instances[i] = types.Sphere_Instance{
+			model = model,
+			ao    = 1.0,
+		}
+	}
+
+	// When disabled, all AO values should be 1.0
+	rendering.instanced_apply_grid_ao(&inst, false, 1.0)
+	testing.expect_value(t, inst.instances[0].ao, f32(1.0))
+	testing.expect_value(t, inst.instances[1].ao, f32(1.0))
+	testing.expect_value(t, inst.instances[2].ao, f32(1.0))
+
+	// When enabled, center sphere (index 1) has 2 neighbors, left/right (0, 2) have 1 close neighbor
+	rendering.instanced_apply_grid_ao(&inst, true, 1.0)
+	testing.expect(t, inst.instances[1].ao < inst.instances[0].ao, "Center sphere must have lower AO than outer sphere")
+	testing.expect(t, inst.instances[1].ao < inst.instances[2].ao, "Center sphere must have lower AO than outer sphere")
+	testing.expect(t, inst.instances[0].ao > 0.5 && inst.instances[0].ao < 1.0, "Outer sphere must have moderate AO")
+	testing.expect(t, inst.instances[1].ao > 0.05 && inst.instances[1].ao < 1.0, "Center sphere must have valid AO")
+}

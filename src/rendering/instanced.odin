@@ -1,5 +1,6 @@
 package rendering
 
+import "core:math"
 import gl "vendor:OpenGL"
 
 import log "../core/log"
@@ -34,6 +35,51 @@ Instanced_Spheres :: struct {
 SSBO_BINDING :: 2  // Must match billboard_instance_ssbo.glsl binding
 
 HALF_OFFSET_MULTIPLIER :: 0.5
+
+// Compute analytical mutual ambient occlusion for a grid/collection of spheres.
+// Each sphere i is occluded by neighboring spheres j proportional to the solid angle subtended.
+instanced_apply_grid_ao :: proc(inst: ^Instanced_Spheres, enabled: bool, intensity: f32) {
+	count := int(inst.count)
+	if count == 0 do return
+
+	if !enabled || intensity <= 0.0 {
+		for i in 0..<count {
+			inst.instances.ao[i] = 1.0
+		}
+		return
+	}
+
+	RADIUS: f32 : 1.0
+	R2: f32 : RADIUS * RADIUS
+
+	models := inst.instances.model[:]
+	aos := inst.instances.ao[:]
+
+	for i in 0..<count {
+		pos_i := mt.Vec3{models[i][3][0], models[i][3][1], models[i][3][2]}
+		total_occlusion: f32 = 0.0
+
+		for j in 0..<count {
+			if i == j do continue
+			pos_j := mt.Vec3{models[j][3][0], models[j][3][1], models[j][3][2]}
+			delta := pos_j - pos_i
+			dist_sq := delta.x * delta.x + delta.y * delta.y + delta.z * delta.z
+			if dist_sq <= R2 do continue
+
+			sin_theta_max_sq := R2 / dist_sq
+			if sin_theta_max_sq < 1.0 {
+				cos_theta_max := math.sqrt(1.0 - sin_theta_max_sq)
+				solid_angle_frac := (1.0 - cos_theta_max) * 0.5
+				total_occlusion += solid_angle_frac
+			}
+		}
+
+		// Scale total occlusion: central spheres reach ~0.35 at intensity 1.0
+		// corners remain ~0.85
+		occlusion_factor := total_occlusion * 1.8 * intensity
+		aos[i] = clamp(1.0 - occlusion_factor, 0.05, 1.0)
+	}
+}
 
 // Create spheres from material library in a grid layout (ISO port of scene_init_instancing)
 instanced_create :: proc(inst: ^Instanced_Spheres, mat_lib: ^Material_Lib) {

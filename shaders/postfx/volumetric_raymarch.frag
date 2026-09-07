@@ -122,6 +122,8 @@ void main()
     float two_g = 2.0 * g;
     bool has_anisotropy = abs(g) >= 0.001;
 
+    float step_transmittance = exp(-max(u_extinction_coeff, 0.0) * step_size);
+    float accum_transmittance = 1.0;
     float scattered_amount = 0.0;
     vec3 light_color_intensity = u_light_color * (u_light_intensity * u_intensity_mult);
 
