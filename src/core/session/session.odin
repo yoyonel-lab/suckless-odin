@@ -72,6 +72,11 @@ Point_Light_Session_Settings :: struct {
 	orbit_center:               mt.Vec3 `json:"orbit_center"`,
 	show_bulb:                  bool    `json:"show_bulb"`,
 	bulb_radius:                f32     `json:"bulb_radius"`,
+	show_gizmo:                 bool    `json:"show_gizmo"`,
+	gizmo_op:                   i32     `json:"gizmo_op"`,
+	gizmo_mode:                 i32     `json:"gizmo_mode"`,
+	gizmo_snap:                 bool    `json:"gizmo_snap"`,
+	gizmo_snap_value:           f32     `json:"gizmo_snap_value"`,
 }
 
 // Session_State holds all runtime state to persist across runs.

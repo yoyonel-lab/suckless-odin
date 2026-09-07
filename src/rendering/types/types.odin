@@ -11,7 +11,7 @@ Sphere_Instance :: struct #align(64) {
 	metallic:    f32,      // PBR metallic factor (0.0 - 1.0)
 	roughness:   f32,      // PBR roughness factor (0.0 - 1.0)
 	ao:          f32,      // Ambient occlusion factor
-	_:           f32,      // std430 alignment
+	id:          i32,      // Stable instance ID (0..count-1)
 	prev_center: mt.Vec3,  // Previous frame center (motion blur)
 }
 
@@ -20,7 +20,7 @@ Sphere_Instance :: struct #align(64) {
 // Section boundary offsets catch accidental field reordering.
 #assert(size_of(Sphere_Instance) == 128)
 #assert(offset_of(Sphere_Instance, albedo)      == 64)  // after mat4
-#assert(offset_of(Sphere_Instance, prev_center) == 92)  // after padding
+#assert(offset_of(Sphere_Instance, prev_center) == 92)  // after id
 
 // Anti-Aliasing modes
 AA_Mode :: enum {
@@ -48,4 +48,19 @@ Specular_AA_Debug_Mode :: enum {
 	Grayscale_Variance = 1,
 	Color_Difference   = 2,
 }
+
+// ─── 3D Viewport Entity Selection ──────────────────────────────────────────
+
+Selection_Type :: enum {
+	None,
+	Light,
+	Sphere,
+}
+
+Selection_State :: struct {
+	type:         Selection_Type,
+	sphere_index: int, // Current array index
+	sphere_id:    i32, // Stable sphere identifier (0..99) across dynamic sorting
+}
+
 

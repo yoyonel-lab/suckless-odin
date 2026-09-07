@@ -20,6 +20,8 @@ EXCLUDED_GUI_FIELDS = {
     "shadow_cubemap",  # Transient GPU framebuffer resource
     "depth_downsample",  # Transient GPU depth downsampler resource
     "volumetric",  # Transient GPU volumetric lighting resource
+    "spheres",  # Transient GPU instanced mesh buffer
+    "selection",  # Transient interactive viewport selection state
 }
 
 # Fields in Session_State that are handled directly in app initialization rather than restore_session_state
