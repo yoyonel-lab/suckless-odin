@@ -36,6 +36,23 @@ COLOR_GPU_SKYBOX         :: 0x0288D1 // Sky Blue (Skybox Cubemap & Equirect)
 COLOR_GPU_POSTFX         :: 0x8E24AA // Deep Purple (PostFX Pipeline)
 COLOR_GPU_OVERLAY        :: 0x0097A7 // Dark Cyan (Overlay / Debug Grid)
 
+// --- Volumetric Lighting & Shadows ---
+COLOR_GPU_SHADOW         :: 0xF57F17 // Solar Amber (Shadow Cubemap Pass)
+COLOR_GPU_GIZMO          :: 0xFFD600 // Radiant Yellow (Light Bulb Gizmo)
+COLOR_GPU_DEPTH_DOWN     :: 0xFF7043 // Coral Orange (Depth Downsample Pass)
+COLOR_GPU_VOLUMETRIC     :: 0x00897B // Dark Teal (Volumetric Pipeline)
+COLOR_GPU_RAYMARCH       :: 0x00ACC1 // Vivid Cyan (Volumetric Raymarch Pass)
+COLOR_GPU_TAA            :: 0x43A047 // Emerald Green (TAA History Blend)
+COLOR_GPU_BLUR           :: 0x5C6BC0 // Indigo (Bilateral Blur Pass)
+COLOR_GPU_UPSAMPLE       :: 0x7CB342 // Apple Green (JBU Composite Pass)
+
+// --- Post-Processing Subpasses ---
+COLOR_POSTFX_BLOOM       :: 0xD81B60 // Bright Magenta (Bloom Pass)
+COLOR_POSTFX_DOF         :: 0x546E7A // Slate Blue Gray (Depth of Field)
+COLOR_POSTFX_EXPOSURE    :: 0xFFA000 // Golden Amber (Auto Exposure)
+COLOR_POSTFX_MB          :: 0x00E5FF // Electric Cyan (Motion Blur Compute)
+COLOR_POSTFX_COMPOSITE   :: 0x9C27B0 // Purple (Uber Composite Pass)
+
 // --- Sync & System ---
 COLOR_SYNC_WAIT          :: 0x607D8B // Slate Gray (Fences / GPU Sync / Wait Idle)
 COLOR_INIT_SHUTDOWN      :: 0x263238 // Midnight Blue (Init & Destroy)

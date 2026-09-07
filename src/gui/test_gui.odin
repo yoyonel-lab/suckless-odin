@@ -92,3 +92,47 @@ test_section_has_matches_empty_filter :: proc(t: ^testing.T) {
 	testing.expect(t, section_has_matches("", RENDERING_KEYWORDS),
 		"empty filter should match any section")
 }
+
+@(test)
+test_section_has_matches_shadows :: proc(t: ^testing.T) {
+	testing.expect(t, section_has_matches("bias", SHADOW_KEYWORDS),
+		"'bias' should match shadow section keywords")
+	testing.expect(t, section_has_matches("shadow", SHADOW_KEYWORDS),
+		"'shadow' should match shadow section keywords")
+	testing.expect(t, section_has_matches("cubemap", SHADOW_KEYWORDS),
+		"'cubemap' should match shadow section keywords")
+	testing.expect(t, section_has_matches("normal", SHADOW_KEYWORDS),
+		"'normal' should match shadow section keywords")
+	testing.expect(t, section_has_matches("pcf", SHADOW_KEYWORDS),
+		"'pcf' should match shadow section keywords")
+	testing.expect(t, section_has_matches("vogel", SHADOW_KEYWORDS),
+		"'vogel' should match shadow section keywords")
+	testing.expect(t, section_has_matches("debug", SHADOW_KEYWORDS),
+		"'debug' should match shadow section keywords")
+	testing.expect(t, section_has_matches("heatmap", SHADOW_KEYWORDS),
+		"'heatmap' should match shadow section keywords")
+	testing.expect(t, section_has_matches("penumbra", SHADOW_KEYWORDS),
+		"'penumbra' should match shadow section keywords")
+	testing.expect(t, section_has_matches("split", SHADOW_KEYWORDS),
+		"'split' should match shadow section keywords")
+	testing.expect(t, section_has_matches("temporal", SHADOW_KEYWORDS),
+		"'temporal' should match shadow section keywords")
+	testing.expect(t, section_has_matches("taa", SHADOW_KEYWORDS),
+		"'taa' should match shadow section keywords")
+	testing.expect(t, section_has_matches("reprojection", SHADOW_KEYWORDS),
+		"'reprojection' should match shadow section keywords")
+	testing.expect(t, section_has_matches("disocclusion", SHADOW_KEYWORDS),
+		"'disocclusion' should match shadow section keywords")
+}
+
+@(test)
+test_section_has_matches_volumetric :: proc(t: ^testing.T) {
+	testing.expect(t, section_has_matches("raymarch", VOLUMETRIC_KEYWORDS),
+		"'raymarch' should match volumetric section keywords")
+	testing.expect(t, section_has_matches("scattering", VOLUMETRIC_KEYWORDS),
+		"'scattering' should match volumetric section keywords")
+	testing.expect(t, section_has_matches("atmosphere", VOLUMETRIC_KEYWORDS),
+		"'atmosphere' should match volumetric section keywords")
+	testing.expect(t, section_has_matches("taa", VOLUMETRIC_KEYWORDS),
+		"'taa' should match volumetric section keywords")
+}
