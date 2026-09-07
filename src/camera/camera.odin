@@ -140,9 +140,11 @@ update_vectors :: proc(cam: ^Camera) {
 
 // Builds unified input from keyboard flags (ISO port of camera_build_keyboard_input)
 build_keyboard_input :: proc(cam: ^Camera) {
-	cam.move_input.x = f32(i32(cam.move_right_)  - i32(cam.move_left))
-	cam.move_input.y = f32(i32(cam.move_up_)      - i32(cam.move_down))
-	cam.move_input.z = f32(i32(cam.move_forward)  - i32(cam.move_backward))
+	kb_x := f32(i32(cam.move_right_)  - i32(cam.move_left))
+	kb_y := f32(i32(cam.move_up_)      - i32(cam.move_down))
+	kb_z := f32(i32(cam.move_forward)  - i32(cam.move_backward))
+
+	cam.move_input = mt.Vec3{kb_x, kb_y, kb_z}
 }
 
 // Fixed-timestep physics update (ISO port of camera_fixed_update)
