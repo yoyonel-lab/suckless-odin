@@ -51,6 +51,8 @@ if command -v flatpak &>/dev/null && flatpak info com.valvesoftware.Steam &>/dev
         --filesystem="${SANDBOX_DIR}" \
         --env=STEAM_COMPAT_CLIENT_INSTALL_PATH="${STEAM_ROOT}" \
         --env=STEAM_COMPAT_DATA_PATH="${PROTON_PFX}" \
+        --env=MESA_LOADER_DRIVER_OVERRIDE=iris \
+        --env=PROTON_USE_WINED3D=1 \
         --command=python3 \
         com.valvesoftware.Steam \
         "${PROTON_PATH}" run "${EXTRACTED_APP}" "$@"
@@ -76,6 +78,8 @@ elif [ -d "${HOME}/.local/share/Steam" ]; then
     cd "${SANDBOX_DIR}/${RELEASE_NAME}"
     STEAM_COMPAT_CLIENT_INSTALL_PATH="${STEAM_ROOT}" \
     STEAM_COMPAT_DATA_PATH="${PROTON_PFX}" \
+    MESA_LOADER_DRIVER_OVERRIDE=iris \
+    PROTON_USE_WINED3D=1 \
     "${PROTON_PATH}" run "${EXTRACTED_APP}" "$@"
 
 else

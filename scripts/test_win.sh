@@ -10,7 +10,15 @@ BUILD_WIN_DIR="$ROOT_DIR/build/windows"
 
 SUITE="${1:-all}"
 
-# Ensure deps exist
+# Ensure deps exist and are restored into Odin root
+if [ ! -f "$ODIN_ROOT/vendor/stb/lib/stb_image.lib" ] || [ ! -f "$ODIN_ROOT/vendor/glfw/lib/glfw3_mt.lib" ]; then
+    if [ -d "$DEPS_DIR/stb_win_libs" ] && [ -f "$DEPS_DIR/glfw_build_win/src/libglfw3.a" ]; then
+        mkdir -p "$ODIN_ROOT/vendor/stb/lib" "$ODIN_ROOT/vendor/glfw/lib" 2>/dev/null || true
+        cp -f "$DEPS_DIR/stb_win_libs/"*.lib "$ODIN_ROOT/vendor/stb/lib/" 2>/dev/null || true
+        cp -f "$DEPS_DIR/glfw_build_win/src/libglfw3.a" "$ODIN_ROOT/vendor/glfw/lib/glfw3_mt.lib" 2>/dev/null || true
+    fi
+fi
+
 if [ ! -f "$DEPS_DIR/win_compat.o" ] || \
    [ ! -f "$DEPS_DIR/libsimd_windows_x64.lib" ] || \
    [ ! -f "$DEPS_DIR/odin-imgui/imgui_windows_x64.lib" ] || \

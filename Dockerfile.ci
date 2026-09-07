@@ -29,8 +29,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libwayland-dev libxkbcommon-dev \
     xvfb mesa-utils libgl1-mesa-dri \
     python3 python3-venv python3-pip python3-ply \
-    zstd zip gdb rsync \
+    zstd zip gdb rsync imagemagick \
     && ln -sf /usr/bin/clang-19 /usr/local/bin/clang \
+
     && ln -sf /usr/bin/clang++-19 /usr/local/bin/clang++ \
     && ln -sf /usr/bin/lld-19 /usr/local/bin/lld \
     && ln -sf /usr/bin/llvm-ar-19 /usr/local/bin/llvm-ar \
@@ -44,7 +45,8 @@ RUN mkdir -p /opt/odin && \
 ENV PATH="/opt/odin:${PATH}"
 
 # Build GLFW from source (shared library, same as CI)
-RUN git clone --depth 1 --branch ${GLFW_VERSION} https://github.com/glfw/glfw.git /tmp/glfw-src && \
+RUN mkdir -p /tmp/glfw-src && \
+    curl -sSL "https://github.com/glfw/glfw/archive/refs/tags/${GLFW_VERSION}.tar.gz" | tar xz -C /tmp/glfw-src --strip-components=1 && \
     cmake -S /tmp/glfw-src -B /tmp/glfw-build \
       -DCMAKE_INSTALL_PREFIX=/usr/local \
       -DBUILD_SHARED_LIBS=ON \
