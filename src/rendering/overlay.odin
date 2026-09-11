@@ -8,6 +8,7 @@ import "core:os"
 
 import log "../core/log"
 import mt  "../core/math_types"
+import gl_state "../core/gl_state"
 
 // Text overlay for FPS/position display (F1 toggle).
 // ISO port of the text overlay from suckless-ogl/src/ui.c.
@@ -248,6 +249,7 @@ overlay_render :: proc(overlay: ^Text_Overlay, width, height: i32, cam_pos: mt.V
 	gl.UseProgram(0)
 	gl.Disable(gl.BLEND)
 	gl.Enable(gl.DEPTH_TEST)
+	gl_state.reset()
 }
 
 

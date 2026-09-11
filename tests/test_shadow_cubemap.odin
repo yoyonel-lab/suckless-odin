@@ -274,3 +274,26 @@ test_shadow_taa_math_and_clamping :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+@(test)
+test_point_light_radius_change_dirties_shadow :: proc(t: ^testing.T) {
+	light := rendering.Point_Light{
+		position    = mt.Vec3{10.0, 5.0, 2.0},
+		radius      = 15.0,
+		prev_radius = 15.0,
+		enabled     = true,
+	}
+
+	// 1. Initial settled state
+	rendering.point_light_update(&light, 0.016)
+	light.is_dirty = false
+	light.motion_cooldown = 0.0
+
+	// 2. Modify radius only (simulating ImGui Radius / Influence slider)
+	light.radius = 24.5
+	rendering.point_light_update(&light, 0.016)
+
+	testing.expect(t, light.is_dirty, "Point light must be marked dirty when radius changes")
+	testing.expect(t, light.motion_cooldown > 0.0, "Motion cooldown must be triggered when radius changes")
+	testing.expect_value(t, light.prev_radius, f32(24.5))
+}

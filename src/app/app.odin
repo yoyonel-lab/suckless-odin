@@ -400,9 +400,9 @@ run :: proc(application: ^App) {
 				scene_ptr           = &application.scene,
 			})
 			gui.render(&application.imgui)
-			gl_state.reset()
 			dbg.pop_group()
 		}
+		gl_state.reset()
 
 		// Regenerate cubemap on-demand (lazy: only when mode == .Cubemap)
 		if (application.scene.skybox.cubemap_dirty || application.scene.skybox.gen_state.in_progress) && application.scene.skybox.mode == .Cubemap {

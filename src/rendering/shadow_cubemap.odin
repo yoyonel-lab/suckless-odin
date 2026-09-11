@@ -73,6 +73,7 @@ Point_Light :: struct {
 	// Motion & Interaction Tracking for smooth shadow caching / TAA adaptation
 	prev_position:              mt.Vec3,
 	prev_orbit_center:          mt.Vec3,
+	prev_radius:                f32,
 	is_interacting:             bool, // True while dragging gizmo
 	motion_cooldown:            f32,  // Seconds remaining in graceful motion transition
 }
@@ -106,7 +107,8 @@ point_light_update :: proc(light: ^Point_Light, dt: f32) {
 
 	pos_delta := mt.vec3_length(light.position - light.prev_position)
 	center_delta := mt.vec3_length(light.orbit_center - light.prev_orbit_center)
-	has_moved := (pos_delta > 0.0001) || (center_delta > 0.0001)
+	radius_delta := math.abs(light.radius - light.prev_radius)
+	has_moved := (pos_delta > 0.0001) || (center_delta > 0.0001) || (radius_delta > 0.001)
 
 	if has_moved || light.is_interacting {
 		light.motion_cooldown = 0.40 // 400ms transition window for graceful settling
@@ -120,6 +122,7 @@ point_light_update :: proc(light: ^Point_Light, dt: f32) {
 
 	light.prev_position = light.position
 	light.prev_orbit_center = light.orbit_center
+	light.prev_radius = light.radius
 }
 
 SHADOW_MAP_RESOLUTIONS :: [4]i32{64, 128, 256, 512}

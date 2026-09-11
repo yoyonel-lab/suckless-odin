@@ -24,11 +24,16 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 		imgui.Checkbox("Orbit Animation", &light.is_animated)
 
 		if light.is_animated {
-			imgui.SliderFloat("Orbit Speed", &light.orbit_speed, 0.0, 2.0, "%.3f rad/s")
-			imgui.SliderFloat("Orbit Radius", &light.orbit_radius, 0.0, 20.0)
+			if imgui.SliderFloat("Orbit Speed", &light.orbit_speed, 0.0, 2.0, "%.3f rad/s") {
+				light.is_dirty = true
+			}
+			if imgui.SliderFloat("Orbit Radius", &light.orbit_radius, 0.0, 20.0) {
+				light.is_dirty = true
+			}
 			pos_arr := [3]f32{light.orbit_center.x, light.orbit_center.y, light.orbit_center.z}
 			if imgui.DragFloat3("Orbit Center", &pos_arr, 0.1) {
 				light.orbit_center = mt.Vec3{pos_arr[0], pos_arr[1], pos_arr[2]}
+				light.is_dirty = true
 			}
 		} else {
 			pos_arr := [3]f32{light.position.x, light.position.y, light.position.z}
@@ -38,12 +43,17 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 			}
 		}
 
-		imgui.SliderFloat("Radius / Influence", &light.radius, 1.0, 50.0)
+		if imgui.SliderFloat("Radius / Influence", &light.radius, 1.0, 50.0) {
+			light.is_dirty = true
+		}
 		color_arr := [3]f32{light.color.x, light.color.y, light.color.z}
 		if imgui.ColorEdit3("Light Color", &color_arr) {
 			light.color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
+			light.is_dirty = true
 		}
-		imgui.SliderFloat("Intensity", &light.intensity, 0.0, 10.0)
+		if imgui.SliderFloat("Intensity", &light.intensity, 0.0, 10.0) {
+			light.is_dirty = true
+		}
 		imgui.SliderFloat("Phase Anisotropy (g)", &light.phase_g, -0.9, 0.9)
 
 		imgui.Separator()
@@ -193,8 +203,13 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 			"All 6 faces (Realtime / Max Quality)\x003 faces / frame (2-frame cycle)\x002 faces / frame (3-frame cycle)\x001 face / frame (Max Performance)\x00\x00",
 		)
 
-		imgui.SliderFloat("Near Clip", &sc.near_plane, 0.001, 1.0, "%.3f m")
-		imgui.SliderFloat("Far Clip", &sc.far_plane, 1.0, 50.0, "%.1f m")
+		if imgui.SliderFloat("Near Clip", &sc.near_plane, 0.001, 1.0, "%.3f m") {
+			light.is_dirty = true
+		}
+		if imgui.SliderFloat("Far Clip", &sc.far_plane, 1.0, 50.0, "%.1f m") {
+			light.radius = sc.far_plane
+			light.is_dirty = true
+		}
 
 		// 6 Face status indicators
 		imgui.Text("Face Cache Status:")
@@ -209,8 +224,10 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 			if i < 5 do imgui.SameLine()
 		}
 
-		// Update 2D preview atlas on-demand when inspector is visible
-		rendering.shadow_cubemap_update_preview_atlas(sc)
+		// Update 2D preview atlas on-demand when inspector is visible and dirty
+		if sc.preview_dirty {
+			rendering.shadow_cubemap_update_preview_atlas(sc)
+		}
 
 		// Render 3x2 unfolded preview
 		imgui.Spacing()
