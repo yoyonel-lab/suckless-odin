@@ -114,7 +114,8 @@ vec3 compute_IBL_PBR(vec3 N, vec3 V, vec3 R, vec3 F0, float NdotV,
     vec3 diffuse = irradiance * albedo;
 
     // Specular IBL (split-sum)
-    const float MAX_REFLECTION_LOD = 4.0;
+    // PREFILTER_MIP_LEVELS == 11, so max mip level index is 10.0 (roughness = 1.0)
+    const float MAX_REFLECTION_LOD = 10.0;
     vec3 prefilteredColor = textureLod(prefilterMap, dirToUV(R),
                                        roughness * MAX_REFLECTION_LOD).rgb;
     prefilteredColor = max(prefilteredColor, vec3(0.0));
@@ -157,10 +158,10 @@ float compute_specular_aa_roughness(vec3 N, float roughness, float projectedCurv
     }
 
     // Sanitize variance and cap it to prevent "exploding" roughness at geometric silhouettes
-    if (variance >= 0.0 && variance <= 0.1) {
-        // Keep valid variance
-    } else {
+    if (isnan(variance) || isinf(variance) || variance < 0.0) {
         variance = 0.0;
+    } else {
+        variance = min(variance, 0.1);
     }
     out_variance = variance;
 

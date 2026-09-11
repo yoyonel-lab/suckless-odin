@@ -54,6 +54,8 @@ ibl_init :: proc(ibl: ^IBL_Resources, tuning: settings.Compute_Tuning_Params) ->
 	gl.GenTextures(1, &ibl.brdf_lut)
 	gl.BindTexture(gl.TEXTURE_2D, ibl.brdf_lut)
 	gl.TexStorage2D(gl.TEXTURE_2D, 1, gl.RG16F, BRDF_LUT_SIZE, BRDF_LUT_SIZE)
+	neutral_val: [2]f32 = {1.0, 0.0}
+	gl.ClearTexImage(ibl.brdf_lut, 0, gl.RG, gl.FLOAT, &neutral_val[0])
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
@@ -103,6 +105,7 @@ ibl_update_brdf_lut :: proc(ibl: ^IBL_Resources) {
 	// For height=32: gy = 32 / 16 = 2
 	gl.DispatchCompute(32, 2, 1)
 	gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT)
+	gl.BindImageTexture(0, 0, 0, false, 0, gl.WRITE_ONLY, gl.RG16F)
 	dbg.pop_group()
 
 	ibl.brdf_lut_row_offset += 32
