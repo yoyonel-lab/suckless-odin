@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 in vec2 v_uv;
 in vec3 v_center_vs;

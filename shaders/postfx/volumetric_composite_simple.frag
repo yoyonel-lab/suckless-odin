@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 // Joint Bilateral Upsampling (JBU) & Edge Debug Volumetric In-Scattering Composite Pass
 // Eliminates half-resolution edge bleeding / staircasing on sphere geometric silhouettes

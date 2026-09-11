@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 layout(location = 0) in vec2 TexCoords;
 layout(location = 0) out vec4 FragColor;

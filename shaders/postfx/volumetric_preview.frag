@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 // Volumetric Buffer Preview Shader for Dear ImGui Inspector & Silhouette Debugging
 // Displays In-Scattering HDR with exposure boost, bilateral difference, edge contours, and depth weight maps.
@@ -156,6 +156,12 @@ void main()
         float weight_ratio = clamp(total_w / max(max_w, 0.0001), 0.0, 1.0);
         // Turbo Colormap: 1.0 (Green/Yellow) = Full Blur, <0.2 (Blue/Red/Dark) = Edge Stop
         FragColor = vec4(turbo_colormap(weight_ratio), 1.0);
+        return;
+    }
+
+    // Mode 9: Transmittance Map (Grayscale: 1.0 = Transparent, 0.0 = Opaque Fog)
+    if (u_preview_mode == 9) {
+        FragColor = vec4(vec3(vol.a), 1.0);
         return;
     }
 

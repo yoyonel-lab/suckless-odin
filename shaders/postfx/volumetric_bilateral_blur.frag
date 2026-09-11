@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 // Phase 5: Separable Depth-Aware Joint Bilateral Blur (5-tap & 9-tap)
 // Smooths volumetric in-scattering noise while strictly preserving geometric silhouettes.

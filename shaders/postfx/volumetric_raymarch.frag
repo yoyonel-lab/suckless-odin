@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 // Volumetric Point Light Raymarching Pass (Phase 3)
 // Evaluates in-scattering and transmittance within the light bounding sphere
@@ -126,6 +126,9 @@ void main()
     vec3 light_color_intensity = u_light_color * (u_light_intensity * u_intensity_mult);
 
     // 3. Fast Vectorized Raymarching Loop (zero division, zero sqrt in inner loop)
+    float transmittance = 1.0;
+    float step_extinction = exp(-u_extinction_coeff * step_size);
+
     for (int i = 0; i < steps; ++i) {
         vec3 light_dir = u_light_pos - sample_pos;
         float dist_sq  = dot(light_dir, light_dir);
@@ -154,11 +157,14 @@ void main()
                 }
             }
 
-            scattered_amount += linear_attenuation * base_step_energy * (shadow_factor * phase);
+            // Beer-Lambert light attenuation to sample point & camera transmittance
+            float light_atten = exp(-u_extinction_coeff * dist_light);
+            scattered_amount += linear_attenuation * light_atten * base_step_energy * (shadow_factor * phase) * transmittance;
         }
 
+        transmittance *= step_extinction;
         sample_pos += step_dir;
     }
 
-    FragColor = vec4(scattered_amount * light_color_intensity, 1.0);
+    FragColor = vec4(scattered_amount * light_color_intensity, transmittance);
 }

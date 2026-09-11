@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 // Phase 4: Volumetric TAA Reprojection & History Blending Pass
 // Re-projects previous frame volumetric buffer, detects disocclusions, and applies EMA temporal filtering.

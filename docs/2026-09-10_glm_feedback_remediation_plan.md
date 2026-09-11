@@ -169,19 +169,19 @@ flowchart LR
 ---
 
 ### Phase 1 : Correctifs Immédiats PBR & IBL Direct/Indirect (P1.1, P1.7, P2.4, P2.5)
-- [ ] **Tâche 1.1** : Dans `shaders/pbr_billboard.frag`, remplacer la condition de variance par un clamp protégé contre les NaN.
-- [ ] **Tâche 1.2** : Dans `shaders/pbr_billboard.frag`, passer `MAX_REFLECTION_LOD` de `4.0` à `10.0`.
-- [ ] **Tâche 1.3** : Dans `src/rendering/ibl.odin`, ajouter `gl.BindImageTexture(0, 0, 0, false, 0, gl.WRITE_ONLY, gl.RG16F)` à la fin de `ibl_update_brdf_lut`.
-- [ ] **Tâche 1.4** : Dans `src/rendering/ibl.odin`, ajouter une initialisation neutre de la texture LUT BRDF (`ClearTexImage` avec scale=1.0, bias=0.0) lors de la création pour éviter les lectures indéfinies durant les frames de précalcul.
+- [x] **Tâche 1.1** : Dans `shaders/pbr_billboard.frag`, remplacer la condition de variance par un clamp protégé contre les NaN.
+- [x] **Tâche 1.2** : Dans `shaders/pbr_billboard.frag`, passer `MAX_REFLECTION_LOD` de `4.0` à `10.0`.
+- [x] **Tâche 1.3** : Dans `src/rendering/ibl.odin`, ajouter `gl.BindImageTexture(0, 0, 0, false, 0, gl.WRITE_ONLY, gl.RG16F)` à la fin de `ibl_update_brdf_lut`.
+- [x] **Tâche 1.4** : Dans `src/rendering/ibl.odin`, ajouter une initialisation neutre de la texture LUT BRDF (`ClearTexImage` avec scale=1.0, bias=0.0) lors de la création pour éviter les lectures indéfinies durant les frames de précalcul.
 
 ### Phase 2 : Précision du Shadow Mapping & Synchronisation Temporelle (P1.2, P1.3, P1.5)
-- [ ] **Tâche 2.1** : Dans `shaders/pbr_billboard.frag`, modifier le test de comparaison d'ombre pour opérer en distances métriques absolues (`distToLight - dynamicBias <= sampledDepth * u_point_light_radius`).
-- [ ] **Tâche 2.2** : Dans `shaders/pbr_billboard.frag`, corriger le décalage PCF Vogel-Disk pour qu'il agisse sur la direction unitaire normalisée (`dir + offset`), garantissant un rayon angulaire constant quelle que soit la distance du récepteur.
-- [ ] **Tâche 2.3** : Dans `src/scene/scene.odin` et `src/rendering/volumetric.odin`, remplacer le calcul `f32(frame_count) * 0.016` par l'utilisation de `total_time` transmis depuis la boucle principale de l'application.
+- [x] **Tâche 2.1** : Dans `shaders/pbr_billboard.frag`, modifier le test de comparaison d'ombre pour opérer en distances métriques absolues (`distToLight - dynamicBias <= sampledDistHard`).
+- [x] **Tâche 2.2** : Dans `shaders/pbr_billboard.frag`, corriger le décalage PCF Vogel-Disk pour qu'il agisse sur la direction unitaire normalisée (`dir + offset`), garantissant un rayon angulaire constant quelle que soit la distance du récepteur.
+- [x] **Tâche 2.3** : Dans `src/scene/scene.odin` et `src/rendering/volumetric.odin`, remplacer le calcul `f32(frame_count) * 0.016` par l'utilisation de `total_time` transmis depuis la boucle principale de l'application.
 
 ### Phase 3 : Assainissement du Rendu Volumétrique & Harmonisation GLSL (P1.4, P2.1)
-- [ ] **Tâche 3.1** : Harmoniser les en-têtes des shaders post-process volumétriques (`shaders/postfx/volumetric_raymarch.frag`, `volumetric_composite_simple.frag`, `volumetric_bilateral_blur.frag`, etc.) vers `#version 450 core`.
-- [ ] **Tâche 3.2** : Clarifier le modèle d'extinction volumétrique : supprimer l'uniforme mort `u_extinction_coeff` si l'approche reste l'in-scattering additif pur sans transmittance, ou documenter et câbler le coefficient dans l'équation d'atténuation.
+- [x] **Tâche 3.1** : Harmoniser les en-têtes des shaders post-process volumétriques (`shaders/postfx/volumetric_raymarch.frag`, `volumetric_composite_simple.frag`, `volumetric_bilateral_blur.frag`, etc.) vers `#version 450 core`.
+- [x] **Tâche 3.2** : Clarifier le modèle d'extinction volumétrique : implémentation de l'atténuation de Beer-Lambert via `u_extinction_coeff` dans la marche et calcul de la transmittance cumulative transmise en canal alpha avec prévisualisation Mode 9.
 
 ### Phase 4 : Déduplication Shader & Hygiène de Code / Git (P2.2, P2.3, P2.6)
 - [ ] **Tâche 4.1** : Dans `src/rendering/ibl.odin`, supprimer la procédure privée morte `dispatch_compute`.

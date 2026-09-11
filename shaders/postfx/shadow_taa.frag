@@ -1,4 +1,4 @@
-#version 440 core
+#version 450 core
 
 // Shadow TAA Reprojection & History Blending Pass
 // Re-projects previous frame shadow mask buffer, detects disocclusions via depth testing,
