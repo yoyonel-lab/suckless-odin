@@ -48,6 +48,38 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Voir l'Analyse & Démonstrations](2026-09-01_shadow_mapping_improvements_antialiasing_pcf_bias_analysis.md)
 
+-   :material-view-dashboard-outline:{ .lg .middle } __Plan de Rationalisation UI/UX ImGui__
+
+    ---
+
+    Plan de refactoring et d'assainissement de l'interface Dear ImGui : audit de câblage, élimination des placeholders fantômes et consolidation vers 5 hubs thématiques.
+
+    [:octicons-arrow-right-24: Consulter le Plan](2026-09-07_imgui_ui_ux_refactoring_and_rationalization_plan.md)
+
+-   :material-clipboard-check-outline:{ .lg .middle } __Plan de Remédiation Audit GLM 5.3-Flash__
+
+    ---
+
+    Analyse critique, matrice de validation et feuille de route pour les 7 retours P1 (PBR, IBL, ombres, timing) et 6 nits P2.
+
+    [:octicons-arrow-right-24: Voir la Feuille de Route](2026-09-10_glm_feedback_remediation_plan.md)
+
+-   :material-image-multiple-outline:{ .lg .middle } __Hub de Revue des Références Visuelles (Golden)__
+
+    ---
+
+    Galerie comparative interactive plein écran (GLightbox, multi-onglets 6 vues, métriques pixels) pour l'inspection des écarts de rendu et la mise à jour des baselines.
+
+    [:octicons-arrow-right-24: Accéder au Hub de Revue](visual_regression_review.md)
+
+-   :material-cube-outline:{ .lg .middle } __TODO Architecture : Migration IBL vers Cubemap__
+
+    ---
+
+    Spécification technique d'architecture pour migrer l'IBL 2D équirectangulaire vers un Cubemap OpenGL natif sans singularités polaires.
+
+    [:octicons-arrow-right-24: Voir la Spécification](2026-09-11_ibl_cubemap_migration_architecture_todo.md)
+
 </div>
 
 ---
