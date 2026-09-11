@@ -150,13 +150,6 @@ ibl_destroy :: proc(ibl: ^IBL_Resources) {
 // ---- Internal helpers ----
 
 @(private)
-dispatch_compute :: proc(width, height: i32) {
-	gx := (width  + 31) / 32
-	gy := (height + 31) / 32
-	gl.DispatchCompute(u32(gx), u32(gy), 1)
-}
-
-@(private)
 load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {

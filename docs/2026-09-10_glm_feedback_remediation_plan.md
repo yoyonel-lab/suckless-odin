@@ -184,8 +184,8 @@ flowchart LR
 - [x] **Tâche 3.2** : Clarifier le modèle d'extinction volumétrique : implémentation de l'atténuation de Beer-Lambert via `u_extinction_coeff` dans la marche et calcul de la transmittance cumulative transmise en canal alpha avec prévisualisation Mode 9.
 
 ### Phase 4 : Déduplication Shader & Hygiène de Code / Git (P2.2, P2.3, P2.6)
-- [ ] **Tâche 4.1** : Dans `src/rendering/ibl.odin`, supprimer la procédure privée morte `dispatch_compute`.
-- [ ] **Tâche 4.2** : Créer un module shader partagé `shaders/common/sphere_projection.glsl` contenant `getProjectedBounds` et `computeBillboardSphere`. L'inclure dans `shaders/pbr_billboard.vert` et `shaders/shadow_cube.vert` via le mécanisme existant `inject_defines`.
+- [x] **Tâche 4.1** : Dans `src/rendering/ibl.odin`, supprimer la procédure privée morte `dispatch_compute`.
+- [x] **Tâche 4.2** : Créer un module shader partagé `shaders/common/sphere_projection.glsl` contenant `getProjectedBounds` et `computeBillboardSphere`. L'inclure dans `shaders/pbr_billboard.vert` et `shaders/shadow_cube.vert` via `@header common/sphere_projection.glsl`.
 - [ ] **Tâche 4.3** : Procéder à l'assainissement Git pour retirer les bibliothèques statiques compilées (`deps/libsimd.a`, `deps/libtracy.a`) du versioning actif tout en préservant leur cible de build `task build-tracy-lib`.
 
 ---
