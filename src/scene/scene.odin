@@ -11,6 +11,7 @@ import mt "../core/math_types"
 import settings "../core/settings"
 import cam "../camera"
 import "../rendering"
+import shader "../rendering/shader"
 import postfx "../rendering/postfx"
 import types "../rendering/types"
 import dbg "../core/gl_debug"
@@ -704,18 +705,18 @@ scene_destroy :: proc(s: ^Scene) {
 	log.log_info("suckless-odin.scene", "Scene destroyed")
 }
 
-// Internal: load shader program with error handling
+// Internal: load shader program with error handling (processes @header includes)
 @(private)
 load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
-	vert_data, vert_ok := read_shader_file(vert_path)
+	vert_source, vert_ok := shader.read_file(vert_path)
 	if !vert_ok { return 0, false }
-	defer delete(vert_data)
+	defer delete(vert_source)
 
-	frag_data, frag_ok := read_shader_file(frag_path)
+	frag_source, frag_ok := shader.read_file(frag_path)
 	if !frag_ok { return 0, false }
-	defer delete(frag_data)
+	defer delete(frag_source)
 
-	program, ok := gl.load_shaders_source(string(vert_data), string(frag_data))
+	program, ok := gl.load_shaders_source(vert_source, frag_source)
 	if !ok {
 		log.log_error("suckless-odin.scene", "Shader compilation failed: %s + %s", vert_path, frag_path)
 		return 0, false
@@ -728,14 +729,4 @@ load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
 		vert_path, frag_path, program, bin_size)
 
 	return program, true
-}
-
-@(private)
-read_shader_file :: proc(path: string) -> ([]u8, bool) {
-	data, err := os.read_entire_file_from_path(path, context.allocator)
-	if err != nil {
-		log.log_error("suckless-odin.scene", "Failed to read shader: %s", path)
-		return nil, false
-	}
-	return data, true
 }

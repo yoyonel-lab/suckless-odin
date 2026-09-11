@@ -1,7 +1,6 @@
 package rendering
 
 import gl "vendor:OpenGL"
-import "core:os"
 import "core:fmt"
 
 import dbg "../core/gl_debug"
@@ -10,6 +9,7 @@ import mt  "../core/math_types"
 import tracy "../core/tracy"
 import settings "../core/settings"
 import gl_state "../core/gl_state"
+import shader "./shader"
 
 Skybox_Mode :: enum i32 {
 	Equirectangular = 0,
@@ -276,21 +276,21 @@ skybox_destroy :: proc(sky: ^Skybox) {
 
 @(private)
 load_skybox_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
-	vert_data, vert_err := os.read_entire_file_from_path(vert_path, context.allocator)
-	if vert_err != nil {
+	vert_source, vert_ok := shader.read_file(vert_path)
+	if !vert_ok {
 		log.log_error("suckless-odin.skybox", "Failed to read %s", vert_path)
 		return 0, false
 	}
-	defer delete(vert_data)
+	defer delete(vert_source)
 
-	frag_data, frag_err := os.read_entire_file_from_path(frag_path, context.allocator)
-	if frag_err != nil {
+	frag_source, frag_ok := shader.read_file(frag_path)
+	if !frag_ok {
 		log.log_error("suckless-odin.skybox", "Failed to read %s", frag_path)
 		return 0, false
 	}
-	defer delete(frag_data)
+	defer delete(frag_source)
 
-	program, ok := gl.load_shaders_source(string(vert_data), string(frag_data))
+	program, ok := gl.load_shaders_source(vert_source, frag_source)
 	if !ok {
 		log.log_error("suckless-odin.skybox", "Shader compilation failed: %s + %s", vert_path, frag_path)
 		return 0, false
