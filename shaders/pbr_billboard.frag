@@ -215,11 +215,11 @@ float ign_noise(vec2 screen_pos)
 // -------------------------------------------------------------------
 // Point Shadow PCF Filtering (Vogel-Disk Distribution + Stochastic Rotation)
 // -------------------------------------------------------------------
-float compute_point_shadow_pcf(vec3 lightToBiasedPos, float normalizedDist, float dynamicBias)
+float compute_point_shadow_pcf(vec3 lightToBiasedPos, float distToLight, float dynamicBias)
 {
     if (u_point_shadow_pcf_samples <= 1) {
-        float sampledDepth = texture(u_point_shadow_cubemap, lightToBiasedPos).r;
-        return (normalizedDist - dynamicBias <= sampledDepth) ? 1.0 : 0.0;
+        float sampledDist = texture(u_point_shadow_cubemap, lightToBiasedPos).r * u_point_light_radius;
+        return (distToLight - dynamicBias <= sampledDist) ? 1.0 : 0.0;
     }
 
     vec3 dir = normalize(lightToBiasedPos);
@@ -253,9 +253,9 @@ float compute_point_shadow_pcf(vec3 lightToBiasedPos, float normalizedDist, floa
         float x = r * (cos(theta) * cosRot - sin(theta) * sinRot);
         float y = r * (sin(theta) * cosRot + cos(theta) * sinRot);
 
-        vec3 sampleDir = lightToBiasedPos + tangent * x + bitangent * y;
-        float sampledDepth = texture(u_point_shadow_cubemap, sampleDir).r;
-        shadowSum += (normalizedDist - dynamicBias <= sampledDepth) ? 1.0 : 0.0;
+        vec3 sampleDir = dir + tangent * x + bitangent * y;
+        float sampledDist = texture(u_point_shadow_cubemap, sampleDir).r * u_point_light_radius;
+        shadowSum += (distToLight - dynamicBias <= sampledDist) ? 1.0 : 0.0;
     }
 
     return shadowSum / float(numSamples);
@@ -364,13 +364,12 @@ void main()
                 float dynamicBias = u_point_shadow_bias + u_point_shadow_slope_bias * slopeFactor;
 
                 // 3. Compute baseline 1-tap Hard shadow (unfiltered)
-                float sampledDepthHard = texture(u_point_shadow_cubemap, lightToBiasedPos).r;
-                float normalizedDist = distToLight / max(0.001, u_point_light_radius);
-                float shadowHard = (normalizedDist - dynamicBias <= sampledDepthHard) ? 1.0 : 0.0;
+                float sampledDistHard = texture(u_point_shadow_cubemap, lightToBiasedPos).r * u_point_light_radius;
+                float shadowHard = (distToLight - dynamicBias <= sampledDistHard) ? 1.0 : 0.0;
                 shadowHard *= terminator;
 
                 // 4. Compute active PCF shadow (1-tap, Vogel 8-tap, or Vogel 16-tap)
-                float shadowPCF = compute_point_shadow_pcf(lightToBiasedPos, normalizedDist, dynamicBias);
+                float shadowPCF = compute_point_shadow_pcf(lightToBiasedPos, distToLight, dynamicBias);
                 shadowPCF *= terminator;
 
                 // 5. Select effective shadow factor (Left=Hard 1-tap, Right=Active PCF in Split-Screen)

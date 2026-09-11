@@ -112,6 +112,7 @@ Scene :: struct {
 	specular_aa_split_enabled:  bool,
 	specular_aa_split_position: f32,
 	frame_count:         int,
+	total_time:          f32,
 	dt:                  f32,
 }
 
@@ -305,7 +306,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// 0. Shadow cubemap pass (Point light shadows from instanced spheres)
 	if s.point_light.enabled {
 		rendering.volumetric_timer_begin(&s.volumetric.timers, .Shadow_Pass)
-		rendering.shadow_cubemap_render_spheres(&s.shadow_cubemap, &s.point_light, &s.spheres, &s.billboard, f32(s.frame_count) * 0.016)
+		rendering.shadow_cubemap_render_spheres(&s.shadow_cubemap, &s.point_light, &s.spheres, &s.billboard, s.total_time)
 		rendering.volumetric_timer_end(&s.volumetric.timers, .Shadow_Pass)
 	}
 
@@ -402,7 +403,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	rendering.ibl_bind(&s.ibl)
 
 	// Upload point light & shadow map uniforms
-	light_pos := rendering.point_light_get_position(&s.point_light, f32(s.frame_count) * 0.016)
+	light_pos := rendering.point_light_get_position(&s.point_light, s.total_time)
 	gl.Uniform3f(s.loc_point_light_pos, light_pos.x, light_pos.y, light_pos.z)
 	gl.Uniform1f(s.loc_point_light_radius, s.point_light.radius)
 	gl.Uniform3f(s.loc_point_light_color, s.point_light.color.x, s.point_light.color.y, s.point_light.color.z)
@@ -433,7 +434,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	rendering.instanced_draw(&s.spheres, &s.billboard)
 
 	// 2. Render Emissive Light Bulb Sphere Gizmo (so user can visually track light position)
-	rendering.shadow_cubemap_render_light_bulb(&s.shadow_cubemap, &s.point_light, &s.billboard, &view, &proj, f32(s.frame_count) * 0.016)
+	rendering.shadow_cubemap_render_light_bulb(&s.shadow_cubemap, &s.point_light, &s.billboard, &view, &proj, s.total_time)
 
 	if edge_mode > 0 {
 		gl.Disablei(gl.BLEND, 0)
@@ -475,6 +476,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 			settings.FAR_PLANE,
 			&s.point_light,
 			i32(s.frame_count),
+			s.total_time,
 		)
 
 		// Direct additive composite into 3D scene viewport HDR buffer
@@ -547,6 +549,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 
 scene_update :: proc(s: ^Scene, dt: f32) {
 	s.dt = dt
+	s.total_time += dt
 	if s.frame_count >= 5 && !s.ibl.brdf_lut_computed {
 		rendering.ibl_update_brdf_lut(&s.ibl)
 	}

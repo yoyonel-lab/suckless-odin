@@ -577,6 +577,7 @@ volumetric_render :: proc(
 	near_plane, far_plane: f32,
 	light: ^Point_Light,
 	frame_idx: i32,
+	total_time: f32 = 0.0,
 ) {
 	if !vr.params.enabled || vr.fbo == 0 || vr.program == 0 do return
 
@@ -618,7 +619,7 @@ volumetric_render :: proc(
 	gl.Uniform1i(vr.loc_frame_idx, frame_idx)
 
 	// Upload Point Light Uniforms (from Point_Light aggregate)
-	light_pos := point_light_get_position(light, f32(frame_idx) * 0.016) if light != nil else mt.Vec3{}
+	light_pos := point_light_get_position(light, total_time) if light != nil else mt.Vec3{}
 	light_radius := light.radius if light != nil else 10.0
 	light_color := light.color if light != nil else mt.Vec3{1, 1, 1}
 	light_intensity := light.intensity if light != nil else 1.0
