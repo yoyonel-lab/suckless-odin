@@ -25,7 +25,7 @@ LUT3D_FX :: struct {
 lut3d_load :: proc(lut: ^LUT3D_FX, path: string) -> bool {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
-		log.log_error("suckless-odin.postfx.lut3d", "Failed to read LUT file: %s (err=%v)", path, err)
+		log.log_error("render.postfx.lut", "Failed to read LUT file: %s (err=%v)", path, err)
 		return false
 	}
 	defer delete(data)
@@ -67,7 +67,7 @@ lut3d_load :: proc(lut: ^LUT3D_FX, path: string) -> bool {
 	expected := int(size * size * size)
 	if size == 0 || len(triplets) != expected * 3 {
 		log.log_error(
-			"suckless-odin.postfx.lut3d",
+			"render.postfx.lut",
 			"Invalid .cube file '%s': size=%d, got %d triplets (expected %d)",
 			path, size, len(triplets) / 3, expected,
 		)
@@ -101,7 +101,7 @@ lut3d_load :: proc(lut: ^LUT3D_FX, path: string) -> bool {
 	lut.loaded = true
 	lut.path   = strings.clone(path) // owned by LUT3D_FX, freed in lut3d_destroy
 
-	log.log_info("suckless-odin.postfx.lut3d", "LUT loaded: %s (%d^3)", path, size)
+	log.log_debug("render.postfx.lut", "LUT loaded: %s (%d^3)", path, size)
 	return true
 }
 

@@ -73,13 +73,13 @@ async_loader_create :: proc(loader: ^Async_Loader) -> bool {
 
 	loader.worker = thread.create(async_worker_proc)
 	if loader.worker == nil {
-		log.log_error("suckless-odin.async", "Failed to create worker thread")
+		log.log_error("scene.async", "Failed to create worker thread")
 		return false
 	}
 	loader.worker.data = loader
 	thread.start(loader.worker)
 
-	log.log_info("suckless-odin.async", "Async loader initialized")
+	log.log_info("scene.async", "Async loader initialized")
 	return true
 }
 
@@ -104,13 +104,13 @@ async_loader_destroy :: proc(loader: ^Async_Loader) {
 	}
 
 	tracy.async_status_shutdown()
-	log.log_info("suckless-odin.async", "Async loader destroyed")
+	log.log_info("scene.async", "Async loader destroyed")
 }
 
 // Submit a new load request. Returns false if the loader is busy.
 async_loader_request :: proc(loader: ^Async_Loader, path: string) -> bool {
 	if len(path) == 0 || len(path) >= ASYNC_MAX_PATH - 1 {
-		log.log_error("suckless-odin.async", "Invalid path length: %d", len(path))
+		log.log_error("scene.async", "Invalid path length: %d", len(path))
 		return false
 	}
 
@@ -122,7 +122,7 @@ async_loader_request :: proc(loader: ^Async_Loader, path: string) -> bool {
 	case .Idle, .Failed, .Ready:
 		// OK — accept new request
 	case:
-		log.log_warning("suckless-odin.async", "Loader busy (state=%v), request rejected", loader.request.state)
+		log.log_warning("scene.async", "Loader busy (state=%v), request rejected", loader.request.state)
 		return false
 	}
 
@@ -143,7 +143,7 @@ async_loader_request :: proc(loader: ^Async_Loader, path: string) -> bool {
 	tracy.async_status_transition(.Pending)
 	sync.signal(&loader.cond)
 
-	log.log_info("suckless-odin.async", "Request submitted: %s", cstring(&loader.request.path[0]))
+	log.log_debug("scene.async", "Request submitted: %s", cstring(&loader.request.path[0]))
 	return true
 }
 
@@ -170,7 +170,7 @@ async_loader_poll :: proc(loader: ^Async_Loader, out: ^Async_Request) -> Async_P
 	}
 
 	if loader.request.state == .Failed {
-		log.log_error("suckless-odin.async", "Async load failed for: %s", cstring(&loader.request.path[0]))
+		log.log_error("scene.async", "Async load failed for: %s", cstring(&loader.request.path[0]))
 		loader.request.state = .Idle
 		tracy.async_status_transition(.Idle)
 		return .Failed
@@ -330,7 +330,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			loader.request.state = .Failed
 			tracy.async_status_transition(.Failed)
 			tracy.message_c(fmt.tprintf("FAILED: %s", path_cstr), tracy.COLOR_IO_FAILED)
-			log.log_error("suckless-odin.async", "Failed to load HDR image: %s", path_cstr)
+			log.log_error("scene.async", "Failed to load HDR image: %s", path_cstr)
 		} else {
 			loader.request.data = half_data
 			loader.request.width = i32(w)
@@ -339,7 +339,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			loader.request.state = .Ready
 			tracy.async_status_transition(.Ready)
 			tracy.message_c(fmt.tprintf("Loaded: %s (%dx%d, FP16)", path_cstr, w, h), tracy.COLOR_IO_READY)
-			log.log_info("suckless-odin.async", "Loaded: %s (%dx%d, FP16)", path_cstr, w, h)
+			log.log_debug("scene.async", "Loaded: %s (%dx%d, FP16)", path_cstr, w, h)
 		}
 	}
 	sync.unlock(&loader.mutex)

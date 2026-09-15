@@ -68,7 +68,7 @@ deactivate :: proc(pm: ^Perf_Mode) {
 
 	os_deactivate(pm)
 
-	log.log_info("PERF", "Performance mode OFF")
+	log.log_info("core.perf", "Performance mode OFF")
 	pm.active = false
 	pm.backend = .None
 }
@@ -132,7 +132,7 @@ set_mesa_env :: proc(pm: ^Perf_Mode, quiet: bool) {
 	if err1 == nil && err2 == nil {
 		pm.mesa_needs_restart = true
 		if !quiet {
-			log.log_info("PERF", "Mesa env vars set (MESA_NO_ERROR=1, mesa_glthread=true) — restart needed")
+			log.log_info("core.perf", "Mesa env vars set (MESA_NO_ERROR=1, mesa_glthread=true) — restart needed")
 		}
 	}
 }
@@ -142,5 +142,5 @@ set_mesa_env :: proc(pm: ^Perf_Mode, quiet: bool) {
 setup_mesa_early :: proc() {
 	os.set_env("MESA_NO_ERROR", "1")
 	os.set_env("mesa_glthread", "true")
-	log.log_info("PERF", "Mesa optimizations active (pre-context)")
+	log.log_debug("core.perf", "Mesa optimizations active (pre-context)")
 }

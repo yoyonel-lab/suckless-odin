@@ -20,6 +20,8 @@ deps/glfw_build_win/
 Thumbs.db
 
 # Dependencies (submodule build artifacts ignored via .gitmodules ignore=dirty)
+deps/libtracy.a
+deps/libsimd.a
 imgui.ini
 tests/references/failed_*.png
 

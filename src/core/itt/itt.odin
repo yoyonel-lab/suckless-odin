@@ -55,7 +55,7 @@ init :: proc() -> bool {
 		}
 
 		if !ok {
-			log.log_debug("ITT", "Intel ITT API not active (running outside VTune)")
+			log.log_debug("core.itt", "Intel ITT API not active (running outside VTune)")
 			return false
 		}
 
@@ -79,7 +79,7 @@ init :: proc() -> bool {
 			}
 
 			g_itt.available = true
-			log.log_info("ITT", "Intel VTune ITT API connected successfully (programmatic collection active)")
+			log.log_info("core.itt", "Intel VTune ITT API connected successfully (programmatic collection active)")
 			return true
 		}
 

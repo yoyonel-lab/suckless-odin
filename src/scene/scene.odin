@@ -11,6 +11,7 @@ import mt "../core/math_types"
 import settings "../core/settings"
 import cam "../camera"
 import "../rendering"
+import shader "../rendering/shader"
 import postfx "../rendering/postfx"
 import types "../rendering/types"
 import dbg "../core/gl_debug"
@@ -39,6 +40,15 @@ Scene :: struct {
 	// Post-processing pipeline
 	postfx_pipeline: postfx.Pipeline,
 
+	// Point light & Shadow Cubemap & Shadow TAA (Phase 1)
+	point_light:    rendering.Point_Light,
+	shadow_cubemap: rendering.Shadow_Cubemap,
+	shadow_taa:     rendering.Shadow_TAA,
+
+	// Volumetric Lighting Depth Downsampling (Phase 2)
+	depth_downsample: rendering.Depth_Downsample,
+	volumetric:       rendering.Volumetric_Renderer,
+
 	// Text overlay (F1)
 	overlay:     rendering.Text_Overlay,
 
@@ -54,6 +64,23 @@ Scene :: struct {
 	loc_specular_aa_debug_mode: i32,
 	loc_specular_aa_split_enabled:  i32,
 	loc_specular_aa_split_position: i32,
+	loc_point_light_pos:         i32,
+	loc_point_light_radius:      i32,
+	loc_point_light_color:       i32,
+	loc_point_light_intensity:   i32,
+	loc_point_shadows_enabled:   i32,
+	loc_point_shadow_bias:        i32,
+	loc_point_shadow_normal_bias: i32,
+	loc_point_shadow_slope_bias:  i32,
+	loc_point_shadow_darkening:   i32,
+	loc_point_shadow_debug_mask:  i32,
+	loc_point_shadow_debug_mode:  i32,
+	loc_point_shadow_split_pos:   i32,
+	loc_point_shadow_pcf_samples: i32,
+	loc_point_shadow_filter_radius: i32,
+	loc_point_shadow_pcf_jitter:  i32,
+	loc_point_shadow_temporal_jitter: i32,
+	loc_frame_count:              i32,
 
 	// Cached uniform values to filter redundant driver uploads
 	cached_screen_w:             i32,
@@ -86,6 +113,8 @@ Scene :: struct {
 	specular_aa_split_enabled:  bool,
 	specular_aa_split_position: f32,
 	frame_count:         int,
+	total_time:          f32,
+	dt:                  f32,
 }
 
 HDR_DIR        :: "assets/textures/hdr"
@@ -113,19 +142,19 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 
 	// IBL programs + BRDF LUT (env-independent, computed once)
 	if !rendering.ibl_init(&s.ibl, compute_tuning) {
-		log.log_error("suckless-odin.scene", "Failed to initialize IBL resources")
+		log.log_error("scene", "Failed to initialize IBL resources")
 		return false
 	}
 
 	// Skybox (created without env texture — cubemaps will be generated on first async load)
 	if !rendering.skybox_create(&s.skybox, 0, 0, "shaders/background.vert", "shaders/background.frag", compute_tuning) {
-		log.log_error("suckless-odin.scene", "Failed to create skybox")
+		log.log_error("scene", "Failed to create skybox")
 		return false
 	}
 
 	// Environment manager (async loading + progressive IBL + transitions)
 	if !env_manager_create(&s.env_mgr, compute_tuning) {
-		log.log_error("suckless-odin.scene", "Failed to create env manager")
+		log.log_error("scene", "Failed to create env manager")
 		return false
 	}
 
@@ -146,7 +175,7 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_view       = gl.GetUniformLocation(s.pbr_program, "u_view")
 	s.loc_projection = gl.GetUniformLocation(s.pbr_program, "u_projection")
 	s.loc_cam_pos    = gl.GetUniformLocation(s.pbr_program, "u_cam_pos")
-	s.loc_prev_view_proj = gl.GetUniformLocation(s.pbr_program, "u_previousViewProj")
+	s.loc_prev_view_proj = gl.GetUniformLocation(s.pbr_program, "u_prev_view_proj")
 	s.loc_screen_size = gl.GetUniformLocation(s.pbr_program, "u_screen_size")
 	s.loc_edge_aa_mode = gl.GetUniformLocation(s.pbr_program, "u_edge_aa_mode")
 	s.loc_specular_aa_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_enabled")
@@ -154,6 +183,23 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 	s.loc_specular_aa_debug_mode = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_debug_mode")
 	s.loc_specular_aa_split_enabled = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_enabled")
 	s.loc_specular_aa_split_position = gl.GetUniformLocation(s.pbr_program, "u_specular_aa_split_position")
+	s.loc_point_light_pos = gl.GetUniformLocation(s.pbr_program, "u_point_light_pos")
+	s.loc_point_light_radius = gl.GetUniformLocation(s.pbr_program, "u_point_light_radius")
+	s.loc_point_light_color = gl.GetUniformLocation(s.pbr_program, "u_point_light_color")
+	s.loc_point_light_intensity = gl.GetUniformLocation(s.pbr_program, "u_point_light_intensity")
+	s.loc_point_shadows_enabled = gl.GetUniformLocation(s.pbr_program, "u_point_shadows_enabled")
+	s.loc_point_shadow_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_bias")
+	s.loc_point_shadow_normal_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_normal_bias")
+	s.loc_point_shadow_slope_bias = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_slope_bias")
+	s.loc_point_shadow_darkening = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_darkening")
+	s.loc_point_shadow_debug_mask = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_debug_mask")
+	s.loc_point_shadow_debug_mode = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_debug_mode")
+	s.loc_point_shadow_split_pos = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_split_pos")
+	s.loc_point_shadow_pcf_samples = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_pcf_samples")
+	s.loc_point_shadow_filter_radius = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_filter_radius")
+	s.loc_point_shadow_pcf_jitter = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_pcf_jitter")
+	s.loc_point_shadow_temporal_jitter = gl.GetUniformLocation(s.pbr_program, "u_point_shadow_temporal_jitter")
+	s.loc_frame_count = gl.GetUniformLocation(s.pbr_program, "u_frame_count")
 
 	s.cached_screen_w = -1
 	s.cached_screen_h = -1
@@ -180,20 +226,92 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 
 	// Post-processing pipeline
 	if !postfx.pipeline_create(&s.postfx_pipeline, width, height) {
-		log.log_error("suckless-odin.scene", "Failed to create postfx pipeline")
+		log.log_error("scene", "Failed to create postfx pipeline")
+		return false
+	}
+
+	// Initialize default dynamic point light & shadow cubemap (Phase 1 & 3 ISO proportional scale)
+	s.point_light = rendering.Point_Light{
+		position                   = mt.Vec3{0.0, 2.0, -3.0},
+		radius                     = 22.0,
+		color                      = mt.Vec3{1.0, 0.50, 0.25},
+		intensity                  = 2.8,
+		enabled                    = true,
+		direct_shadows_enabled     = false,
+		shadow_bias                = 0.0015,
+		shadow_normal_bias         = 0.025,
+		shadow_slope_bias          = 0.0010,
+		shadow_darkening           = 0.5,
+		shadow_debug_mask          = false,
+		shadow_debug_mode          = 0,
+		shadow_split_position      = 0.5,
+		shadow_pcf_samples         = 8,
+		shadow_filter_radius       = 0.015,
+		shadow_pcf_jitter          = true,
+		shadow_temporal_jitter     = true,
+		shadow_taa_enabled         = true,
+		shadow_taa_mode            = 2,
+		shadow_taa_alpha           = 0.15,
+		shadow_taa_depth_threshold = 0.30,
+		shadow_taa_clamping        = true,
+		show_bulb                  = true,
+		bulb_radius                = 0.45,
+		is_dirty                   = true,
+		is_animated                = true,
+		orbit_speed                = 0.25,
+		orbit_radius               = 5.0,
+		orbit_center               = mt.Vec3{0.0, 2.0, -3.0},
+		phase_g                    = 0.55,
+		show_gizmo                 = true,
+		gizmo_op                   = 0,
+		gizmo_mode                 = 0,
+		gizmo_snap                 = false,
+		gizmo_snap_value           = 0.5,
+	}
+	if !rendering.shadow_cubemap_create(&s.shadow_cubemap, 512) {
+		log.log_error("scene", "Failed to create shadow cubemap")
+		return false
+	}
+
+	// Initialize shadow TAA renderer (Screen-Space Temporal Reprojection)
+	if !rendering.shadow_taa_create(&s.shadow_taa, width, height) {
+		log.log_error("scene", "Failed to create shadow TAA renderer")
+		return false
+	}
+
+	// Initialize depth downsampler (Phase 2)
+	if !rendering.depth_downsample_create(&s.depth_downsample, width, height) {
+		log.log_error("scene", "Failed to create depth downsampler")
+		return false
+	}
+
+	// Initialize volumetric renderer (Phase 3)
+	if !rendering.volumetric_create(&s.volumetric, width, height) {
+		log.log_error("scene", "Failed to create volumetric renderer")
 		return false
 	}
 
 	// Text overlay
 	if !rendering.overlay_create(&s.overlay) {
-		log.log_warning("suckless-odin.scene", "Failed to create text overlay (non-fatal)")
+		log.log_warning("scene", "Failed to create text overlay (non-fatal)")
 	}
 
-	log.log_info("suckless-odin.scene", "Scene created (%d spheres, PBR/IBL active)", s.spheres.count)
+	log.log_info("scene", "Scene created (%d spheres, PBR/IBL/Shadows/Volumetric active)", s.spheres.count)
 	return true
 }
 
 scene_render :: proc(s: ^Scene, width, height: i32) {
+	// Ensure viewport is set to full window dimensions
+	gl.Viewport(0, 0, width, height)
+
+	// 0. Shadow cubemap pass (Point light shadows from instanced spheres)
+	if s.point_light.enabled {
+		rendering.volumetric_timer_begin(&s.volumetric.timers, .Shadow_Pass)
+		rendering.shadow_cubemap_render_spheres(&s.shadow_cubemap, &s.point_light, &s.spheres, &s.billboard, s.total_time)
+		rendering.volumetric_timer_end(&s.volumetric.timers, .Shadow_Pass)
+	}
+
+	gl.Viewport(0, 0, width, height)
 	gl_state.reset()
 	dbg.push_group("Scene_Render")
 	defer dbg.pop_group()
@@ -212,7 +330,8 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	proj := mt.perspective(fov_rad, aspect, settings.NEAR_PLANE, settings.FAR_PLANE)
 
 	// 1. Skybox (drawn first, depth <= 1.0)
-	if s.skybox_visible {
+	skip_skybox_for_shadow_debug := (s.point_light.enabled && s.point_light.shadow_debug_mode == 6)
+	if s.skybox_visible && !skip_skybox_for_shadow_debug && (!s.volumetric.params.enabled || !s.volumetric.params.isolate_in_scene) {
 		dbg.push_group("Skybox_Pass")
 		rendering.skybox_render(&s.skybox, view, proj, s.specular_aa_split_enabled, s.specular_aa_split_position)
 		dbg.pop_group()
@@ -284,9 +403,39 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// Bind IBL textures (units 15, 16, 17)
 	rendering.ibl_bind(&s.ibl)
 
+	// Upload point light & shadow map uniforms
+	light_pos := rendering.point_light_get_position(&s.point_light, s.total_time)
+	gl.Uniform3f(s.loc_point_light_pos, light_pos.x, light_pos.y, light_pos.z)
+	gl.Uniform1f(s.loc_point_light_radius, s.point_light.radius)
+	gl.Uniform3f(s.loc_point_light_color, s.point_light.color.x, s.point_light.color.y, s.point_light.color.z)
+	gl.Uniform1f(s.loc_point_light_intensity, s.point_light.intensity if s.point_light.enabled else 0.0)
+	gl.Uniform1i(s.loc_point_shadows_enabled, 1 if (s.point_light.enabled && s.point_light.direct_shadows_enabled) else 0)
+	gl.Uniform1f(s.loc_point_shadow_bias, s.point_light.shadow_bias)
+	gl.Uniform1f(s.loc_point_shadow_normal_bias, s.point_light.shadow_normal_bias)
+	gl.Uniform1f(s.loc_point_shadow_slope_bias, s.point_light.shadow_slope_bias)
+	gl.Uniform1f(s.loc_point_shadow_darkening, s.point_light.shadow_darkening)
+	gl.Uniform1i(s.loc_point_shadow_debug_mask, 1 if s.point_light.shadow_debug_mask else 0)
+	gl.Uniform1i(s.loc_point_shadow_debug_mode, s.point_light.shadow_debug_mode)
+	gl.Uniform1f(s.loc_point_shadow_split_pos, s.point_light.shadow_split_position)
+	gl.Uniform1i(s.loc_point_shadow_pcf_samples, s.point_light.shadow_pcf_samples)
+	gl.Uniform1f(s.loc_point_shadow_filter_radius, s.point_light.shadow_filter_radius)
+	gl.Uniform1i(s.loc_point_shadow_pcf_jitter, 1 if s.point_light.shadow_pcf_jitter else 0)
+	gl.Uniform1i(s.loc_point_shadow_temporal_jitter, 1 if s.point_light.shadow_temporal_jitter else 0)
+	gl.Uniform1i(s.loc_frame_count, i32(s.frame_count))
+
+	// Bind Shadow Cubemap (unit 18)
+	if s.point_light.enabled {
+		gl.ActiveTexture(gl.TEXTURE18)
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.shadow_cubemap.linear_depth_cubemap)
+	}
+	gl.ActiveTexture(gl.TEXTURE0)
+
 	// Bind SSBO and draw all instances
 	rendering.instanced_bind(&s.spheres)
 	rendering.instanced_draw(&s.spheres, &s.billboard)
+
+	// 2. Render Emissive Light Bulb Sphere Gizmo (so user can visually track light position)
+	rendering.shadow_cubemap_render_light_bulb(&s.shadow_cubemap, &s.point_light, &s.billboard, &view, &proj, s.total_time)
 
 	if edge_mode > 0 {
 		gl.Disablei(gl.BLEND, 0)
@@ -298,9 +447,63 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 
 	dbg.pop_group()
 
+	// Ensure volumetric & depth downsampler match the requested resolution divider
+	expected_div := max(1, s.volumetric.params.resolution_divider)
+	expected_w := max(1, width / expected_div)
+	expected_h := max(1, height / expected_div)
+	if s.volumetric.width != expected_w || s.volumetric.height != expected_h {
+		rendering.depth_downsample_resize(&s.depth_downsample, width, height, expected_div)
+		rendering.volumetric_resize(&s.volumetric, width, height, expected_div)
+	}
+
+	// 2.5 Volumetric Lighting: Rank/Median 4-tap Depth Downsample pass
+	rendering.volumetric_timer_begin(&s.volumetric.timers, .Depth_Downsample)
+	rendering.depth_downsample_render(&s.depth_downsample, s.postfx_pipeline.depth_tex, settings.NEAR_PLANE, settings.FAR_PLANE)
+	rendering.volumetric_timer_end(&s.volumetric.timers, .Depth_Downsample)
+
+	// 2.6 Volumetric Lighting: Raymarching & TAA Reprojection passes (Phase 3 & 4)
+	vp := proj * view
+	inv_vp := mt.mat4_inverse(vp)
+	if s.point_light.enabled && s.volumetric.params.enabled {
+		rendering.volumetric_render(
+			&s.volumetric,
+			rendering.depth_downsample_get_current_depth(&s.depth_downsample),
+			rendering.depth_downsample_get_previous_depth(&s.depth_downsample),
+			s.shadow_cubemap.linear_depth_cubemap,
+			&inv_vp,
+			&vp,
+			s.camera.position,
+			settings.NEAR_PLANE,
+			settings.FAR_PLANE,
+			&s.point_light,
+			i32(s.frame_count),
+			s.total_time,
+		)
+
+		// Direct additive composite into 3D scene viewport HDR buffer
+		if s.volumetric.params.isolate_in_scene {
+			gl.BindFramebuffer(gl.FRAMEBUFFER, s.postfx_pipeline.scene_fbo)
+			gl.ColorMask(true, true, true, true)
+			gl.ClearColor(0.0, 0.0, 0.0, 0.0)
+			gl.Clear(gl.COLOR_BUFFER_BIT)
+		}
+		rendering.volumetric_composite_to_scene(
+			&s.volumetric,
+			s.postfx_pipeline.scene_fbo,
+			width, height,
+			s.depth_downsample.discontinuity_tex,
+			rendering.depth_downsample_get_current_depth(&s.depth_downsample),
+			s.postfx_pipeline.depth_tex,
+			settings.NEAR_PLANE,
+			settings.FAR_PLANE,
+		)
+	}
+
+	// Collect volumetric GPU timers
+	rendering.volumetric_timers_collect(&s.volumetric.timers, s.dt)
+
 	// 3. End post-processing (composite to screen)
 	// Inject camera data for fog depth reconstruction (invViewProj + world cam pos)
-	inv_vp := mt.mat4_inverse(proj * view)
 	cam_pos_v4 := [4]f32{s.camera.position.x, s.camera.position.y, s.camera.position.z, 1.0}
 	inv_vp_flat := [16]f32{
 		inv_vp[0][0], inv_vp[0][1], inv_vp[0][2], inv_vp[0][3],
@@ -315,7 +518,6 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	env_manager_render_overlay(&s.env_mgr, s)
 
 	// Store current view*proj as previous for next frame's motion blur
-	vp := proj * view
 	if !s.prev_vp_initialized {
 		// First frame: init to current VP to avoid velocity flash
 		s.prev_view_proj = vp
@@ -347,6 +549,8 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 }
 
 scene_update :: proc(s: ^Scene, dt: f32) {
+	s.dt = dt
+	s.total_time += dt
 	if s.frame_count >= 5 && !s.ibl.brdf_lut_computed {
 		rendering.ibl_update_brdf_lut(&s.ibl)
 	}
@@ -354,6 +558,7 @@ scene_update :: proc(s: ^Scene, dt: f32) {
 
 	postfx.pipeline_update(&s.postfx_pipeline, dt)
 	rendering.overlay_update(&s.overlay, dt)
+	rendering.point_light_update(&s.point_light, dt)
 
 	// Environment manager: poll async loader, advance IBL, update transitions
 	env_manager_update(&s.env_mgr, s, dt)
@@ -413,6 +618,9 @@ scene_adjust_exposure :: proc(s: ^Scene, delta: f32) {
 // Resize postfx pipeline (call from framebuffer callback).
 scene_resize :: proc(s: ^Scene, width, height: i32) {
 	postfx.pipeline_resize(&s.postfx_pipeline, width, height)
+	rendering.depth_downsample_resize(&s.depth_downsample, width, height, s.volumetric.params.resolution_divider)
+	rendering.volumetric_resize(&s.volumetric, width, height, s.volumetric.params.resolution_divider)
+	rendering.shadow_taa_resize(&s.shadow_taa, width, height)
 }
 
 // Trigger an asynchronous environment map change.
@@ -432,7 +640,7 @@ scene_scan_hdr_files :: proc(s: ^Scene) {
 
 	entries, err := os.read_directory_by_path(HDR_DIR, -1, context.temp_allocator)
 	if err != nil {
-		log.log_warning("suckless-odin.scene", "Failed to scan HDR directory: %s", HDR_DIR)
+		log.log_warning("scene", "Failed to scan HDR directory: %s", HDR_DIR)
 		return
 	}
 
@@ -455,7 +663,7 @@ scene_scan_hdr_files :: proc(s: ^Scene) {
 		}
 	}
 
-	log.log_info("suckless-odin.scene", "Found %d HDR files, current index=%d", len(s.hdr_files), s.current_hdr_index)
+	log.log_debug("scene", "Found %d HDR files, current index=%d", len(s.hdr_files), s.current_hdr_index)
 }
 
 // Cycle to next/prev environment map (PAGE_UP/PAGE_DOWN).
@@ -466,7 +674,7 @@ scene_cycle_env :: proc(s: ^Scene, direction: i32) {
 
 	s.current_hdr_index = (s.current_hdr_index + direction + count) %% count
 	path := s.hdr_files[s.current_hdr_index]
-	log.log_info("suckless-odin.scene", "Cycling env map [%d/%d]: %s", s.current_hdr_index + 1, count, path)
+	log.log_debug("scene", "Cycling env map [%d/%d]: %s", s.current_hdr_index + 1, count, path)
 	scene_change_env(s, path)
 }
 
@@ -478,6 +686,10 @@ scene_destroy :: proc(s: ^Scene) {
 	delete(s.hdr_files)
 
 	env_manager_destroy(&s.env_mgr)
+	rendering.shadow_taa_destroy(&s.shadow_taa)
+	rendering.shadow_cubemap_destroy(&s.shadow_cubemap)
+	rendering.depth_downsample_destroy(&s.depth_downsample)
+	rendering.volumetric_destroy(&s.volumetric)
 	postfx.pipeline_destroy(&s.postfx_pipeline)
 	rendering.overlay_destroy(&s.overlay)
 	if s.pbr_program != 0 {
@@ -490,41 +702,31 @@ scene_destroy :: proc(s: ^Scene) {
 	rendering.ibl_destroy(&s.ibl)
 	rendering.texture_destroy(&s.env_texture)
 	rendering.material_lib_destroy(&s.mat_lib)
-	log.log_info("suckless-odin.scene", "Scene destroyed")
+	log.log_info("scene", "Scene destroyed")
 }
 
-// Internal: load shader program with error handling
+// Internal: load shader program with error handling (processes @header includes)
 @(private)
 load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
-	vert_data, vert_ok := read_shader_file(vert_path)
+	vert_source, vert_ok := shader.read_file(vert_path)
 	if !vert_ok { return 0, false }
-	defer delete(vert_data)
+	defer delete(vert_source)
 
-	frag_data, frag_ok := read_shader_file(frag_path)
+	frag_source, frag_ok := shader.read_file(frag_path)
 	if !frag_ok { return 0, false }
-	defer delete(frag_data)
+	defer delete(frag_source)
 
-	program, ok := gl.load_shaders_source(string(vert_data), string(frag_data))
+	program, ok := gl.load_shaders_source(vert_source, frag_source)
 	if !ok {
-		log.log_error("suckless-odin.scene", "Shader compilation failed: %s + %s", vert_path, frag_path)
+		log.log_error("scene", "Shader compilation failed: %s + %s", vert_path, frag_path)
 		return 0, false
 	}
 
 	// Query binary size (matches legacy "Binary size: N bytes")
 	bin_size: i32
 	gl.GetProgramiv(program, gl.PROGRAM_BINARY_LENGTH, &bin_size)
-	log.log_info("Shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
+	log.log_debug("render.shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
 		vert_path, frag_path, program, bin_size)
 
 	return program, true
-}
-
-@(private)
-read_shader_file :: proc(path: string) -> ([]u8, bool) {
-	data, err := os.read_entire_file_from_path(path, context.allocator)
-	if err != nil {
-		log.log_error("suckless-odin.scene", "Failed to read shader: %s", path)
-		return nil, false
-	}
-	return data, true
 }

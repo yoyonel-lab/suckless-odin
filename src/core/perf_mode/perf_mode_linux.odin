@@ -17,17 +17,17 @@ os_activate :: proc(pm: ^Perf_Mode, quiet: bool) -> bool {
 	if try_gamemode(pm) {
 		pm.backend = .Game_Mode
 		pm.active = true
-		if !quiet { log.log_info("PERF", "Performance mode ON (GameMode)") }
+		if !quiet { log.log_info("core.perf", "Performance mode ON (GameMode)") }
 	} else if try_sched_fifo(pm) {
 		pm.backend = .Sched_FIFO
 		pm.active = true
-		if !quiet { log.log_info("PERF", "Performance mode ON (SCHED_FIFO)") }
+		if !quiet { log.log_info("core.perf", "Performance mode ON (SCHED_FIFO)") }
 	} else if try_nice(pm) {
 		pm.backend = .Nice
 		pm.active = true
-		if !quiet { log.log_info("PERF", "Performance mode ON (nice -10)") }
+		if !quiet { log.log_info("core.perf", "Performance mode ON (nice -10)") }
 	} else {
-		log.log_warning("PERF", "Performance mode: no scheduling backend available")
+		log.log_warning("core.perf", "Performance mode: no scheduling backend available")
 	}
 
 	// Lock memory (prevents page-fault stutters)
@@ -36,9 +36,9 @@ os_activate :: proc(pm: ^Perf_Mode, quiet: bool) -> bool {
 		errno := linux.mlockall(transmute(linux.MLock_Flags)u32(3))
 		if errno == .NONE {
 			pm.memory_locked = true
-			if !quiet { log.log_info("PERF", "Memory locked (mlockall)") }
+			if !quiet { log.log_debug("core.perf", "Memory locked (mlockall)") }
 		} else if !quiet {
-			log.log_debug("PERF", "mlockall failed (errno %v) — needs CAP_IPC_LOCK", errno)
+			log.log_debug("core.perf", "mlockall failed (errno %v) — needs CAP_IPC_LOCK", errno)
 		}
 	}
 
@@ -73,7 +73,7 @@ os_deactivate :: proc(pm: ^Perf_Mode) {
 probe_gamemode :: proc(pm: ^Perf_Mode) {
 	lib, ok := dynlib.load_library("libgamemode.so.0")
 	if !ok {
-		log.log_debug("PERF", "GameMode not available: %s", dynlib.last_error())
+		log.log_debug("core.perf", "GameMode not available: %s", dynlib.last_error())
 		return
 	}
 	pm.gamemode_lib = lib
@@ -83,7 +83,7 @@ probe_gamemode :: proc(pm: ^Perf_Mode) {
 	status_ptr, q_ok := dynlib.symbol_address(lib, "real_gamemode_query_status")
 
 	if !s_ok || !e_ok || !q_ok {
-		log.log_debug("PERF", "GameMode: missing symbols")
+		log.log_debug("core.perf", "GameMode: missing symbols")
 		dynlib.unload_library(lib)
 		pm.gamemode_lib = nil
 		return
@@ -92,7 +92,7 @@ probe_gamemode :: proc(pm: ^Perf_Mode) {
 	pm.gamemode_start  = cast(proc "c" () -> i32)start_ptr
 	pm.gamemode_end    = cast(proc "c" () -> i32)end_ptr
 	pm.gamemode_status = cast(proc "c" () -> i32)status_ptr
-	log.log_debug("PERF", "GameMode probed successfully")
+	log.log_debug("core.perf", "GameMode probed successfully")
 }
 
 @(private)
@@ -110,7 +110,7 @@ try_sched_fifo :: proc(pm: ^Perf_Mode) -> bool {
 	param := linux.Sched_Param{sched_priority = 50}
 	errno := linux.sched_setscheduler(linux.Pid(0), 1, &param)  // 1 = SCHED_FIFO
 	if errno != .NONE {
-		log.log_debug("PERF", "SCHED_FIFO failed (errno %v) — need CAP_SYS_NICE or root", errno)
+		log.log_debug("core.perf", "SCHED_FIFO failed (errno %v) — need CAP_SYS_NICE or root", errno)
 		return false
 	}
 	return true
@@ -128,7 +128,7 @@ try_nice :: proc(pm: ^Perf_Mode) -> bool {
 
 	set_err := linux.setpriority(.PROCESS, 0, -10)
 	if set_err != .NONE {
-		log.log_debug("PERF", "nice(-10) failed (errno %v)", set_err)
+		log.log_debug("core.perf", "nice(-10) failed (errno %v)", set_err)
 		return false
 	}
 	return true

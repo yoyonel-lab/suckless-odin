@@ -54,6 +54,8 @@ ibl_init :: proc(ibl: ^IBL_Resources, tuning: settings.Compute_Tuning_Params) ->
 	gl.GenTextures(1, &ibl.brdf_lut)
 	gl.BindTexture(gl.TEXTURE_2D, ibl.brdf_lut)
 	gl.TexStorage2D(gl.TEXTURE_2D, 1, gl.RG16F, BRDF_LUT_SIZE, BRDF_LUT_SIZE)
+	neutral_val: [2]f32 = {1.0, 0.0}
+	gl.ClearTexImage(ibl.brdf_lut, 0, gl.RG, gl.FLOAT, &neutral_val[0])
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
@@ -103,12 +105,13 @@ ibl_update_brdf_lut :: proc(ibl: ^IBL_Resources) {
 	// For height=32: gy = 32 / 16 = 2
 	gl.DispatchCompute(32, 2, 1)
 	gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT)
+	gl.BindImageTexture(0, 0, 0, false, 0, gl.WRITE_ONLY, gl.RG16F)
 	dbg.pop_group()
 
 	ibl.brdf_lut_row_offset += 32
 	if ibl.brdf_lut_row_offset >= BRDF_LUT_SIZE {
 		ibl.brdf_lut_computed = true
-		log.log_info("perf.ibl", "IBL: Progressive BRDF LUT precomputation completed successfully")
+		log.log_debug("render.ibl", "IBL: Progressive BRDF LUT precomputation completed successfully")
 	}
 }
 
@@ -147,17 +150,10 @@ ibl_destroy :: proc(ibl: ^IBL_Resources) {
 // ---- Internal helpers ----
 
 @(private)
-dispatch_compute :: proc(width, height: i32) {
-	gx := (width  + 31) / 32
-	gy := (height + 31) / 32
-	gl.DispatchCompute(u32(gx), u32(gy), 1)
-}
-
-@(private)
 load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
-		log.log_error("suckless-odin.ibl", "Failed to read compute shader: %s", path)
+		log.log_error("render.ibl", "Failed to read compute shader: %s", path)
 		return 0, false
 	}
 	defer delete(data)
@@ -182,7 +178,7 @@ load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 		buf: [1024]u8
 		log_len: i32
 		gl.GetShaderInfoLog(shader, 1024, &log_len, &buf[0])
-		log.log_error("suckless-odin.ibl", "Compute shader compile error (%s):\n%s", path, cstring(&buf[0]))
+		log.log_error("render.ibl", "Compute shader compile error (%s):\n%s", path, cstring(&buf[0]))
 		gl.DeleteShader(shader)
 		return 0, false
 	}
@@ -196,14 +192,14 @@ load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 		buf: [1024]u8
 		log_len: i32
 		gl.GetProgramInfoLog(program, 1024, &log_len, &buf[0])
-		log.log_error("suckless-odin.ibl", "Compute shader link error (%s):\n%s", path, cstring(&buf[0]))
+		log.log_error("render.ibl", "Compute shader link error (%s):\n%s", path, cstring(&buf[0]))
 		gl.DeleteShader(shader)
 		gl.DeleteProgram(program)
 		return 0, false
 	}
 
 	gl.DeleteShader(shader)
-	log.log_info("suckless-odin.ibl", "Compute shader loaded: %s (program=%d)", path, program)
+	log.log_debug("render.ibl", "Compute shader loaded: %s (program=%d)", path, program)
 	return program, true
 }
 

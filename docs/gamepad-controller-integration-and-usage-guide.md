@@ -90,9 +90,9 @@ state.connected = bool(glfw.JoystickIsGamepad(state.joystick_id))
 
 if state.connected && !was_connected {
     name := glfw.GetGamepadName(state.joystick_id)
-    log.log_info("suckless-odin.gamepad", "Gamepad connected: %s (ID=%d)", name, state.joystick_id)
+    log.log_info("app.gamepad", "Gamepad connected: %s (ID=%d)", name, state.joystick_id)
 } else if !state.connected && was_connected {
-    log.log_info("suckless-odin.gamepad", "Gamepad disconnected (ID=%d)", state.joystick_id)
+    log.log_info("app.gamepad", "Gamepad disconnected (ID=%d)", state.joystick_id)
 }
 ```
 
@@ -149,7 +149,7 @@ Ceci garantit une transition transparente entre le contrôle à la manette et le
 ### Journalisation Automatique :
 Lors du branchement d'une manette en cours d'exécution :
 ```text
-2026-08-21 12:15:30 [1234:1235] - suckless-odin.gamepad - INFO - Gamepad connected: Sony DualShock 4 (ID=0)
+2026-08-21 12:15:30 [1234:1235] - app.gamepad - INFO - Gamepad connected: Sony DualShock 4 (ID=0)
 ```
 
 ### Suite de Tests Dédiée :

@@ -20,7 +20,7 @@ texture_hdr_load :: proc(path: cstring) -> (tex: Texture_HDR, ok: bool) {
 	w, h, channels: c.int
 	data := stbi.loadf(path, &w, &h, &channels, 4)  // force RGBA
 	if data == nil {
-		log.log_error("suckless-odin.texture", "Failed to load HDR: %s", path)
+		log.log_error("render.texture", "Failed to load HDR: %s", path)
 		return tex, false
 	}
 	defer stbi.image_free(data)
@@ -44,7 +44,7 @@ texture_hdr_load :: proc(path: cstring) -> (tex: Texture_HDR, ok: bool) {
 
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 
-	log.log_info("suckless-odin.texture", "HDR loaded: %s (%dx%d)", path, tex.width, tex.height)
+	log.log_info("render.texture", "HDR loaded: %s (%dx%d)", path, tex.width, tex.height)
 	return tex, true
 }
 

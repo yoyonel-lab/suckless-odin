@@ -130,7 +130,7 @@ env_manager_set_transition_state :: proc(mgr: ^Env_Manager, new_state: Transitio
 		env_manager_validate_invariants(new_state, mgr.ibl_state)
 	}
 
-	log.log_info("suckless-odin.env", "Transition state: %v -> %v (previous duration: %.3fs)",
+	log.log_debug("scene.env", "Transition state: %v -> %v (previous duration: %.3fs)",
 		mgr.transition_state, new_state, mgr.transition_elapsed)
 	mgr.transition_prev_state = mgr.transition_state
 	mgr.transition_state = new_state
@@ -145,7 +145,7 @@ env_manager_set_ibl_state :: proc(mgr: ^Env_Manager, new_state: IBL_State) {
 		env_manager_validate_invariants(mgr.transition_state, new_state)
 	}
 
-	log.log_info("suckless-odin.env", "IBL state: %v -> %v (previous duration: %.3fs)",
+	log.log_debug("scene.env", "IBL state: %v -> %v (previous duration: %.3fs)",
 		mgr.ibl_state, new_state, mgr.ibl_elapsed)
 	mgr.ibl_prev_state = mgr.ibl_state
 	mgr.ibl_state = new_state
@@ -229,7 +229,7 @@ env_manager_create :: proc(mgr: ^Env_Manager, tuning := settings.DEFAULT_COMPUTE
 		fence = nil
 	}
 
-	log.log_info("suckless-odin.env", "Env manager created (Immutable IBL Pools & Persistent Ring PBO initialized)")
+	log.log_info("scene.env", "Env manager created (Immutable IBL Pools & Persistent Ring PBO initialized)")
 	return true
 }
 
@@ -283,7 +283,7 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 		mgr.async_result.data = nil
 	}
 
-	log.log_info("suckless-odin.env", "Env manager destroyed")
+	log.log_info("scene.env", "Env manager destroyed")
 }
 
 // Trigger an environment map change (async load + transition).
@@ -291,7 +291,7 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 env_manager_trigger_transition :: proc(mgr: ^Env_Manager, path: string) -> bool {
 	// Don't trigger if already transitioning
 	if mgr.transition_state != .Idle {
-		log.log_warning("suckless-odin.env",
+		log.log_warning("scene.env",
 			"Transition already in progress, ignoring. (Current transition state: %v elapsed %.3fs [prev: %v], IBL state: %v elapsed %.3fs [prev: %v])",
 			mgr.transition_state, mgr.transition_elapsed, mgr.transition_prev_state,
 			mgr.ibl_state, mgr.ibl_elapsed, mgr.ibl_prev_state)
@@ -307,7 +307,7 @@ env_manager_trigger_transition :: proc(mgr: ^Env_Manager, path: string) -> bool 
 		return false
 	}
 
-	log.log_info("suckless-odin.env", "Transition triggered: %s", path)
+	log.log_debug("scene.env", "Transition triggered: %s", path)
 	return true
 }
 
@@ -317,7 +317,7 @@ env_manager_trigger_initial :: proc(mgr: ^Env_Manager, path: string) {
 	// transition_state is already .Wait_IBL from env_manager_create
 	mgr.load_start_tick = time.tick_now()
 	async_loader_request(&mgr.loader, path)
-	log.log_info("suckless-odin.env", "Initial env load triggered: %s", path)
+	log.log_debug("scene.env", "Initial env load triggered: %s", path)
 }
 
 // Must be called each frame from the main thread.
@@ -348,7 +348,7 @@ env_manager_update :: proc(mgr: ^Env_Manager, scene: ^Scene, dt: f32) {
 	if mgr.transition_state != .Idle && mgr.transition_elapsed > 5.0 {
 		// Log warning every ~2 seconds (based on frames)
 		if int(mgr.transition_elapsed * 10) % 20 == 0 {
-			log.log_warning("suckless-odin.env",
+			log.log_warning("scene.env",
 				"STUCK TRANSITION WARNING: Transition state %v active for %.2fs (prev: %v). IBL state %v active for %.2fs (prev: %v).",
 				mgr.transition_state, mgr.transition_elapsed, mgr.transition_prev_state,
 				mgr.ibl_state, mgr.ibl_elapsed, mgr.ibl_prev_state)
@@ -398,7 +398,7 @@ env_manager_poll_loader :: proc(mgr: ^Env_Manager) {
 		mgr.has_result = true
 		env_manager_set_transition_state(mgr, .Wait_IBL)
 		env_manager_set_ibl_state(mgr, .Upload_Texture)
-		log.log_info("suckless-odin.env", "Async load complete, starting IBL pipeline")
+		log.log_debug("scene.env", "Async load complete, starting IBL pipeline")
 
 		itt.resume()
 		itt.task_begin("IBL_Progressive_Pipeline")
@@ -407,7 +407,7 @@ env_manager_poll_loader :: proc(mgr: ^Env_Manager) {
 		}
 	case .Failed:
 		env_manager_set_transition_state(mgr, .Idle)
-		log.log_error("suckless-odin.env", "Async load failed, transition aborted to prevent state machine deadlock")
+		log.log_error("scene.env", "Async load failed, transition aborted to prevent state machine deadlock")
 	case .Busy:
 		// Do nothing, still loading
 	}
@@ -448,7 +448,7 @@ env_manager_ibl_upload_texture :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 			mgr.pending_hdr_tex = mgr.recycled_hdr_tex
 			mgr.recycled_hdr_tex = 0
 			gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
-			log.log_info("suckless-odin.env", "IBL: Reusing recycled environment texture (%dx%d)", w, h)
+			log.log_debug("scene.env", "IBL: Reusing recycled environment texture (%dx%d)", w, h)
 			reused = true
 		}
 	}
@@ -458,7 +458,7 @@ env_manager_ibl_upload_texture :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 			mgr.pending_hdr_tex = scene.env_texture.id
 			scene.env_texture.id = 0
 			gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
-			log.log_info("suckless-odin.env", "IBL: Eagerly took initial scene environment texture (%dx%d)", w, h)
+			log.log_debug("scene.env", "IBL: Eagerly took initial scene environment texture (%dx%d)", w, h)
 			reused = true
 		}
 	}
@@ -467,7 +467,7 @@ env_manager_ibl_upload_texture :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 		gl.GenTextures(1, &mgr.pending_hdr_tex)
 		gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
 		gl.TexStorage2D(gl.TEXTURE_2D, mips, gl.RGBA16F, w, h)
-		log.log_info("suckless-odin.env", "IBL: Allocated new environment texture (%dx%d)", w, h)
+		log.log_debug("scene.env", "IBL: Allocated new environment texture (%dx%d)", w, h)
 	}
 
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
@@ -485,7 +485,7 @@ env_manager_ibl_upload_texture :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 
 	env_manager_set_ibl_state(mgr, .Upload_Progressive)
 
-	log.log_info("suckless-odin.env", "IBL: Texture progressive upload started (%dx%d, Persistent Ring PBO DMA active)", w, h)
+	log.log_debug("scene.env", "IBL: Texture progressive upload started (%dx%d, Persistent Ring PBO DMA active)", w, h)
 }
 
 // Fast Non-Temporal AVX2 Streaming Copy for Write-Combining PBO memory (OPT-06-PBO-NT)
@@ -604,7 +604,7 @@ env_manager_ibl_upload_progressive :: proc(mgr: ^Env_Manager) {
 
 		env_manager_set_ibl_state(mgr, .Generate_Mipmaps)
 		mgr.ibl_current_slice = 0
-		log.log_info("suckless-odin.env", "IBL: Progressive upload complete, proceeding to Generate_Mipmaps")
+		log.log_debug("scene.env", "IBL: Progressive upload complete, proceeding to Generate_Mipmaps")
 	}
 }
 
@@ -639,7 +639,7 @@ env_manager_ibl_generate_mipmaps :: proc(mgr: ^Env_Manager) {
 	gl.BindBuffer(gl.PIXEL_PACK_BUFFER, 0)
 
 	env_manager_set_ibl_state(mgr, .Luminance)
-	log.log_info("suckless-odin.env", "IBL: Mipmaps generated, async luminance readback triggered")
+	log.log_debug("scene.env", "IBL: Mipmaps generated, async luminance readback triggered")
 }
 
 @(private)
@@ -663,7 +663,7 @@ env_manager_ibl_luminance :: proc(mgr: ^Env_Manager) {
 			gl.UnmapBuffer(gl.PIXEL_PACK_BUFFER)
 			mapped = true
 		} else {
-			log.log_error("suckless-odin.env", "Failed to map pack PBO for luminance readback, using fallback")
+			log.log_error("scene.env", "Failed to map pack PBO for luminance readback, using fallback")
 		}
 		gl.BindBuffer(gl.PIXEL_PACK_BUFFER, 0)
 		gl.DeleteBuffers(1, &mgr.luminance_pbo)
@@ -700,7 +700,7 @@ env_manager_ibl_luminance :: proc(mgr: ^Env_Manager) {
 
 	env_manager_set_ibl_state(mgr, .Specular_Init)
 	tracy.message_c(fmt.tprintf("IBL: Luminance threshold = %.2f", mgr.ibl_clamp_threshold), IBL_TRACY_COLOR)
-	log.log_info("suckless-odin.env", "IBL: Luminance threshold = %.2f", mgr.ibl_clamp_threshold)
+	log.log_debug("scene.env", "IBL: Luminance threshold = %.2f", mgr.ibl_clamp_threshold)
 }
 
 @(private)
@@ -718,7 +718,7 @@ env_manager_ibl_specular_init :: proc(mgr: ^Env_Manager) {
 	mgr.ibl_current_mip = 0
 	mgr.ibl_current_slice = 0
 	env_manager_set_ibl_state(mgr, .Specular_Mips)
-	log.log_info("suckless-odin.env", "IBL: Reusing pooled specular texture (slot %d, zero alloc), starting progressive mips", pending_idx)
+	log.log_debug("scene.env", "IBL: Reusing pooled specular texture (slot %d, zero alloc), starting progressive mips", pending_idx)
 }
 
 @(private)
@@ -955,7 +955,7 @@ env_manager_process_specular_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.IB
 
 		tracy.message_c(fmt.tprintf("IBL: Specular Mip %d Slice %d/%d",
 			mgr.ibl_current_mip, mgr.ibl_current_slice + 1, mgr.ibl_total_slices), IBL_TRACY_COLOR)
-		log.log_debug("suckless-odin.ibl", "Progressive IBL: Specular Mip %d Slice %d/%d",
+		log.log_debug("render.ibl", "Progressive IBL: Specular Mip %d Slice %d/%d",
 			mgr.ibl_current_mip, mgr.ibl_current_slice + 1, mgr.ibl_total_slices)
 
 		gl.UseProgram(ibl.spmap_program)
@@ -977,7 +977,7 @@ env_manager_process_specular_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.IB
 
 	// Check if all specular mips are done
 	if mgr.ibl_current_mip >= mgr.ibl_total_mips {
-		log.log_info("suckless-odin.env", "IBL: Specular complete")
+		log.log_debug("scene.env", "IBL: Specular complete")
 		env_manager_start_irradiance(mgr)
 	}
 }
@@ -1028,7 +1028,7 @@ env_manager_start_irradiance :: proc(mgr: ^Env_Manager) {
 	mgr.ibl_current_slice = 0
 	mgr.ibl_total_slices = mgr.compute_tuning.slicing.irdiff_slices
 	env_manager_set_ibl_state(mgr, .Irradiance)
-	log.log_info("suckless-odin.env", "IBL: Specular complete, starting irradiance on pooled texture (slot %d, %d slices)", pending_idx, mgr.compute_tuning.slicing.irdiff_slices)
+	log.log_debug("scene.env", "IBL: Specular complete, starting irradiance on pooled texture (slot %d, %d slices)", pending_idx, mgr.compute_tuning.slicing.irdiff_slices)
 }
 
 // --- Internal: irradiance computation (ONE SLICE PER FRAME) ---
@@ -1045,7 +1045,7 @@ env_manager_process_irradiance_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.
 
 	tracy.message_c(fmt.tprintf("IBL: Irradiance Slice %d/%d",
 		mgr.ibl_current_slice + 1, mgr.ibl_total_slices), tracy.COLOR_IBL_IRRADIANCE)
-	log.log_debug("suckless-odin.ibl", "Progressive IBL: Irradiance Slice %d/%d",
+	log.log_debug("render.ibl", "Progressive IBL: Irradiance Slice %d/%d",
 		mgr.ibl_current_slice + 1, mgr.ibl_total_slices)
 
 	size := i32(rendering.IRRADIANCE_SIZE)
@@ -1060,7 +1060,7 @@ env_manager_process_irradiance_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.
 		mgr.ibl_current_slice += 1
 		if mgr.ibl_current_slice >= mgr.ibl_total_slices {
 			env_manager_set_ibl_state(mgr, .Done)
-			log.log_info("suckless-odin.env", "IBL: Irradiance complete")
+			log.log_debug("scene.env", "IBL: Irradiance complete")
 		}
 		return
 	}
@@ -1084,7 +1084,7 @@ env_manager_process_irradiance_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.
 	mgr.ibl_current_slice += 1
 	if mgr.ibl_current_slice >= mgr.ibl_total_slices {
 		env_manager_set_ibl_state(mgr, .Done)
-		log.log_info("suckless-odin.env", "IBL: Irradiance complete")
+		log.log_debug("scene.env", "IBL: Irradiance complete")
 	}
 }
 
@@ -1127,7 +1127,7 @@ env_manager_capture_snapshot :: proc(mgr: ^Env_Manager, width, height: i32) {
 	gl.CopyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, width, height)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 
-	log.log_info("suckless-odin.env", "Env: Captured snapshot (%dx%d)", width, height)
+	log.log_debug("scene.env", "Env: Captured snapshot (%dx%d)", width, height)
 }
 
 // --- Internal: texture swap (IBL done → transfer to scene) ---
@@ -1167,7 +1167,7 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	// Update skybox to use new env texture
 	rendering.skybox_update_env(&scene.skybox, scene.env_texture.id, scene.ibl.prefilter_map)
 
-	log.log_info("suckless-odin.env", "Environment textures swapped simultaneously (pool slot %d active)", mgr.pool_active_idx)
+	log.log_debug("scene.env", "Environment textures swapped simultaneously (pool slot %d active)", mgr.pool_active_idx)
 	elapsed_ms := time.duration_milliseconds(time.tick_since(mgr.load_start_tick))
-	log.log_info("suckless-odin.ibl", "IBL environment ready in %.2f ms, descriptor set updated.", elapsed_ms)
+	log.log_info("render.ibl", "IBL environment ready in %.2f ms, descriptor set updated.", elapsed_ms)
 }

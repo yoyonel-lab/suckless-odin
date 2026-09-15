@@ -137,8 +137,6 @@ init :: proc(
 ) -> bool {
 	if application == nil { return false }
 
-	log.set_callback(tracy_log_callback)
-
 	// Probe Intel ITT and RenderDoc in-app APIs
 	itt.init()
 	renderdoc.init()
@@ -205,16 +203,19 @@ init :: proc(
 	// Load compute shader and slicing parameters from JSON file
 	tuning_params := settings.load_compute_tuning_params(compute_profile)
 
+	// Freeze log configuration before spawning background threads
+	log.lock_config()
+
 	// Initialize scene
 	if !scene.scene_create(&application.scene, application.width, application.height, tuning_params) {
-		log.log_error("suckless-odin.app", "Failed to create scene")
+		log.log_error("app", "Failed to create scene")
 		return false
 	}
 	application.scene.env_mgr.capture_ibl = capture_ibl
 
 	// Initialize GUI (Dear ImGui)
 	if !gui.init(&application.imgui, application.window) {
-		log.log_error("suckless-odin.app", "Failed to initialize ImGui")
+		log.log_error("app", "Failed to initialize ImGui")
 		return false
 	}
 
@@ -227,13 +228,13 @@ init :: proc(
 	perf_mode.init(&application.perf)
 	if has_session && session_state.perf_mode_active {
 		perf_mode.activate(&application.perf, quiet = true)
-		log.log_debug("PERF", "Performance mode restored from session (%s)", perf_mode.backend_label(&application.perf))
+		log.log_debug("app", "Performance mode restored from session (%s)", perf_mode.backend_label(&application.perf))
 	}
 
 	application.last_frame_time = glfw.GetTime()
 	application.running = true
 
-	log.log_info("suckless-odin.app", "Application initialized (%dx%d)", application.width, application.height)
+	log.log_info("app", "Application initialized (%dx%d)", application.width, application.height)
 	return true
 }
 
@@ -242,7 +243,7 @@ init :: proc(
 run :: proc(application: ^App) {
 	if application == nil { return }
 
-	log.log_info("suckless-odin.app", "Entering main loop (Escape to quit)")
+	log.log_info("app", "Entering main loop (Escape to quit)")
 
 	tracy.set_thread_name("Main thread")
 	tracy.plot_config("FPS", .Number, step = false, fill = true, color = tracy.COLOR_CPU_UPDATE)
@@ -390,15 +391,19 @@ run :: proc(application: ^App) {
 				env_texture_height  = application.scene.env_texture.height,
 				postfx              = &application.scene.postfx_pipeline,
 				perf                = &application.perf,
+				point_light         = &application.scene.point_light,
+				shadow_cubemap      = &application.scene.shadow_cubemap,
+				depth_downsample    = &application.scene.depth_downsample,
+				volumetric          = &application.scene.volumetric,
 				frame_time_ms       = application.scene.overlay.frame_time_display,
 				live_compute_tuning = &application.scene.env_mgr.compute_tuning,
 				apply_compute_tuning = apply_compute_tuning_callback,
 				scene_ptr           = &application.scene,
 			})
 			gui.render(&application.imgui)
-			gl_state.reset()
 			dbg.pop_group()
 		}
+		gl_state.reset()
 
 		// Regenerate cubemap on-demand (lazy: only when mode == .Cubemap)
 		if (application.scene.skybox.cubemap_dirty || application.scene.skybox.gen_state.in_progress) && application.scene.skybox.mode == .Cubemap {
@@ -445,8 +450,8 @@ run :: proc(application: ^App) {
 		application.total_frames += 1
 	}
 
-	log.log_info("suckless-odin.app", "Total frames rendered during this run: %v", application.total_frames)
-	log.log_info("suckless-odin.app", "Main loop exited")
+	log.log_info("app", "Total frames rendered during this run: %v", application.total_frames)
+	log.log_info("app", "Main loop exited")
 }
 
 // Cleans up all resources.
@@ -467,7 +472,7 @@ destroy :: proc(application: ^App) {
 	window_destroy(application.window)
 	free(application)
 
-	log.log_info("suckless-odin.app", "Application destroyed")
+	log.log_info("app", "Application destroyed")
 }
 
 // Apply CLI postfx options (preset, enable/disable).

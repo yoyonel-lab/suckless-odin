@@ -45,7 +45,7 @@ os_activate :: proc(pm: ^Perf_Mode, quiet: bool) -> bool {
 			pm.avrt_handle = handle
 			pm.backend = .MMCSS
 			pm.active = true
-			if !quiet { log.log_info("PERF", "Performance mode ON (Windows MMCSS: Games)") }
+			if !quiet { log.log_info("core.perf", "Performance mode ON (Windows MMCSS: Games)") }
 			return true
 		}
 	}
@@ -55,13 +55,13 @@ os_activate :: proc(pm: ^Perf_Mode, quiet: bool) -> bool {
 		SetThreadPriority(hThread, THREAD_PRIORITY_HIGHEST)
 		pm.backend = .High_Priority
 		pm.active = true
-		if !quiet { log.log_info("PERF", "Performance mode ON (Windows High Priority)") }
+		if !quiet { log.log_info("core.perf", "Performance mode ON (Windows High Priority)") }
 		return true
 	} else if SetPriorityClass(hProcess, ABOVE_NORMAL_PRIORITY_CLASS) != 0 {
 		SetThreadPriority(hThread, THREAD_PRIORITY_ABOVE_NORMAL)
 		pm.backend = .High_Priority
 		pm.active = true
-		if !quiet { log.log_info("PERF", "Performance mode ON (Windows Above Normal Priority)") }
+		if !quiet { log.log_info("core.perf", "Performance mode ON (Windows Above Normal Priority)") }
 		return true
 	}
 
@@ -88,7 +88,7 @@ os_deactivate :: proc(pm: ^Perf_Mode) {
 probe_avrt :: proc(pm: ^Perf_Mode) {
 	lib, ok := dynlib.load_library("avrt.dll")
 	if !ok {
-		log.log_debug("PERF", "avrt.dll not available: %s", dynlib.last_error())
+		log.log_debug("core.perf", "avrt.dll not available: %s", dynlib.last_error())
 		return
 	}
 	pm.avrt_lib = lib
@@ -97,7 +97,7 @@ probe_avrt :: proc(pm: ^Perf_Mode) {
 	rev_ptr, r_ok := dynlib.symbol_address(lib, "AvRevertMmThreadCharacteristics")
 
 	if !s_ok || !r_ok {
-		log.log_debug("PERF", "avrt.dll: missing MMCSS symbols")
+		log.log_debug("core.perf", "avrt.dll: missing MMCSS symbols")
 		dynlib.unload_library(lib)
 		pm.avrt_lib = nil
 		return
@@ -105,5 +105,5 @@ probe_avrt :: proc(pm: ^Perf_Mode) {
 
 	pm.avrt_set_task    = cast(proc "stdcall" (cstring, ^u32) -> rawptr)set_ptr
 	pm.avrt_revert_task = cast(proc "stdcall" (rawptr) -> i32)rev_ptr
-	log.log_debug("PERF", "Windows MMCSS probed successfully")
+	log.log_debug("core.perf", "Windows MMCSS probed successfully")
 }

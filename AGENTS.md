@@ -39,3 +39,22 @@
 2. **Validation ISO Locale obligatoire (Docker / Containers)** :
    - Tout fix ou changement lié à la CI/CD, aux scripts de build, aux paquets système ou à la cross-compilation doit être validé formellement en local dans un conteneur Docker/Podman répliquant strictement l'image vierge de la CI (`ubuntu:24.04`).
    - Présenter systématiquement les résultats de validation Docker locale à l'utilisateur avant toute demande d'autorisation de commit/push.
+
+---
+
+## 🧹 RÈGLE DE QUALITÉ & LINTING : VALIDATION SYSTÉMATIQUE AVANT DE RENDRE LA MAIN
+
+1. **Exécution obligatoire de `task lint`** : Avant chaque fin d'intervention et avant toute proposition de validation à l'utilisateur, l'agent DOIT systématiquement exécuter `task lint` (`odin check src/ -vet -strict-style -warnings-as-errors` + vérification des liens de documentation).
+2. **Tolérance Zéro Erreurs/Warnings** : Aucun unused import, unused variable, violation de style ou warning de compilation ne doit subsister dans la codebase.
+
+---
+
+## 🔄 RÈGLE DE SYNCHRONISATION UI/UX : RECHERCHABILITÉ & PERSISTANCE TOTALE DES PARAMÈTRES IMGUI
+
+1. **Persistance Totale (100%)** : Tout paramètre, mode ou toggle modifiable dans l'UI ImGui DOIT être :
+   - Présent dans la structure `Session_State` (`src/core/session/session.odin`).
+   - Extrait et sauvegardé dans `extract_session_state` (`src/app/session.odin`).
+   - Restauré fidèlement dans `restore_session_state` (`src/app/session.odin`).
+   - Couvert par les tests unitaires et de persistance (`tests/test_session.odin` et `scripts/check_persistence.py`).
+2. **Recherchabilité Exhaustive (100% Fuzzy Search)** : Tout contrôle, mode de rendu, mode debug, slider ou toggle présent dans les onglets ImGui DOIT être intégré dans la vue filtrée de recherche (`draw_filtered_*` / `fuzzy_match`) avec des mots-clés riches et exhaustifs (synonymes, abréviations courantes, termes techniques).
+3. **Zéro Omission** : L'oubli d'un paramètre dans la persistance JSON ou dans la barre de recherche ImGui est strictement prohibé.

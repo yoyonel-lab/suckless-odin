@@ -135,7 +135,7 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 
 	// Validate UBO layout matches GPU expectations (std140 cross-check)
 	if !validate_ubo_layout(p.composite_program) {
-		log.log_error("suckless-odin.postfx", "UBO validation failed — aborting pipeline creation")
+		log.log_error("render.postfx", "UBO validation failed — aborting pipeline creation")
 		return false
 	}
 
@@ -153,11 +153,11 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 
 	// Eagerly precompile canonical shader variants to avoid first-frame / preset switch stalls
 	if p.shader_cache.enabled {
-		log.log_info("suckless-odin.postfx", "Eagerly precompiling canonical shader preset variants...")
+		log.log_debug("render.postfx", "Eagerly precompiling canonical shader preset variants...")
 		pipeline_prewarm_presets(p)
 	}
 
-	log.log_info("suckless-odin.postfx", "Pipeline created (%dx%d)", width, height)
+	log.log_info("render.postfx", "Pipeline created (%dx%d)", width, height)
 	return true
 }
 
@@ -176,7 +176,7 @@ pipeline_destroy :: proc(p: ^Pipeline) {
 	destroy_framebuffer(p)
 	delete_buffer(&p.settings_ubo)
 	quad_destroy(&p.quad)
-	log.log_info("suckless-odin.postfx", "Pipeline destroyed")
+	log.log_info("render.postfx", "Pipeline destroyed")
 }
 
 // Begin post-processing: bind scene FBO for rendering.
@@ -420,7 +420,7 @@ pipeline_resize :: proc(p: ^Pipeline, width, height: i32) {
 	motion_blur_resize(&p.motion_blur_fx, width, height)
 	p.ubo_dirty = true
 
-	log.log_info("suckless-odin.postfx", "Pipeline resized (%dx%d)", width, height)
+	log.log_debug("render.postfx", "Pipeline resized (%dx%d)", width, height)
 }
 
 // Update time accumulator (call each frame).
@@ -674,7 +674,7 @@ create_framebuffer :: proc(p: ^Pipeline) -> (ok: bool) {
 	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	if status != gl.FRAMEBUFFER_COMPLETE {
-		log.log_error("suckless-odin.postfx", "Framebuffer incomplete: 0x%X", status)
+		log.log_error("render.postfx", "Framebuffer incomplete: 0x%X", status)
 		return false
 	}
 

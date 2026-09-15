@@ -2,7 +2,7 @@ package session
 
 import "core:os"
 import "core:encoding/json"
-import "core:fmt"
+import log "../log"
 import mt "../math_types"
 import postfx "../../rendering/postfx"
 
@@ -12,6 +12,66 @@ Specular_AA_Settings :: struct {
 	debug_mode:     i32  `json:"debug_mode"`,
 	split_enabled:  bool `json:"split_enabled"`,
 	split_position: f32  `json:"split_position"`,
+}
+
+Volumetric_Session_Settings :: struct {
+	enabled:                bool `json:"enabled"`,
+	composite_in_scene:     bool `json:"composite_in_scene"`,
+	isolate_in_scene:       bool `json:"isolate_in_scene"`,
+	shadows_enabled:        bool `json:"shadows_enabled"`,
+	step_count:             i32  `json:"step_count"`,
+	scattering_coeff:       f32  `json:"scattering_coeff"`,
+	extinction_coeff:       f32  `json:"extinction_coeff"`,
+	anisotropy_g:           f32  `json:"anisotropy_g"`,
+	intensity_mult:         f32  `json:"intensity_mult"`,
+	jitter_enabled:         bool `json:"jitter_enabled"`,
+	taa_mode:               i32  `json:"taa_mode"`,
+	taa_alpha:              f32  `json:"taa_alpha"`,
+	taa_depth_threshold:    f32  `json:"taa_depth_threshold"`,
+	taa_clamping_enabled:   bool `json:"taa_clamping_enabled"`,
+	blur_mode:              i32  `json:"blur_mode"`,
+	blur_sharpness:         f32  `json:"blur_sharpness"`,
+	viewport_debug_mode:    i32  `json:"viewport_debug_mode"`,
+	upsample_mode:          i32  `json:"upsample_mode"`,
+	upsample_sharpness:     f32  `json:"upsample_sharpness"`,
+	resolution_divider:     i32  `json:"resolution_divider"`,
+	shadow_cache:           bool `json:"shadow_cache"`,
+	time_slice_mode:        i32  `json:"time_slice_mode"`,
+	shadow_res_index:       i32  `json:"shadow_res_index"`,
+	preview_mode:           i32  `json:"preview_mode"`,
+	preview_exposure_boost: f32  `json:"preview_exposure_boost"`,
+}
+
+Point_Light_Session_Settings :: struct {
+	position:               mt.Vec3 `json:"position"`,
+	radius:                 f32     `json:"radius"`,
+	color:                  mt.Vec3 `json:"color"`,
+	intensity:              f32     `json:"intensity"`,
+	enabled:                bool    `json:"enabled"`,
+	direct_shadows_enabled: bool    `json:"direct_shadows_enabled"`,
+	shadow_bias:            f32     `json:"shadow_bias"`,
+	shadow_normal_bias:     f32     `json:"shadow_normal_bias"`,
+	shadow_slope_bias:      f32     `json:"shadow_slope_bias"`,
+	shadow_darkening:       f32     `json:"shadow_darkening"`,
+	shadow_debug_mask:      bool    `json:"shadow_debug_mask"`,
+	shadow_debug_mode:      i32     `json:"shadow_debug_mode"`,
+	shadow_split_position:  f32     `json:"shadow_split_position"`,
+	shadow_pcf_samples:     i32     `json:"shadow_pcf_samples"`,
+	shadow_filter_radius:       f32     `json:"shadow_filter_radius"`,
+	shadow_pcf_jitter:          bool    `json:"shadow_pcf_jitter"`,
+	shadow_temporal_jitter:     bool    `json:"shadow_temporal_jitter"`,
+	shadow_taa_enabled:         bool    `json:"shadow_taa_enabled"`,
+	shadow_taa_mode:            i32     `json:"shadow_taa_mode"`,
+	shadow_taa_alpha:           f32     `json:"shadow_taa_alpha"`,
+	shadow_taa_depth_threshold: f32     `json:"shadow_taa_depth_threshold"`,
+	shadow_taa_clamping:        bool    `json:"shadow_taa_clamping"`,
+	phase_g:                    f32     `json:"phase_g"`,
+	is_animated:                bool    `json:"is_animated"`,
+	orbit_speed:                f32     `json:"orbit_speed"`,
+	orbit_radius:               f32     `json:"orbit_radius"`,
+	orbit_center:               mt.Vec3 `json:"orbit_center"`,
+	show_bulb:                  bool    `json:"show_bulb"`,
+	bulb_radius:                f32     `json:"bulb_radius"`,
 }
 
 // Session_State holds all runtime state to persist across runs.
@@ -50,6 +110,8 @@ Session_State :: struct {
 	camera_enabled: bool `json:"camera_enabled"`,
 	perf_mode_active: bool `json:"perf_mode_active"`,
 	specular_aa: Specular_AA_Settings `json:"specular_aa"`,
+	volumetric: Volumetric_Session_Settings `json:"volumetric"`,
+	point_light: Point_Light_Session_Settings `json:"point_light"`,
 }
 
 SESSION_FILE_PATH :: "session.json"
@@ -58,13 +120,13 @@ SESSION_FILE_PATH :: "session.json"
 save_session :: proc(state: ^Session_State, path: string = SESSION_FILE_PATH) -> bool {
 	data, err := json.marshal(state^, allocator = context.temp_allocator, opt = json.Marshal_Options{pretty = true})
 	if err != nil {
-		fmt.eprintln("[session] Failed to marshal session state:", err)
+		log.log_error("core.session", "Failed to marshal session state: %v", err)
 		return false
 	}
 	
 	write_err := os.write_entire_file(path, data)
 	if write_err != nil {
-		fmt.eprintln("[session] Failed to write session file:", write_err)
+		log.log_error("core.session", "Failed to write session file '%s': %v", path, write_err)
 		return false
 	}
 	return true
@@ -80,7 +142,7 @@ load_session :: proc(state: ^Session_State, path: string = SESSION_FILE_PATH) ->
 	
 	unmarshal_err := json.unmarshal(data, state, allocator = context.allocator)
 	if unmarshal_err != nil {
-		fmt.eprintln("[session] Failed to decode session JSON:", unmarshal_err)
+		log.log_error("core.session", "Failed to decode session JSON: %v", unmarshal_err)
 		return false
 	}
 	return true

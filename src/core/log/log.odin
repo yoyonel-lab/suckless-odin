@@ -1,3 +1,15 @@
+// Package applog provides structured logging for the application.
+//
+// Tracy Profiler Integration:
+// - core/log is the SINGLE canonical authority for forwarding log messages to Tracy.
+// - When TRACY_ENABLE is defined, log_message directly emits tracy.message_c.
+// - No external callbacks should re-emit log messages to Tracy.
+//
+// Thread-Safety & Immutability:
+// - No mutex per log call (zero runtime contention).
+// - Log configuration (set_level, set_callback) is mutable ONLY during initial startup.
+// - lock_config() freezes configuration before spawning worker threads (async_loader).
+// - Debug assertions prevent late configuration changes.
 package applog
 
 import "core:fmt"
@@ -21,17 +33,32 @@ Log_Callback :: #type proc(level: Log_Level, tag: string, message: string)
 @(private)
 g_log_callback: Log_Callback = nil
 
+when ODIN_DEBUG {
+	@(private)
+	g_min_level: Log_Level = .Debug
+} else {
+	@(private)
+	g_min_level: Log_Level = .Info
+}
+
 @(private)
-g_min_level: Log_Level = .Debug
+g_config_locked: bool = false
 
 // Sets a custom callback for log messages
 set_callback :: proc(callback: Log_Callback) {
+	assert(!g_config_locked, "log: set_callback called after configuration lock")
 	g_log_callback = callback
 }
 
 // Sets the global minimum log level
 set_level :: proc(level: Log_Level) {
+	assert(!g_config_locked, "log: set_level called after configuration lock")
 	g_min_level = level
+}
+
+// Freezes log configuration to guarantee thread-safety without mutex overhead
+lock_config :: proc() {
+	g_config_locked = true
 }
 
 // Core log function — format matches legacy C11:

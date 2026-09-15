@@ -66,9 +66,9 @@ gamepad_poll :: proc(application: ^App, state: ^Gamepad_State, dt: f32) {
 
 	if state.connected && !was_connected {
 		name := glfw.GetGamepadName(state.joystick_id)
-		log.log_info("suckless-odin.gamepad", "Gamepad connected: %s (ID=%d)", name, state.joystick_id)
+		log.log_info("app.gamepad", "Gamepad connected: %s (ID=%d)", name, state.joystick_id)
 	} else if !state.connected && was_connected {
-		log.log_info("suckless-odin.gamepad", "Gamepad disconnected (ID=%d)", state.joystick_id)
+		log.log_info("app.gamepad", "Gamepad disconnected (ID=%d)", state.joystick_id)
 		for i in 0 ..< GAMEPAD_AXIS_COUNT {
 			state.axes[i] = 0.0
 		}

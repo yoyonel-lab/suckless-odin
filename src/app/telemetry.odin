@@ -2,27 +2,7 @@ package app
 
 import "core:fmt"
 import "core:os"
-import tracy "../core/tracy"
 import log "../core/log"
-
-@(private)
-tracy_log_callback :: proc(level: log.Log_Level, tag: string, message: string) {
-	color: u32 = 0xFFFFFF
-	switch level {
-	case .Critical:
-		color = 0xFF0000
-	case .Error:
-		color = 0xFF5555
-	case .Warning:
-		color = 0xFFFF55
-	case .Debug:
-		color = 0xAAAAAA
-	case .Info, .Not_Set:
-		color = 0xFFFFFF
-	}
-	formatted := fmt.tprintf("[%s] %s", tag, message)
-	tracy.message_c(formatted, color)
-}
 
 @(private)
 write_startup_telemetry :: proc(app: ^App) {
@@ -63,8 +43,8 @@ write_startup_telemetry :: proc(app: ^App) {
 	)
 	write_err := os.write_entire_file("/tmp/startup_telemetry.csv", transmute([]u8)data)
 	if write_err != nil {
-		log.log_error("suckless-odin.app", "Failed to save startup telemetry: %v", write_err)
+		log.log_error("app", "Failed to save startup telemetry: %v", write_err)
 	} else {
-		log.log_info("suckless-odin.app", "Saved startup telemetry to /tmp/startup_telemetry.csv")
+		log.log_debug("app", "Saved startup telemetry to /tmp/startup_telemetry.csv")
 	}
 }

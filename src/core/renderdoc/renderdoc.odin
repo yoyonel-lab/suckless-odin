@@ -79,13 +79,13 @@ init :: proc() -> bool {
 		}
 
 		if !ok {
-			log.log_debug("RenderDoc", "RenderDoc library not found in process memory (not running under RenderDoc)")
+			log.log_debug("core.renderdoc", "RenderDoc library not found in process memory (not running under RenderDoc)")
 			return false
 		}
 
 		get_api_sym, sym_ok := dynlib.symbol_address(lib_handle, "RENDERDOC_GetAPI")
 		if !sym_ok || get_api_sym == nil {
-			log.log_warning("RenderDoc", "Failed to find RENDERDOC_GetAPI symbol in librenderdoc")
+			log.log_warning("core.renderdoc", "Failed to find RENDERDOC_GetAPI symbol in librenderdoc")
 			return false
 		}
 
@@ -93,7 +93,7 @@ init :: proc() -> bool {
 		api_ptr: rawptr
 		ret := get_api_fn(.eRENDERDOC_API_Version_1_4_0, &api_ptr)
 		if ret != 1 || api_ptr == nil {
-			log.log_warning("RenderDoc", "RENDERDOC_GetAPI(1.4.0) returned error code: %d", ret)
+			log.log_warning("core.renderdoc", "RENDERDOC_GetAPI(1.4.0) returned error code: %d", ret)
 			return false
 		}
 
@@ -102,7 +102,7 @@ init :: proc() -> bool {
 
 		major, minor, patch: c.int
 		g_rdoc.api.GetAPIVersion(&major, &minor, &patch)
-		log.log_info("RenderDoc", "RenderDoc In-App API initialized (v%d.%d.%d active)", major, minor, patch)
+		log.log_info("core.renderdoc", "RenderDoc In-App API initialized (v%d.%d.%d active)", major, minor, patch)
 		return true
 	} else {
 		_ = dynlib.Library{}
@@ -126,7 +126,7 @@ start_capture :: #force_inline proc(device: rawptr = nil, window: rawptr = nil) 
 	when RENDERDOC_ENABLE {
 		if is_active() {
 			g_rdoc.api.StartFrameCapture(device, window)
-			log.log_info("RenderDoc", "Frame capture STARTED")
+			log.log_debug("core.renderdoc", "Frame capture STARTED")
 		}
 	}
 }
@@ -137,10 +137,10 @@ end_capture :: #force_inline proc(device: rawptr = nil, window: rawptr = nil) ->
 		if is_active() {
 			ret := g_rdoc.api.EndFrameCapture(device, window)
 			if ret == 1 {
-				log.log_info("RenderDoc", "Frame capture COMPLETED and written to disk successfully")
+				log.log_info("core.renderdoc", "Frame capture COMPLETED and written to disk successfully")
 				return true
 			}
-			log.log_warning("RenderDoc", "Frame capture ended with error code: %d", ret)
+			log.log_warning("core.renderdoc", "Frame capture ended with error code: %d", ret)
 			return false
 		}
 		return false
@@ -166,7 +166,7 @@ trigger_capture :: #force_inline proc() {
 	when RENDERDOC_ENABLE {
 		if is_active() {
 			g_rdoc.api.TriggerCapture()
-			log.log_info("RenderDoc", "Capture triggered for next frame")
+			log.log_debug("core.renderdoc", "Capture triggered for next frame")
 		}
 	}
 }

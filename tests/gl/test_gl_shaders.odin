@@ -205,6 +205,87 @@ test_simple_billboard_program_links :: proc(t: ^testing.T) {
 	if ok { gl.DeleteProgram(program) }
 }
 
+@(test)
+test_shadow_cube_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/shadow_cube.vert", "shaders/shadow_cube.frag")
+	testing.expect(t, ok, "shadow_cube program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_light_bulb_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/light_bulb.vert", "shaders/light_bulb.frag")
+	testing.expect(t, ok, "light_bulb program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_depth_downsample_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/depth_downsample.frag")
+	testing.expect(t, ok, "depth_downsample program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_debug_depth_preview_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/debug_depth_preview.frag")
+	testing.expect(t, ok, "debug_depth_preview program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_volumetric_raymarch_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_raymarch.frag")
+	testing.expect(t, ok, "volumetric_raymarch program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_volumetric_preview_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_preview.frag")
+	testing.expect(t, ok, "volumetric_preview program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_volumetric_composite_simple_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_composite_simple.frag")
+	testing.expect(t, ok, "volumetric_composite_simple program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_volumetric_taa_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_taa.frag")
+	testing.expect(t, ok, "volumetric_taa program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_volumetric_bilateral_blur_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_bilateral_blur.frag")
+	testing.expect(t, ok, "volumetric_bilateral_blur program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
 // --- GL context validation ---
 
 @(test)

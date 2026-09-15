@@ -81,7 +81,7 @@ instanced_create :: proc(inst: ^Instanced_Spheres, mat_lib: ^Material_Lib) {
 	instanced_init_storage(inst)
 	instanced_upload(inst)
 
-	log.log_info("suckless-odin.instanced", "Created %d sphere instances (SSBO binding %d, %dx%d grid, spacing=%.1f, #soa, AZDO=%v)",
+	log.log_info("render.instanced", "Created %d sphere instances (SSBO binding %d, %dx%d grid, spacing=%.1f, #soa, AZDO=%v)",
 		total_count, SSBO_BINDING, cols, rows, spacing, inst.is_persistent)
 }
 

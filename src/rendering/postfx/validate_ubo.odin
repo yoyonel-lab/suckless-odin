@@ -120,7 +120,7 @@ field_prefix :: proc(name: string) -> string {
 validate_ubo_layout :: proc(program: u32) -> bool {
 	block_idx := gl.GetUniformBlockIndex(program, "PostProcessBlock")
 	if block_idx == gl.INVALID_INDEX {
-		log.log_warning("suckless-odin.postfx.validate", "UBO block 'PostProcessBlock' not found")
+		log.log_warning("render.postfx.ubo", "UBO block 'PostProcessBlock' not found")
 		return false
 	}
 
@@ -134,7 +134,7 @@ validate_ubo_layout :: proc(program: u32) -> bool {
 		expected, field_found := struct_field_offset(mappings[i].field_name)
 		if !field_found {
 			log.log_error(
-				"suckless-odin.postfx.validate",
+				"render.postfx.ubo",
 				"BUG: field '%s' not in Post_FX_UBO struct",
 				mappings[i].field_name,
 			)
@@ -148,7 +148,7 @@ validate_ubo_layout :: proc(program: u32) -> bool {
 		gl.GetUniformIndices(program, 1, &name, &idx)
 		if idx == gl.INVALID_INDEX {
 			log.log_error(
-				"suckless-odin.postfx.validate",
+				"render.postfx.ubo",
 				"UNRESOLVED: '%s' (field '%s') not found in shader",
 				name, mappings[i].field_name,
 			)
@@ -162,7 +162,7 @@ validate_ubo_layout :: proc(program: u32) -> bool {
 
 		if uintptr(gpu_offset) != expected {
 			log.log_error(
-				"suckless-odin.postfx.validate",
+				"render.postfx.ubo",
 				"OFFSET MISMATCH: '%s' GPU=%d, struct=%d (delta=%d)",
 				name, gpu_offset, i32(expected), gpu_offset - i32(expected),
 			)
@@ -230,7 +230,7 @@ validate_ubo_layout :: proc(program: u32) -> bool {
 
 			if !is_mapped {
 				log.log_error(
-					"suckless-odin.postfx.validate",
+					"render.postfx.ubo",
 					"MISSING MAPPING: GPU has '%s' at offset %d → struct section '%s' not in UBO_MAPPINGS",
 					gpu_name, gpu_offset, field_name,
 				)
@@ -240,8 +240,8 @@ validate_ubo_layout :: proc(program: u32) -> bool {
 	}
 
 	if all_ok {
-		log.log_info(
-			"suckless-odin.postfx.validate",
+		log.log_debug(
+			"render.postfx.ubo",
 			"UBO layout validated (%d/%d mappings resolved, %d GPU uniforms in block)",
 			resolved_count, len(mappings), num_uniforms,
 		)

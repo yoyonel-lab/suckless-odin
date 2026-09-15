@@ -20,6 +20,17 @@ diag() {
     echo "=== Odin ===" && odin version
 }
 
+# --- Build Native Libraries (Tracy / SIMD) if needed ---
+ensure_native_libs() {
+    if [ ! -f deps/libtracy.a ] || [ ! -f deps/libsimd.a ]; then
+        section "Building Native Libraries (Tracy / SIMD)"
+        if [ ! -d deps/tracy/public ]; then
+            git submodule update --init --depth 1 deps/tracy
+        fi
+        bash scripts/build_tracy_lib.sh
+    fi
+}
+
 # --- Build ImGui if needed ---
 ensure_imgui() {
     if [ ! -f deps/odin-imgui/imgui_linux_x64.a ]; then
@@ -91,6 +102,7 @@ do_package_win() {
 
 # --- Main ---
 diag
+ensure_native_libs
 ensure_imgui
 
 case "$MODE" in

@@ -8,6 +8,7 @@ import "core:os"
 
 import log "../core/log"
 import mt  "../core/math_types"
+import gl_state "../core/gl_state"
 
 // Text overlay for FPS/position display (F1 toggle).
 // ISO port of the text overlay from suckless-ogl/src/ui.c.
@@ -80,7 +81,7 @@ void main() {
 `
 	program, ok := gl.load_shaders_source(vert_src, frag_src)
 	if !ok {
-		log.log_error("suckless-odin.overlay", "Failed to compile overlay shader")
+		log.log_error("render.overlay", "Failed to compile overlay shader")
 		return false
 	}
 	overlay.program = program
@@ -91,7 +92,7 @@ void main() {
 	// Load font file
 	font_data, font_err := os.read_entire_file_from_path("assets/fonts/FiraCode-Regular.ttf", context.allocator)
 	if font_err != nil {
-		log.log_error("suckless-odin.overlay", "Failed to load font: assets/fonts/FiraCode-Regular.ttf")
+		log.log_error("render.overlay", "Failed to load font: assets/fonts/FiraCode-Regular.ttf")
 		return false
 	}
 	defer delete(font_data)
@@ -105,7 +106,7 @@ void main() {
 		&overlay.chardata[0],
 	)
 	if result <= 0 {
-		log.log_error("suckless-odin.overlay", "Failed to bake font bitmap (result=%d)", result)
+		log.log_error("render.overlay", "Failed to bake font bitmap (result=%d)", result)
 		return false
 	}
 
@@ -145,7 +146,7 @@ void main() {
 
 	overlay.mode = .Off
 	overlay.fps_display = 0.0
-	log.log_info("suckless-odin.overlay", "Text overlay initialized (FiraCode %.0fpx, atlas %dx%d)", FONT_SIZE, FONT_ATLAS_SIZE, FONT_ATLAS_SIZE)
+	log.log_info("render.overlay", "Text overlay initialized (FiraCode %.0fpx, atlas %dx%d)", FONT_SIZE, FONT_ATLAS_SIZE, FONT_ATLAS_SIZE)
 	return true
 }
 
@@ -248,6 +249,7 @@ overlay_render :: proc(overlay: ^Text_Overlay, width, height: i32, cam_pos: mt.V
 	gl.UseProgram(0)
 	gl.Disable(gl.BLEND)
 	gl.Enable(gl.DEPTH_TEST)
+	gl_state.reset()
 }
 
 

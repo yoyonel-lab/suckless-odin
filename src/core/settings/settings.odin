@@ -138,7 +138,7 @@ validate_compute_tuning_params :: proc(params: Compute_Tuning_Params) -> bool {
 load_compute_tuning_params :: proc(profile: Compute_Shader_Profile, path: string = "assets/configs/compute_tuning.json") -> Compute_Tuning_Params {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
-		log.log_warning("suckless-odin.settings", "Failed to read compute tuning JSON file '%s'. Falling back to built-in default.", path)
+		log.log_warning("core.settings", "Failed to read compute tuning JSON file '%s'. Falling back to built-in default.", path)
 		return DEFAULT_COMPUTE_TUNING
 	}
 	defer delete(data)
@@ -146,7 +146,7 @@ load_compute_tuning_params :: proc(profile: Compute_Shader_Profile, path: string
 	config: Compute_Tuning_Config
 	json_err := json.unmarshal(data, &config, allocator = context.allocator)
 	if json_err != nil {
-		log.log_warning("suckless-odin.settings", "Failed to parse compute tuning JSON file '%s'. Falling back to built-in default.", path)
+		log.log_warning("core.settings", "Failed to parse compute tuning JSON file '%s'. Falling back to built-in default.", path)
 		return DEFAULT_COMPUTE_TUNING
 	}
 	defer {
@@ -164,12 +164,12 @@ load_compute_tuning_params :: proc(profile: Compute_Shader_Profile, path: string
 
 	params, exists := config.profiles[profile_key]
 	if !exists {
-		log.log_warning("suckless-odin.settings", "Profile '%s' not found in JSON configuration. Falling back to built-in default.", profile_key)
+		log.log_warning("core.settings", "Profile '%s' not found in JSON configuration. Falling back to built-in default.", profile_key)
 		return DEFAULT_COMPUTE_TUNING
 	}
 
 	if !validate_compute_tuning_params(params) {
-		log.log_warning("suckless-odin.settings", "Profile '%s' in JSON configuration has semantically invalid values. Falling back to built-in default.", profile_key)
+		log.log_warning("core.settings", "Profile '%s' in JSON configuration has semantically invalid values. Falling back to built-in default.", profile_key)
 		return DEFAULT_COMPUTE_TUNING
 	}
 
@@ -179,14 +179,14 @@ load_compute_tuning_params :: proc(profile: Compute_Shader_Profile, path: string
 load_compute_tuning_config :: proc(path: string = "assets/configs/compute_tuning.json") -> (config: Compute_Tuning_Config, ok: bool) {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
-		log.log_error("suckless-odin.settings", "Failed to read compute tuning JSON file '%s'", path)
+		log.log_error("core.settings", "Failed to read compute tuning JSON file '%s'", path)
 		return {}, false
 	}
 	defer delete(data)
 
 	json_err := json.unmarshal(data, &config, allocator = context.allocator)
 	if json_err != nil {
-		log.log_error("suckless-odin.settings", "Failed to parse compute tuning JSON: %v", json_err)
+		log.log_error("core.settings", "Failed to parse compute tuning JSON: %v", json_err)
 		return {}, false
 	}
 
@@ -201,13 +201,13 @@ save_compute_tuning_config :: proc(config: Compute_Tuning_Config, path: string =
 
 	data, err := json.marshal(config, {pretty = true}, allocator = context.temp_allocator)
 	if err != nil {
-		log.log_error("suckless-odin.settings", "Failed to marshal compute tuning config: %v", err)
+		log.log_error("core.settings", "Failed to marshal compute tuning config: %v", err)
 		return false
 	}
 
 	write_err := os.write_entire_file(path, data)
 	if write_err != nil {
-		log.log_error("suckless-odin.settings", "Failed to write compute tuning settings to '%s'", path)
+		log.log_error("core.settings", "Failed to write compute tuning settings to '%s'", path)
 		return false
 	}
 
