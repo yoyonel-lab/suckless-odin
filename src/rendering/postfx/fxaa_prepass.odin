@@ -38,7 +38,7 @@ fxaa_prepass_create :: proc(p: ^Pipeline) -> (ok: bool) {
 	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	if status != gl.FRAMEBUFFER_COMPLETE {
-		log.log_error("suckless-odin.postfx", "FXAA pre-pass FBO incomplete: 0x%X", status)
+		log.log_error("render.postfx", "FXAA pre-pass FBO incomplete: 0x%X", status)
 		return false
 	}
 
@@ -56,7 +56,7 @@ fxaa_prepass_create :: proc(p: ^Pipeline) -> (ok: bool) {
 	set_uniform_i32(p.fxaa_program, "screenTexture", TEX_UNIT_SCENE)
 	gl.UseProgram(0)
 
-	log.log_info("suckless-odin.postfx", "FXAA pre-pass created (%dx%d)", p.width, p.height)
+	log.log_info("render.postfx", "FXAA pre-pass created (%dx%d)", p.width, p.height)
 	return true
 }
 

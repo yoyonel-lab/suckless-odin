@@ -109,12 +109,12 @@ skybox_create :: proc(sky: ^Skybox, env_tex: u32, ibl_prefilter_tex: u32, vert_p
 	if env_tex != 0 {
 		sky.cubemap_gl = equirect_to_cubemap(env_tex, sky.program_downsample, .Gl_Generate)
 		if sky.cubemap_gl == 0 {
-			log.log_error("suckless-odin.skybox", "Failed to create cubemap (glGenerateMipmap)")
+			log.log_error("render.skybox", "Failed to create cubemap (glGenerateMipmap)")
 			return false
 		}
 		sky.cubemap_seamless = equirect_to_cubemap(env_tex, sky.program_downsample, .Seamless)
 		if sky.cubemap_seamless == 0 {
-			log.log_error("suckless-odin.skybox", "Failed to create cubemap (seamless)")
+			log.log_error("render.skybox", "Failed to create cubemap (seamless)")
 			return false
 		}
 
@@ -144,7 +144,7 @@ skybox_create :: proc(sky: ^Skybox, env_tex: u32, ibl_prefilter_tex: u32, vert_p
 
 	dbg.object_label(gl.VERTEX_ARRAY, sky.fullscr_vao, "Skybox_VAO")
 
-	log.log_info("suckless-odin.skybox", "Skybox created (equirect=%d, cubemap=%d)",
+	log.log_info("render.skybox", "Skybox created (equirect=%d, cubemap=%d)",
 		sky.program_equirect, sky.program_cubemap)
 	return true
 }
@@ -278,27 +278,27 @@ skybox_destroy :: proc(sky: ^Skybox) {
 load_skybox_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
 	vert_source, vert_ok := shader.read_file(vert_path)
 	if !vert_ok {
-		log.log_error("suckless-odin.skybox", "Failed to read %s", vert_path)
+		log.log_error("render.skybox", "Failed to read %s", vert_path)
 		return 0, false
 	}
 	defer delete(vert_source)
 
 	frag_source, frag_ok := shader.read_file(frag_path)
 	if !frag_ok {
-		log.log_error("suckless-odin.skybox", "Failed to read %s", frag_path)
+		log.log_error("render.skybox", "Failed to read %s", frag_path)
 		return 0, false
 	}
 	defer delete(frag_source)
 
 	program, ok := gl.load_shaders_source(vert_source, frag_source)
 	if !ok {
-		log.log_error("suckless-odin.skybox", "Shader compilation failed: %s + %s", vert_path, frag_path)
+		log.log_error("render.skybox", "Shader compilation failed: %s + %s", vert_path, frag_path)
 		return 0, false
 	}
 
 	bin_size: i32
 	gl.GetProgramiv(program, gl.PROGRAM_BINARY_LENGTH, &bin_size)
-	log.log_info("Shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
+	log.log_info("render.shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
 		vert_path, frag_path, program, bin_size)
 
 	return program, true
@@ -445,7 +445,7 @@ equirect_to_cubemap :: proc(env_tex: u32, downsample_prog: u32, mipmap_mode: Mip
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
 	dbg.object_label(gl.TEXTURE, cubemap, "Skybox_Cubemap")
-	log.log_info("suckless-odin.skybox", "Cubemap created from equirect (%dx%d, %d mip levels, mode=%v)",
+	log.log_info("render.skybox", "Cubemap created from equirect (%dx%d, %d mip levels, mode=%v)",
 		CUBEMAP_FACE_SIZE, CUBEMAP_FACE_SIZE, CUBEMAP_MIP_LEVELS, mipmap_mode)
 
 	return cubemap
@@ -464,7 +464,7 @@ skybox_update_env :: proc(sky: ^Skybox, new_env_tex: u32, new_prefilter_tex: u32
 
 	// Mark dirty so cubemap is regenerated on-demand when mode == .Cubemap
 	sky.cubemap_dirty = true
-	log.log_info("suckless-odin.skybox", "Environment updated, cubemaps invalidated (lazy regen)")
+	log.log_info("render.skybox", "Environment updated, cubemaps invalidated (lazy regen)")
 }
 
 @(private)
@@ -499,7 +499,7 @@ skybox_start_cubemap_gen :: proc(sky: ^Skybox) {
 	zone := tracy.zone_begin(&skybox_gen_init_loc)
 	defer tracy.zone_end(zone)
 
-	log.log_info("suckless-odin.skybox", "Starting amortized cubemap generation for mode=%v...", sky.mipmap_mode)
+	log.log_info("render.skybox", "Starting amortized cubemap generation for mode=%v...", sky.mipmap_mode)
 
 	state := &sky.gen_state
 	state.mipmap_mode = sky.mipmap_mode
@@ -584,7 +584,7 @@ skybox_cubemap_gen_phase_mip0 :: proc(sky: ^Skybox, face_views: ^[6]mt.Mat4, pro
 	defer tracy.zone_end(zone)
 
 	face := state.current_face
-	log.log_info("suckless-odin.skybox", "Amortized cubemap: Rendering face %d of Mip 0...", face)
+	log.log_info("render.skybox", "Amortized cubemap: Rendering face %d of Mip 0...", face)
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, state.fbo)
 	gl.Viewport(0, 0, CUBEMAP_FACE_SIZE, CUBEMAP_FACE_SIZE)
@@ -622,7 +622,7 @@ skybox_cubemap_gen_phase_downsample :: proc(sky: ^Skybox, face_views: ^[6]mt.Mat
 
 	switch state.mipmap_mode {
 	case .Gl_Generate:
-		log.log_info("suckless-odin.skybox", "Amortized cubemap: Generating mipmaps via glGenerateMipmap...")
+		log.log_info("render.skybox", "Amortized cubemap: Generating mipmaps via glGenerateMipmap...")
 		gl.BindTexture(gl.TEXTURE_CUBE_MAP, state.cubemap)
 		gl.GenerateMipmap(gl.TEXTURE_CUBE_MAP)
 		gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT)
@@ -652,7 +652,7 @@ skybox_cubemap_gen_phase_downsample :: proc(sky: ^Skybox, face_views: ^[6]mt.Mat
 		// Otherwise, downsample all 6 faces in a single frame since the size is extremely small.
 		if mip <= sky.compute_tuning.slicing.seamless_downsample_progressive_mip_threshold {
 			tracy.message_c(fmt.tprintf("Skybox: Downsample Seamless Mip %d Face %d/6", mip, face + 1), 0x55FF55)
-			log.log_info("suckless-odin.skybox", "Amortized cubemap: Downsampling Seamless Mip %d Face %d...", mip, face)
+			log.log_info("render.skybox", "Amortized cubemap: Downsampling Seamless Mip %d Face %d...", mip, face)
 
 			gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
 				gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(face), state.cubemap, mip)
@@ -670,7 +670,7 @@ skybox_cubemap_gen_phase_downsample :: proc(sky: ^Skybox, face_views: ^[6]mt.Mat
 			}
 		} else {
 			tracy.message_c(fmt.tprintf("Skybox: Downsample Seamless Mip %d (all faces)", mip), 0x55FF55)
-			log.log_info("suckless-odin.skybox", "Amortized cubemap: Downsampling Seamless Mip %d (all faces)...", mip)
+			log.log_info("render.skybox", "Amortized cubemap: Downsampling Seamless Mip %d (all faces)...", mip)
 
 			for f in 0..<6 {
 				gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
@@ -708,7 +708,7 @@ skybox_cubemap_gen_phase_done :: proc(sky: ^Skybox) {
 	gl.DeleteVertexArrays(1, &state.vao)
 	gl.DeleteFramebuffers(1, &state.fbo)
 
-	log.log_info("suckless-odin.skybox", "Amortized cubemap generation completed.")
+	log.log_info("render.skybox", "Amortized cubemap generation completed.")
 
 	// Reset state
 	sky.gen_state = {}
@@ -774,7 +774,7 @@ skybox_ensure_cubemap :: proc(sky: ^Skybox) {
 	if sky.cubemap_dirty {
 		if sky.gen_state.in_progress {
 			// Abort active generation since parameters changed (e.g., mipmap_mode toggled)
-			log.log_info("suckless-odin.skybox", "Aborting in-progress cubemap generation for mipmap_mode change.")
+			log.log_info("render.skybox", "Aborting in-progress cubemap generation for mipmap_mode change.")
 			// We MUST NOT delete gen_state.cubemap and gen_state.convert_prog because they are references
 			// to persistent textures (cubemap_seamless / cubemap_gl) and programs (program_equirect_to_cubemap)
 			// owned by the main Skybox struct.

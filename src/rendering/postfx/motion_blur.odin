@@ -28,7 +28,7 @@ motion_blur_create :: proc(fx: ^Motion_Blur_FX, width, height: i32) -> (ok: bool
 
 	motion_blur_create_textures(fx, width, height)
 
-	log.log_info("suckless-odin.postfx.motion_blur", "Motion blur created (%dx%d tiles from %dx%d)",
+	log.log_info("render.postfx", "Motion blur created (%dx%d tiles from %dx%d)",
 		fx.tile_width, fx.tile_height, width, height)
 	return true
 }

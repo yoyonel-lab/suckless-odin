@@ -142,19 +142,19 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 
 	// IBL programs + BRDF LUT (env-independent, computed once)
 	if !rendering.ibl_init(&s.ibl, compute_tuning) {
-		log.log_error("suckless-odin.scene", "Failed to initialize IBL resources")
+		log.log_error("scene", "Failed to initialize IBL resources")
 		return false
 	}
 
 	// Skybox (created without env texture — cubemaps will be generated on first async load)
 	if !rendering.skybox_create(&s.skybox, 0, 0, "shaders/background.vert", "shaders/background.frag", compute_tuning) {
-		log.log_error("suckless-odin.scene", "Failed to create skybox")
+		log.log_error("scene", "Failed to create skybox")
 		return false
 	}
 
 	// Environment manager (async loading + progressive IBL + transitions)
 	if !env_manager_create(&s.env_mgr, compute_tuning) {
-		log.log_error("suckless-odin.scene", "Failed to create env manager")
+		log.log_error("scene", "Failed to create env manager")
 		return false
 	}
 
@@ -226,7 +226,7 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 
 	// Post-processing pipeline
 	if !postfx.pipeline_create(&s.postfx_pipeline, width, height) {
-		log.log_error("suckless-odin.scene", "Failed to create postfx pipeline")
+		log.log_error("scene", "Failed to create postfx pipeline")
 		return false
 	}
 
@@ -269,34 +269,34 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		gizmo_snap_value           = 0.5,
 	}
 	if !rendering.shadow_cubemap_create(&s.shadow_cubemap, 512) {
-		log.log_error("suckless-odin.scene", "Failed to create shadow cubemap")
+		log.log_error("scene", "Failed to create shadow cubemap")
 		return false
 	}
 
 	// Initialize shadow TAA renderer (Screen-Space Temporal Reprojection)
 	if !rendering.shadow_taa_create(&s.shadow_taa, width, height) {
-		log.log_error("suckless-odin.scene", "Failed to create shadow TAA renderer")
+		log.log_error("scene", "Failed to create shadow TAA renderer")
 		return false
 	}
 
 	// Initialize depth downsampler (Phase 2)
 	if !rendering.depth_downsample_create(&s.depth_downsample, width, height) {
-		log.log_error("suckless-odin.scene", "Failed to create depth downsampler")
+		log.log_error("scene", "Failed to create depth downsampler")
 		return false
 	}
 
 	// Initialize volumetric renderer (Phase 3)
 	if !rendering.volumetric_create(&s.volumetric, width, height) {
-		log.log_error("suckless-odin.scene", "Failed to create volumetric renderer")
+		log.log_error("scene", "Failed to create volumetric renderer")
 		return false
 	}
 
 	// Text overlay
 	if !rendering.overlay_create(&s.overlay) {
-		log.log_warning("suckless-odin.scene", "Failed to create text overlay (non-fatal)")
+		log.log_warning("scene", "Failed to create text overlay (non-fatal)")
 	}
 
-	log.log_info("suckless-odin.scene", "Scene created (%d spheres, PBR/IBL/Shadows/Volumetric active)", s.spheres.count)
+	log.log_info("scene", "Scene created (%d spheres, PBR/IBL/Shadows/Volumetric active)", s.spheres.count)
 	return true
 }
 
@@ -640,7 +640,7 @@ scene_scan_hdr_files :: proc(s: ^Scene) {
 
 	entries, err := os.read_directory_by_path(HDR_DIR, -1, context.temp_allocator)
 	if err != nil {
-		log.log_warning("suckless-odin.scene", "Failed to scan HDR directory: %s", HDR_DIR)
+		log.log_warning("scene", "Failed to scan HDR directory: %s", HDR_DIR)
 		return
 	}
 
@@ -663,7 +663,7 @@ scene_scan_hdr_files :: proc(s: ^Scene) {
 		}
 	}
 
-	log.log_info("suckless-odin.scene", "Found %d HDR files, current index=%d", len(s.hdr_files), s.current_hdr_index)
+	log.log_info("scene", "Found %d HDR files, current index=%d", len(s.hdr_files), s.current_hdr_index)
 }
 
 // Cycle to next/prev environment map (PAGE_UP/PAGE_DOWN).
@@ -674,7 +674,7 @@ scene_cycle_env :: proc(s: ^Scene, direction: i32) {
 
 	s.current_hdr_index = (s.current_hdr_index + direction + count) %% count
 	path := s.hdr_files[s.current_hdr_index]
-	log.log_info("suckless-odin.scene", "Cycling env map [%d/%d]: %s", s.current_hdr_index + 1, count, path)
+	log.log_info("scene", "Cycling env map [%d/%d]: %s", s.current_hdr_index + 1, count, path)
 	scene_change_env(s, path)
 }
 
@@ -702,7 +702,7 @@ scene_destroy :: proc(s: ^Scene) {
 	rendering.ibl_destroy(&s.ibl)
 	rendering.texture_destroy(&s.env_texture)
 	rendering.material_lib_destroy(&s.mat_lib)
-	log.log_info("suckless-odin.scene", "Scene destroyed")
+	log.log_info("scene", "Scene destroyed")
 }
 
 // Internal: load shader program with error handling (processes @header includes)
@@ -718,14 +718,14 @@ load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
 
 	program, ok := gl.load_shaders_source(vert_source, frag_source)
 	if !ok {
-		log.log_error("suckless-odin.scene", "Shader compilation failed: %s + %s", vert_path, frag_path)
+		log.log_error("scene", "Shader compilation failed: %s + %s", vert_path, frag_path)
 		return 0, false
 	}
 
 	// Query binary size (matches legacy "Binary size: N bytes")
 	bin_size: i32
 	gl.GetProgramiv(program, gl.PROGRAM_BINARY_LENGTH, &bin_size)
-	log.log_info("Shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
+	log.log_info("render.shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
 		vert_path, frag_path, program, bin_size)
 
 	return program, true

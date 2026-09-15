@@ -2,7 +2,7 @@ package session
 
 import "core:os"
 import "core:encoding/json"
-import "core:fmt"
+import log "../log"
 import mt "../math_types"
 import postfx "../../rendering/postfx"
 
@@ -120,13 +120,13 @@ SESSION_FILE_PATH :: "session.json"
 save_session :: proc(state: ^Session_State, path: string = SESSION_FILE_PATH) -> bool {
 	data, err := json.marshal(state^, allocator = context.temp_allocator, opt = json.Marshal_Options{pretty = true})
 	if err != nil {
-		fmt.eprintln("[session] Failed to marshal session state:", err)
+		log.log_error("core.session", "Failed to marshal session state: %v", err)
 		return false
 	}
 	
 	write_err := os.write_entire_file(path, data)
 	if write_err != nil {
-		fmt.eprintln("[session] Failed to write session file:", write_err)
+		log.log_error("core.session", "Failed to write session file '%s': %v", path, write_err)
 		return false
 	}
 	return true
@@ -142,7 +142,7 @@ load_session :: proc(state: ^Session_State, path: string = SESSION_FILE_PATH) ->
 	
 	unmarshal_err := json.unmarshal(data, state, allocator = context.allocator)
 	if unmarshal_err != nil {
-		fmt.eprintln("[session] Failed to decode session JSON:", unmarshal_err)
+		log.log_error("core.session", "Failed to decode session JSON: %v", unmarshal_err)
 		return false
 	}
 	return true

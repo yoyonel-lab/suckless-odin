@@ -101,7 +101,7 @@ shadow_taa_create_fbo_textures :: proc(st: ^Shadow_TAA, width, height: i32) -> b
 
 		h_status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 		if h_status != gl.FRAMEBUFFER_COMPLETE {
-			log.log_error("suckless-odin.shadow", "Shadow TAA History FBO %d incomplete: 0x%X", i, h_status)
+			log.log_error("render.shadow", "Shadow TAA History FBO %d incomplete: 0x%X", i, h_status)
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 			return false
 		}
@@ -164,7 +164,7 @@ shadow_taa_create :: proc(st: ^Shadow_TAA, width, height: i32) -> bool {
 		return false
 	}
 
-	log.log_info("suckless-odin.shadow", "Shadow TAA renderer initialized (%dx%d)", st.width, st.height)
+	log.log_info("render.shadow", "Shadow TAA renderer initialized (%dx%d)", st.width, st.height)
 	return true
 }
 

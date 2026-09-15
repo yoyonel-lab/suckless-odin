@@ -259,7 +259,7 @@ shadow_cubemap_create_fbo_textures :: proc(sc: ^Shadow_Cubemap, resolution: i32)
 
 	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 	if status != gl.FRAMEBUFFER_COMPLETE {
-		log.log_error("suckless-odin.shadow", "Shadow cubemap FBO incomplete: 0x%X", status)
+		log.log_error("render.shadow", "Shadow cubemap FBO incomplete: 0x%X", status)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		return false
 	}
@@ -298,7 +298,7 @@ shadow_cubemap_resize :: proc(sc: ^Shadow_Cubemap, new_resolution: i32) -> bool 
 		sc.cached_faces[i] = false
 	}
 	sc.preview_dirty = true
-	log.log_info("suckless-odin.shadow", "Shadow cubemap resized to %dx%d", new_resolution, new_resolution)
+	log.log_debug("render.shadow", "Shadow cubemap resized to %dx%d", new_resolution, new_resolution)
 	return true
 }
 
@@ -358,7 +358,7 @@ shadow_cubemap_create :: proc(sc: ^Shadow_Cubemap, resolution: i32 = DEFAULT_SHA
 	sc.bulb_loc_light_intensity = gl.GetUniformLocation(sc.bulb_program, "u_light_intensity")
 	sc.bulb_loc_radius = gl.GetUniformLocation(sc.bulb_program, "u_bulb_radius")
 
-	log.log_info("suckless-odin.shadow", "Shadow cubemap & Light bulb renderer created successfully (%dx%d)", resolution, resolution)
+	log.log_info("render.shadow", "Shadow cubemap & Light bulb renderer created successfully (%dx%d)", resolution, resolution)
 	return true
 }
 

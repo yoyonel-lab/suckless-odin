@@ -111,7 +111,7 @@ ibl_update_brdf_lut :: proc(ibl: ^IBL_Resources) {
 	ibl.brdf_lut_row_offset += 32
 	if ibl.brdf_lut_row_offset >= BRDF_LUT_SIZE {
 		ibl.brdf_lut_computed = true
-		log.log_info("perf.ibl", "IBL: Progressive BRDF LUT precomputation completed successfully")
+		log.log_info("render.ibl", "IBL: Progressive BRDF LUT precomputation completed successfully")
 	}
 }
 
@@ -153,7 +153,7 @@ ibl_destroy :: proc(ibl: ^IBL_Resources) {
 load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
-		log.log_error("suckless-odin.ibl", "Failed to read compute shader: %s", path)
+		log.log_error("render.ibl", "Failed to read compute shader: %s", path)
 		return 0, false
 	}
 	defer delete(data)
@@ -178,7 +178,7 @@ load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 		buf: [1024]u8
 		log_len: i32
 		gl.GetShaderInfoLog(shader, 1024, &log_len, &buf[0])
-		log.log_error("suckless-odin.ibl", "Compute shader compile error (%s):\n%s", path, cstring(&buf[0]))
+		log.log_error("render.ibl", "Compute shader compile error (%s):\n%s", path, cstring(&buf[0]))
 		gl.DeleteShader(shader)
 		return 0, false
 	}
@@ -192,14 +192,14 @@ load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 		buf: [1024]u8
 		log_len: i32
 		gl.GetProgramInfoLog(program, 1024, &log_len, &buf[0])
-		log.log_error("suckless-odin.ibl", "Compute shader link error (%s):\n%s", path, cstring(&buf[0]))
+		log.log_error("render.ibl", "Compute shader link error (%s):\n%s", path, cstring(&buf[0]))
 		gl.DeleteShader(shader)
 		gl.DeleteProgram(program)
 		return 0, false
 	}
 
 	gl.DeleteShader(shader)
-	log.log_info("suckless-odin.ibl", "Compute shader loaded: %s (program=%d)", path, program)
+	log.log_info("render.ibl", "Compute shader loaded: %s (program=%d)", path, program)
 	return program, true
 }
 

@@ -135,18 +135,18 @@ Validation du cycle d'exécution utilisateur depuis le client Steam :
 Extrait certifié des logs de démarrage émis par `suckless-odin.exe` sous le runtime Valve Proton :
 
 ```text
-2026-08-27 08:38:08,210 [316:320] - suckless-odin.window - INFO     - Window created: 1920x1200
-2026-08-27 08:38:08,221 [316:320] - suckless-odin.gl     - INFO     - Vendor: Intel
-2026-08-27 08:38:08,221 [316:320] - suckless-odin.gl     - INFO     - Renderer: Mesa Intel(R) Iris(R) Xe Graphics (RPL-U)
-2026-08-27 08:38:08,221 [316:320] - suckless-odin.gl     - INFO     - Version: 4.6 (Core Profile) Mesa 25.1.8
-2026-08-27 08:38:08,221 [316:320] - suckless-odin.gl     - INFO     - Compute shaders supported
-2026-08-27 08:38:08,221 [316:320] - suckless-odin.gl     - INFO     - Persistent Ring PBO DMA (ARB_buffer_storage) supported
-2026-08-27 08:38:08,350 [316:320] - suckless-odin.env    - INFO     - Env manager created (Immutable IBL Pools & Ring PBO DMA active)
-2026-08-27 08:38:08,440 [316:320] - suckless-odin.postfx  - INFO     - Pipeline created (1280x720)
-2026-08-27 08:38:08,450 [316:320] - suckless-odin.scene   - INFO     - Scene created (100 spheres, PBR/IBL active)
-2026-08-27 08:38:08,455 [316:320] - suckless-odin.app     - INFO     - Application initialized (1920x1200)
-2026-08-27 08:38:09,240 [316:320] - suckless-odin.env    - INFO     - IBL: Irradiance complete
-2026-08-27 08:38:09,255 [316:320] - suckless-odin.ibl    - INFO     - IBL environment ready in 609.43 ms, descriptor set updated.
+2026-08-27 08:38:08,210 [316:320] - app.window    - INFO     - Window created: 1920x1200
+2026-08-27 08:38:08,221 [316:320] - app.window    - INFO     - Vendor: Intel
+2026-08-27 08:38:08,221 [316:320] - app.window    - INFO     - Renderer: Mesa Intel(R) Iris(R) Xe Graphics (RPL-U)
+2026-08-27 08:38:08,221 [316:320] - app.window    - INFO     - Version: 4.6 (Core Profile) Mesa 25.1.8
+2026-08-27 08:38:08,221 [316:320] - app.window    - INFO     - Compute shaders supported
+2026-08-27 08:38:08,221 [316:320] - app.window    - INFO     - Persistent Ring PBO DMA (ARB_buffer_storage) supported
+2026-08-27 08:38:08,350 [316:320] - scene.env     - INFO     - Env manager created (Immutable IBL Pools & Ring PBO DMA active)
+2026-08-27 08:38:08,440 [316:320] - render.postfx - INFO     - Pipeline created (1280x720)
+2026-08-27 08:38:08,450 [316:320] - scene         - INFO     - Scene created (100 spheres, PBR/IBL active)
+2026-08-27 08:38:08,455 [316:320] - app           - INFO     - Application initialized (1920x1200)
+2026-08-27 08:38:09,240 [316:320] - scene.env     - INFO     - IBL: Irradiance complete
+2026-08-27 08:38:09,255 [316:320] - render.ibl    - INFO     - IBL environment ready in 609.43 ms, descriptor set updated.
 ```
 
 ---

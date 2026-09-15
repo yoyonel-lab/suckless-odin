@@ -92,7 +92,7 @@ depth_downsample_create :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 	dbg.object_label(gl.TEXTURE, dd.discontinuity_tex, "Depth_Discontinuity_Tex")
 	dbg.object_label(gl.TEXTURE, dd.preview_tex, "Depth_Preview_Tex")
 
-	log.log_info("suckless-odin.volumetric", "Depth downsampler created (%dx%d -> %dx%d)", dd.full_width, dd.full_height, dd.width, dd.height)
+	log.log_info("render.volumetric", "Depth downsampler created (%dx%d -> %dx%d)", dd.full_width, dd.full_height, dd.width, dd.height)
 	return true
 }
 
@@ -128,7 +128,7 @@ create_fbo :: proc(dd: ^Depth_Downsample) -> bool {
 
 		status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 		if status != gl.FRAMEBUFFER_COMPLETE {
-			log.log_error("suckless-odin.volumetric", "Depth downsample FBO %d incomplete: 0x%X", i, status)
+			log.log_error("render.volumetric", "Depth downsample FBO %d incomplete: 0x%X", i, status)
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 			return false
 		}
@@ -152,7 +152,7 @@ create_fbo :: proc(dd: ^Depth_Downsample) -> bool {
 
 	preview_status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 	if preview_status != gl.FRAMEBUFFER_COMPLETE {
-		log.log_error("suckless-odin.volumetric", "Depth preview FBO incomplete: 0x%X", preview_status)
+		log.log_error("render.volumetric", "Depth preview FBO incomplete: 0x%X", preview_status)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		return false
 	}
@@ -201,7 +201,7 @@ depth_downsample_resize :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 
 	destroy_fbo(dd)
 	create_fbo(dd)
-	log.log_info("suckless-odin.volumetric", "Depth downsampler resized to %dx%d (1/%d from %dx%d)", dd.width, dd.height, div, dd.full_width, dd.full_height)
+	log.log_debug("render.volumetric", "Depth downsampler resized to %dx%d (1/%d from %dx%d)", dd.width, dd.height, div, dd.full_width, dd.full_height)
 }
 
 // Executes the Rank/Median 4-tap depth downsample pass

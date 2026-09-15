@@ -59,7 +59,7 @@ shader_cache_compile :: proc(cache: ^Shader_Cache, effects: Effect_Flags) -> u32
 		preamble,
 	)
 	if !ok {
-		log.log_warning("suckless-odin.postfx.shader_cache", "Failed to compile variant")
+		log.log_warning("render.postfx.cache", "Failed to compile variant")
 		return 0
 	}
 
@@ -91,7 +91,7 @@ shader_cache_compile :: proc(cache: ^Shader_Cache, effects: Effect_Flags) -> u32
 	// Store new variant at index 0 (MRU)
 	cache.variants[0] = {program = program, effects = effects}
 
-	log.log_info("suckless-odin.postfx.shader_cache", "Compiled variant (cache size: %d/%d, effects: 0x%08X)", cache.count, MAX_CACHED_VARIANTS, transmute(u32)effects)
+	log.log_debug("render.postfx.cache", "Compiled variant (cache size: %d/%d, effects: 0x%08X)", cache.count, MAX_CACHED_VARIANTS, transmute(u32)effects)
 	return program
 }
 

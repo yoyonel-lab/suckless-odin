@@ -65,17 +65,17 @@ settings_export :: proc(p: ^Pipeline, path: string, name: string) -> bool {
 
 	data, err := json.marshal(settings, allocator = context.temp_allocator)
 	if err != nil {
-		log.log_error("suckless-odin.postfx.io", "Failed to marshal settings: %v", err)
+		log.log_error("render.postfx.io", "Failed to marshal settings: %v", err)
 		return false
 	}
 
 	write_err := os.write_entire_file(path, data)
 	if write_err != nil {
-		log.log_error("suckless-odin.postfx.io", "Failed to write settings file: %s", path)
+		log.log_error("render.postfx.io", "Failed to write settings file: %s", path)
 		return false
 	}
 
-	log.log_info("suckless-odin.postfx.io", "Exported settings '%s' to %s", name, path)
+	log.log_info("render.postfx.io", "Exported settings '%s' to %s", name, path)
 	return true
 }
 
@@ -83,7 +83,7 @@ settings_export :: proc(p: ^Pipeline, path: string, name: string) -> bool {
 settings_import :: proc(p: ^Pipeline, path: string) -> bool {
 	data, read_err := os.read_entire_file_from_path(path, context.allocator)
 	if read_err != nil {
-		log.log_error("suckless-odin.postfx.io", "Failed to read settings file: %s", path)
+		log.log_error("render.postfx.io", "Failed to read settings file: %s", path)
 		return false
 	}
 	defer delete(data)
@@ -91,7 +91,7 @@ settings_import :: proc(p: ^Pipeline, path: string) -> bool {
 	settings: Settings_File
 	json_err := json.unmarshal(data, &settings, allocator = context.allocator)
 	if json_err != nil {
-		log.log_error("suckless-odin.postfx.io", "Failed to parse settings JSON: %s", path)
+		log.log_error("render.postfx.io", "Failed to parse settings JSON: %s", path)
 		return false
 	}
 	defer delete(settings.name)
@@ -122,7 +122,7 @@ settings_import :: proc(p: ^Pipeline, path: string) -> bool {
 	defer delete(settings.lut3d_path)
 	p.ubo_dirty      = true
 
-	log.log_info("suckless-odin.postfx.io", "Imported settings '%s' from %s", settings.name, path)
+	log.log_info("render.postfx.io", "Imported settings '%s' from %s", settings.name, path)
 	return true
 }
 
@@ -147,10 +147,10 @@ settings_list_files :: proc(dir: string, allocator := context.allocator) -> (fil
 settings_delete :: proc(path: string) -> bool {
 	err := os.remove(path)
 	if err != nil {
-		log.log_error("suckless-odin.postfx.io", "Failed to delete settings file: %s", path)
+		log.log_error("render.postfx.io", "Failed to delete settings file: %s", path)
 		return false
 	}
-	log.log_info("suckless-odin.postfx.io", "Deleted settings file: %s", path)
+	log.log_info("render.postfx.io", "Deleted settings file: %s", path)
 	return true
 }
 

@@ -34,7 +34,7 @@ Shader :: struct {
 read_file :: proc(path: string) -> (source: string, ok: bool) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
-		log.log_error("suckless-odin.shader", "Failed to read shader file: %s", path)
+		log.log_error("render.shader", "Failed to read shader file: %s", path)
 		return "", false
 	}
 	defer delete(data)
@@ -53,7 +53,7 @@ read_file :: proc(path: string) -> (source: string, ok: bool) {
 @(private)
 process_includes :: proc(source: string, file_path: string, depth: int) -> (result: string, ok: bool) {
 	if depth > MAX_INCLUDE_DEPTH {
-		log.log_error("suckless-odin.shader", "Maximum include depth exceeded (%d)", MAX_INCLUDE_DEPTH)
+		log.log_error("render.shader", "Maximum include depth exceeded (%d)", MAX_INCLUDE_DEPTH)
 		return "", false
 	}
 
@@ -80,7 +80,7 @@ process_includes :: proc(source: string, file_path: string, depth: int) -> (resu
 
 			header_data, read_err := os.read_entire_file(full_path, context.allocator)
 			if read_err != nil {
-				log.log_error("suckless-odin.shader", "Failed to read included header: %s", full_path)
+				log.log_error("render.shader", "Failed to read included header: %s", full_path)
 				return "", false
 			}
 			header_source := string(header_data)
@@ -119,7 +119,7 @@ compile :: proc(source: string, shader_type: u32) -> (shader_id: u32, ok: bool) 
 		info_log: [INFO_LOG_SIZE]u8
 		gl.GetShaderInfoLog(shader_id, INFO_LOG_SIZE, nil, raw_data(&info_log))
 		type_str := shader_type_string(shader_type)
-		log.log_error("suckless-odin.shader", "%s compilation failed:\n%s", type_str, string(info_log[:]))
+		log.log_error("render.shader", "%s compilation failed:\n%s", type_str, string(info_log[:]))
 		gl.DeleteShader(shader_id)
 		return 0, false
 	}
@@ -155,7 +155,7 @@ load_program :: proc(vertex_path, fragment_path: string) -> (program: u32, ok: b
 	if success == 0 {
 		info_log: [INFO_LOG_SIZE]u8
 		gl.GetProgramInfoLog(program, INFO_LOG_SIZE, nil, raw_data(&info_log))
-		log.log_error("suckless-odin.shader", "Program linking failed:\n%s", string(info_log[:]))
+		log.log_error("render.shader", "Program linking failed:\n%s", string(info_log[:]))
 		gl.DeleteProgram(program)
 		return 0, false
 	}
@@ -196,7 +196,7 @@ load_program_with_defines :: proc(vertex_path, fragment_path: string, defines: s
 	if success == 0 {
 		info_log: [INFO_LOG_SIZE]u8
 		gl.GetProgramInfoLog(program, INFO_LOG_SIZE, nil, raw_data(&info_log))
-		log.log_error("suckless-odin.shader", "Program linking failed (with defines):\n%s", string(info_log[:]))
+		log.log_error("render.shader", "Program linking failed (with defines):\n%s", string(info_log[:]))
 		gl.DeleteProgram(program)
 		return 0, false
 	}
@@ -239,7 +239,7 @@ load_compute :: proc(compute_path: string) -> (program: u32, ok: bool) {
 	if success == 0 {
 		info_log: [INFO_LOG_SIZE]u8
 		gl.GetProgramInfoLog(program, INFO_LOG_SIZE, nil, raw_data(&info_log))
-		log.log_error("suckless-odin.shader", "Compute program linking failed:\n%s", string(info_log[:]))
+		log.log_error("render.shader", "Compute program linking failed:\n%s", string(info_log[:]))
 		gl.DeleteProgram(program)
 		return 0, false
 	}
@@ -302,7 +302,7 @@ get_uniform_location :: proc(shader: ^Shader, name: string) -> i32 {
 		}
 	}
 	if !shader.silent_warnings && shader.warning_count < SHADER_WARNING_THROTTLE_LIMIT {
-		log.log_warning("suckless-odin.shader", "Uniform '%s' not found in shader '%s'", name, shader.name)
+		log.log_warning("render.shader", "Uniform '%s' not found in shader '%s'", name, shader.name)
 		shader.warning_count += 1
 	}
 	return -1

@@ -13,7 +13,7 @@ GL_MINOR :: 4
 // ISO port of window_create() from suckless-ogl/src/window.c.
 window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1, vsync: bool = false) -> glfw.WindowHandle {
 	if !glfw.Init() {
-		log.log_error("suckless-odin.window", "Failed to initialize GLFW")
+		log.log_error("app.window", "Failed to initialize GLFW")
 		return nil
 	}
 
@@ -35,7 +35,7 @@ window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1, vsyn
 
 	window := glfw.CreateWindow(width, height, title, nil, nil)
 	if window == nil {
-		log.log_error("suckless-odin.window", "Failed to create GLFW window")
+		log.log_error("app.window", "Failed to create GLFW window")
 		glfw.Terminate()
 		return nil
 	}
@@ -51,15 +51,15 @@ window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1, vsyn
 	// Log context info
 	major := glfw.GetWindowAttrib(window, glfw.CONTEXT_VERSION_MAJOR)
 	minor := glfw.GetWindowAttrib(window, glfw.CONTEXT_VERSION_MINOR)
-	log.log_info("suckless-odin.window", "OpenGL Context: %d.%d", major, minor)
+	log.log_info("app.window", "OpenGL Context: %d.%d", major, minor)
 
 	renderer := gl.GetString(gl.RENDERER)
 	version  := gl.GetString(gl.VERSION)
 	if renderer != nil {
-		log.log_info("suckless-odin.window", "Renderer: %s", renderer)
+		log.log_info("app.window", "Renderer: %s", renderer)
 	}
 	if version != nil {
-		log.log_info("suckless-odin.window", "GL Version: %s", version)
+		log.log_info("app.window", "GL Version: %s", version)
 	}
 
 	return window

@@ -11,7 +11,7 @@ Dans certains environnements de développement (notamment sous **Fedora/Bazzite 
 
 Le symptôme visible dans la console est la répétition continue de l'avertissement suivant :
 ```text
-suckless-odin.env - WARNING - Transition already in progress, ignoring
+scene.env - WARNING - Transition already in progress, ignoring
 ```
 
 Cela indique que la machine à états reste bloquée indéfiniment dans un état de transition (`transition_state != .Idle`), ignorant toutes les requêtes ultérieures et bloquant le pipeline de chargement IBL.
@@ -32,7 +32,7 @@ Trois hypothèses techniques majeures ont été identifiées à la suite d'une a
     4. Dans `async_loader_poll` :
        ```odin
        if loader.request.state == .Failed {
-           log.log_error("suckless-odin.async", "Async load failed for: %s", cstring(&loader.request.path[0]))
+           log.log_error("scene.async", "Async load failed for: %s", cstring(&loader.request.path[0]))
            loader.request.state = .Idle
        }
        return false

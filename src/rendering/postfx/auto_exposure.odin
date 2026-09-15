@@ -59,7 +59,7 @@ auto_exposure_create :: proc(fx: ^Auto_Exposure_FX) -> (ok: bool) {
 	}
 	fx.current_exposure = DEFAULT_AUTO_EXPOSURE_INITIAL
 
-	log.log_info("suckless-odin.postfx.auto_exposure", "Auto-exposure created")
+	log.log_info("render.postfx", "Auto-exposure created")
 	return true
 }
 

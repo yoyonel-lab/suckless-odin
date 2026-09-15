@@ -11,7 +11,7 @@ apply_compute_tuning_callback :: proc(scene_ptr: rawptr, params: settings.Comput
 
 	// 1. Recompile IBL shaders
 	if !rendering.ibl_recompile_shaders(&s.ibl, params) {
-		log.log_error("suckless-odin.app", "Failed to recompile IBL compute shaders with new parameters")
+		log.log_error("app", "Failed to recompile IBL compute shaders with new parameters")
 		return false
 	}
 
@@ -27,6 +27,6 @@ apply_compute_tuning_callback :: proc(scene_ptr: rawptr, params: settings.Comput
 		scene.env_manager_trigger_transition(&s.env_mgr, scene.HDR_PATH)
 	}
 
-	log.log_info("suckless-odin.app", "Applied new compute tuning parameters and triggered IBL recalculation")
+	log.log_info("app", "Applied new compute tuning parameters and triggered IBL recalculation")
 	return true
 }

@@ -393,7 +393,7 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	dbg.object_label(gl.TEXTURE, vr.acceptance_tex, "Volumetric_Acceptance_RGBA8")
 	dbg.object_label(gl.TEXTURE, vr.preview_tex, "Volumetric_Preview_RGBA8")
 
-	log.log_info("suckless-odin.volumetric", "Volumetric renderer with TAA created (%dx%d -> %dx%d)", vr.full_width, vr.full_height, vr.width, vr.height)
+	log.log_info("render.volumetric", "Volumetric renderer with TAA created (%dx%d -> %dx%d)", vr.full_width, vr.full_height, vr.width, vr.height)
 	return true
 }
 
@@ -417,7 +417,7 @@ create_volumetric_fbo :: proc(vr: ^Volumetric_Renderer) -> bool {
 
 	status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 	if status != gl.FRAMEBUFFER_COMPLETE {
-		log.log_error("suckless-odin.volumetric", "Volumetric Raw FBO incomplete: 0x%X", status)
+		log.log_error("render.volumetric", "Volumetric Raw FBO incomplete: 0x%X", status)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		return false
 	}
@@ -451,7 +451,7 @@ create_volumetric_fbo :: proc(vr: ^Volumetric_Renderer) -> bool {
 
 		h_status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 		if h_status != gl.FRAMEBUFFER_COMPLETE {
-			log.log_error("suckless-odin.volumetric", "Volumetric History FBO %d incomplete: 0x%X", i, h_status)
+			log.log_error("render.volumetric", "Volumetric History FBO %d incomplete: 0x%X", i, h_status)
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 			return false
 		}
@@ -474,7 +474,7 @@ create_volumetric_fbo :: proc(vr: ^Volumetric_Renderer) -> bool {
 
 		b_status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 		if b_status != gl.FRAMEBUFFER_COMPLETE {
-			log.log_error("suckless-odin.volumetric", "Volumetric Blur FBO %d incomplete: 0x%X", i, b_status)
+			log.log_error("render.volumetric", "Volumetric Blur FBO %d incomplete: 0x%X", i, b_status)
 			gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 			return false
 		}
@@ -496,7 +496,7 @@ create_volumetric_fbo :: proc(vr: ^Volumetric_Renderer) -> bool {
 
 	preview_status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
 	if preview_status != gl.FRAMEBUFFER_COMPLETE {
-		log.log_error("suckless-odin.volumetric", "Volumetric preview FBO incomplete: 0x%X", preview_status)
+		log.log_error("render.volumetric", "Volumetric preview FBO incomplete: 0x%X", preview_status)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		return false
 	}
@@ -562,7 +562,7 @@ volumetric_resize :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 
 	destroy_volumetric_fbo(vr)
 	create_volumetric_fbo(vr)
-	log.log_info("suckless-odin.volumetric", "Volumetric renderer resized to %dx%d (1/%d from %dx%d)", vr.width, vr.height, div, vr.full_width, vr.full_height)
+	log.log_debug("render.volumetric", "Volumetric renderer resized to %dx%d (1/%d from %dx%d)", vr.width, vr.height, div, vr.full_width, vr.full_height)
 }
 
 // Executes the Volumetric Raymarching and TAA Reprojection passes

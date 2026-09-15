@@ -114,7 +114,7 @@ Dans [`shaders/IBL/spmap.glsl`](../shaders/IBL/spmap.glsl) (filtrage spéculaire
 * **Aucun Surcoût CPU** : Le précalcul Hammersley est invariant et généré une seule fois à l'initialisation du moteur.
 
 #### E. Protocole d'Évaluation & Critères Go / No-Go
-* **Métrique Primaire** : Log `suckless-odin.ibl : IBL environment ready in X.XX ms` $\rightarrow$ Cible : $< 120\text{ ms}$.
+* **Métrique Primaire** : Log `render.ibl : IBL environment ready in X.XX ms` $\rightarrow$ Cible : $< 120\text{ ms}$.
 * **Métrique Secondaire** : Durée GPU de la zone Tracy `IBL_Specular_Pass` $\rightarrow$ Cible : réduction de $\ge 40\%$.
 
 ---

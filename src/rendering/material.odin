@@ -33,7 +33,7 @@ Material_JSON :: struct {
 material_load_presets :: proc(path: string) -> (lib: Material_Lib, ok: bool) {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
 	if err != nil {
-		log.log_error("suckless-odin.material", "Failed to read material file: %s", path)
+		log.log_error("render.material", "Failed to read material file: %s", path)
 		return lib, false
 	}
 	defer delete(data)
@@ -41,7 +41,7 @@ material_load_presets :: proc(path: string) -> (lib: Material_Lib, ok: bool) {
 	json_materials: [dynamic]Material_JSON
 	json_err := json.unmarshal(data, &json_materials, allocator = context.allocator)
 	if json_err != nil {
-		log.log_error("suckless-odin.material", "Failed to parse material JSON: %s", path)
+		log.log_error("render.material", "Failed to parse material JSON: %s", path)
 		return lib, false
 	}
 	defer delete(json_materials)
@@ -59,7 +59,7 @@ material_load_presets :: proc(path: string) -> (lib: Material_Lib, ok: bool) {
 		}
 	}
 
-	log.log_info("suckless-odin.material", "Loaded %d material presets from %s", lib.count, path)
+	log.log_info("render.material", "Loaded %d material presets from %s", lib.count, path)
 	return lib, true
 }
 
