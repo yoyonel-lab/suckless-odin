@@ -663,7 +663,7 @@ scene_scan_hdr_files :: proc(s: ^Scene) {
 		}
 	}
 
-	log.log_info("scene", "Found %d HDR files, current index=%d", len(s.hdr_files), s.current_hdr_index)
+	log.log_debug("scene", "Found %d HDR files, current index=%d", len(s.hdr_files), s.current_hdr_index)
 }
 
 // Cycle to next/prev environment map (PAGE_UP/PAGE_DOWN).
@@ -674,7 +674,7 @@ scene_cycle_env :: proc(s: ^Scene, direction: i32) {
 
 	s.current_hdr_index = (s.current_hdr_index + direction + count) %% count
 	path := s.hdr_files[s.current_hdr_index]
-	log.log_info("scene", "Cycling env map [%d/%d]: %s", s.current_hdr_index + 1, count, path)
+	log.log_debug("scene", "Cycling env map [%d/%d]: %s", s.current_hdr_index + 1, count, path)
 	scene_change_env(s, path)
 }
 
@@ -725,7 +725,7 @@ load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
 	// Query binary size (matches legacy "Binary size: N bytes")
 	bin_size: i32
 	gl.GetProgramiv(program, gl.PROGRAM_BINARY_LENGTH, &bin_size)
-	log.log_info("render.shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
+	log.log_debug("render.shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
 		vert_path, frag_path, program, bin_size)
 
 	return program, true

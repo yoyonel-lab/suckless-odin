@@ -20,13 +20,13 @@ main :: proc() {
 
 	application := app.create(settings.WINDOW_WIDTH, settings.WINDOW_HEIGHT, "suckless-odin — Icosphere Phong")
 	if application == nil {
-		log.log_error("app", "Failed to create application")
+		log.log_critical("app", "Failed to create application")
 		os.exit(1)
 	}
 	defer app.destroy(application)
 
 	if !app.init(application, vsync = opts.vsync, compute_profile = opts.compute_profile, capture_ibl = opts.capture_ibl) {
-		log.log_error("app", "Failed to initialize application")
+		log.log_critical("app", "Failed to initialize application")
 		os.exit(1)
 	}
 

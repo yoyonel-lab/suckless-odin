@@ -126,7 +126,7 @@ start_capture :: #force_inline proc(device: rawptr = nil, window: rawptr = nil) 
 	when RENDERDOC_ENABLE {
 		if is_active() {
 			g_rdoc.api.StartFrameCapture(device, window)
-			log.log_info("core.renderdoc", "Frame capture STARTED")
+			log.log_debug("core.renderdoc", "Frame capture STARTED")
 		}
 	}
 }
@@ -166,7 +166,7 @@ trigger_capture :: #force_inline proc() {
 	when RENDERDOC_ENABLE {
 		if is_active() {
 			g_rdoc.api.TriggerCapture()
-			log.log_info("core.renderdoc", "Capture triggered for next frame")
+			log.log_debug("core.renderdoc", "Capture triggered for next frame")
 		}
 	}
 }

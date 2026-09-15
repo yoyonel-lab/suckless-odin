@@ -27,6 +27,6 @@ apply_compute_tuning_callback :: proc(scene_ptr: rawptr, params: settings.Comput
 		scene.env_manager_trigger_transition(&s.env_mgr, scene.HDR_PATH)
 	}
 
-	log.log_info("app", "Applied new compute tuning parameters and triggered IBL recalculation")
+	log.log_debug("app", "Applied new compute tuning parameters and triggered IBL recalculation")
 	return true
 }

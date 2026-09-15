@@ -111,7 +111,7 @@ ibl_update_brdf_lut :: proc(ibl: ^IBL_Resources) {
 	ibl.brdf_lut_row_offset += 32
 	if ibl.brdf_lut_row_offset >= BRDF_LUT_SIZE {
 		ibl.brdf_lut_computed = true
-		log.log_info("render.ibl", "IBL: Progressive BRDF LUT precomputation completed successfully")
+		log.log_debug("render.ibl", "IBL: Progressive BRDF LUT precomputation completed successfully")
 	}
 }
 
@@ -199,7 +199,7 @@ load_compute_shader :: proc(path: string, defines: string = "") -> (u32, bool) {
 	}
 
 	gl.DeleteShader(shader)
-	log.log_info("render.ibl", "Compute shader loaded: %s (program=%d)", path, program)
+	log.log_debug("render.ibl", "Compute shader loaded: %s (program=%d)", path, program)
 	return program, true
 }
 

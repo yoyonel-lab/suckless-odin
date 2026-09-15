@@ -79,11 +79,11 @@ toggle_fullscreen :: proc(application: ^App) {
 		application.saved_width, application.saved_height = glfw.GetWindowSize(application.window)
 		glfw.SetWindowMonitor(application.window, monitor, 0, 0,
 			mode.width, mode.height, mode.refresh_rate)
-		log.log_info("app.input", "Switched to fullscreen (%dx%d@%dHz)", mode.width, mode.height, mode.refresh_rate)
+		log.log_debug("app.input", "Switched to fullscreen (%dx%d@%dHz)", mode.width, mode.height, mode.refresh_rate)
 	} else {
 		glfw.SetWindowMonitor(application.window, nil, application.saved_x, application.saved_y,
 			application.saved_width, application.saved_height, 0)
-		log.log_info("app.input", "Switched to windowed (%dx%d at %d,%d)", application.saved_width, application.saved_height, application.saved_x, application.saved_y)
+		log.log_debug("app.input", "Switched to windowed (%dx%d at %d,%d)", application.saved_width, application.saved_height, application.saved_x, application.saved_y)
 	}
 
 	application.is_fullscreen = !application.is_fullscreen

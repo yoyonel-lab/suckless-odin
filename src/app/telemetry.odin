@@ -45,6 +45,6 @@ write_startup_telemetry :: proc(app: ^App) {
 	if write_err != nil {
 		log.log_error("app", "Failed to save startup telemetry: %v", write_err)
 	} else {
-		log.log_info("app", "Saved startup telemetry to /tmp/startup_telemetry.csv")
+		log.log_debug("app", "Saved startup telemetry to /tmp/startup_telemetry.csv")
 	}
 }

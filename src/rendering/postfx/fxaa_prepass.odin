@@ -56,7 +56,7 @@ fxaa_prepass_create :: proc(p: ^Pipeline) -> (ok: bool) {
 	set_uniform_i32(p.fxaa_program, "screenTexture", TEX_UNIT_SCENE)
 	gl.UseProgram(0)
 
-	log.log_info("render.postfx", "FXAA pre-pass created (%dx%d)", p.width, p.height)
+	log.log_debug("render.postfx", "FXAA pre-pass created (%dx%d)", p.width, p.height)
 	return true
 }
 

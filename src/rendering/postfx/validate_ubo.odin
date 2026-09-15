@@ -240,7 +240,7 @@ validate_ubo_layout :: proc(program: u32) -> bool {
 	}
 
 	if all_ok {
-		log.log_info(
+		log.log_debug(
 			"render.postfx.ubo",
 			"UBO layout validated (%d/%d mappings resolved, %d GPU uniforms in block)",
 			resolved_count, len(mappings), num_uniforms,

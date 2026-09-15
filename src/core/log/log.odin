@@ -33,8 +33,13 @@ Log_Callback :: #type proc(level: Log_Level, tag: string, message: string)
 @(private)
 g_log_callback: Log_Callback = nil
 
-@(private)
-g_min_level: Log_Level = .Debug
+when ODIN_DEBUG {
+	@(private)
+	g_min_level: Log_Level = .Debug
+} else {
+	@(private)
+	g_min_level: Log_Level = .Info
+}
 
 @(private)
 g_config_locked: bool = false

@@ -31,7 +31,7 @@ dof_create :: proc(d: ^Dof_FX, width, height: i32) -> (ok: bool) {
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, d.blur_tex, 0)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
-	log.log_info("render.postfx", "DoF created (%dx%d quarter-res, single-pass)", d.width, d.height)
+	log.log_debug("render.postfx", "DoF created (%dx%d quarter-res, single-pass)", d.width, d.height)
 	return true
 }
 

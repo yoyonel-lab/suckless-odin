@@ -92,7 +92,7 @@ depth_downsample_create :: proc(dd: ^Depth_Downsample, full_width, full_height: 
 	dbg.object_label(gl.TEXTURE, dd.discontinuity_tex, "Depth_Discontinuity_Tex")
 	dbg.object_label(gl.TEXTURE, dd.preview_tex, "Depth_Preview_Tex")
 
-	log.log_info("render.volumetric", "Depth downsampler created (%dx%d -> %dx%d)", dd.full_width, dd.full_height, dd.width, dd.height)
+	log.log_debug("render.volumetric", "Depth downsampler created (%dx%d -> %dx%d)", dd.full_width, dd.full_height, dd.width, dd.height)
 	return true
 }
 

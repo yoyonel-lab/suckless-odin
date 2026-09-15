@@ -101,7 +101,7 @@ lut3d_load :: proc(lut: ^LUT3D_FX, path: string) -> bool {
 	lut.loaded = true
 	lut.path   = strings.clone(path) // owned by LUT3D_FX, freed in lut3d_destroy
 
-	log.log_info("render.postfx.lut", "LUT loaded: %s (%d^3)", path, size)
+	log.log_debug("render.postfx.lut", "LUT loaded: %s (%d^3)", path, size)
 	return true
 }
 

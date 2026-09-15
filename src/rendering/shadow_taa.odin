@@ -164,7 +164,7 @@ shadow_taa_create :: proc(st: ^Shadow_TAA, width, height: i32) -> bool {
 		return false
 	}
 
-	log.log_info("render.shadow", "Shadow TAA renderer initialized (%dx%d)", st.width, st.height)
+	log.log_debug("render.shadow", "Shadow TAA renderer initialized (%dx%d)", st.width, st.height)
 	return true
 }
 

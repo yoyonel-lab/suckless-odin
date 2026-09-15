@@ -64,7 +64,7 @@ bloom_create :: proc(b: ^Bloom_FX, width, height: i32) -> (ok: bool) {
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
-	log.log_info("render.postfx", "Bloom created (%d mips from %dx%d)", BLOOM_MIP_LEVELS, width, height)
+	log.log_debug("render.postfx", "Bloom created (%d mips from %dx%d)", BLOOM_MIP_LEVELS, width, height)
 	return true
 }
 

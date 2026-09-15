@@ -153,7 +153,7 @@ pipeline_create :: proc(p: ^Pipeline, width, height: i32) -> (ok: bool) {
 
 	// Eagerly precompile canonical shader variants to avoid first-frame / preset switch stalls
 	if p.shader_cache.enabled {
-		log.log_info("render.postfx", "Eagerly precompiling canonical shader preset variants...")
+		log.log_debug("render.postfx", "Eagerly precompiling canonical shader preset variants...")
 		pipeline_prewarm_presets(p)
 	}
 
@@ -420,7 +420,7 @@ pipeline_resize :: proc(p: ^Pipeline, width, height: i32) {
 	motion_blur_resize(&p.motion_blur_fx, width, height)
 	p.ubo_dirty = true
 
-	log.log_info("render.postfx", "Pipeline resized (%dx%d)", width, height)
+	log.log_debug("render.postfx", "Pipeline resized (%dx%d)", width, height)
 }
 
 // Update time accumulator (call each frame).

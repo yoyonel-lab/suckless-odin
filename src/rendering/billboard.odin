@@ -47,7 +47,7 @@ billboard_create :: proc(bb: ^Billboard) {
 	dbg.object_label(gl.VERTEX_ARRAY, bb.vao, "Billboard_VAO")
 	dbg.object_label(gl.BUFFER, bb.quad_vbo, "Billboard_QuadVBO")
 
-	log.log_info("render.billboard", "Billboard quad created")
+	log.log_debug("render.billboard", "Billboard quad created")
 }
 
 // Draws the billboard quad (triangle strip, 4 vertices).

@@ -142,5 +142,5 @@ set_mesa_env :: proc(pm: ^Perf_Mode, quiet: bool) {
 setup_mesa_early :: proc() {
 	os.set_env("MESA_NO_ERROR", "1")
 	os.set_env("mesa_glthread", "true")
-	log.log_info("core.perf", "Mesa optimizations active (pre-context)")
+	log.log_debug("core.perf", "Mesa optimizations active (pre-context)")
 }

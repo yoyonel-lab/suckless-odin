@@ -143,7 +143,7 @@ async_loader_request :: proc(loader: ^Async_Loader, path: string) -> bool {
 	tracy.async_status_transition(.Pending)
 	sync.signal(&loader.cond)
 
-	log.log_info("scene.async", "Request submitted: %s", cstring(&loader.request.path[0]))
+	log.log_debug("scene.async", "Request submitted: %s", cstring(&loader.request.path[0]))
 	return true
 }
 
@@ -339,7 +339,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			loader.request.state = .Ready
 			tracy.async_status_transition(.Ready)
 			tracy.message_c(fmt.tprintf("Loaded: %s (%dx%d, FP16)", path_cstr, w, h), tracy.COLOR_IO_READY)
-			log.log_info("scene.async", "Loaded: %s (%dx%d, FP16)", path_cstr, w, h)
+			log.log_debug("scene.async", "Loaded: %s (%dx%d, FP16)", path_cstr, w, h)
 		}
 	}
 	sync.unlock(&loader.mutex)

@@ -36,7 +36,7 @@ os_activate :: proc(pm: ^Perf_Mode, quiet: bool) -> bool {
 		errno := linux.mlockall(transmute(linux.MLock_Flags)u32(3))
 		if errno == .NONE {
 			pm.memory_locked = true
-			if !quiet { log.log_info("core.perf", "Memory locked (mlockall)") }
+			if !quiet { log.log_debug("core.perf", "Memory locked (mlockall)") }
 		} else if !quiet {
 			log.log_debug("core.perf", "mlockall failed (errno %v) — needs CAP_IPC_LOCK", errno)
 		}

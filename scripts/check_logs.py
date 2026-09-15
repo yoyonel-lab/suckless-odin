@@ -58,6 +58,7 @@ SRC_DIR = Path("src")
 
 LOG_FN_PATTERN = re.compile(r"\blog\.log_(?:debug|info|warning|error|critical)\s*\(\s*\"([^\"]+)\"")
 LOG_MSG_PATTERN = re.compile(r"\blog\.log_message\s*\(\s*[^,]+,\s*\"([^\"]+)\"")
+LOG_CRITICAL_PATTERN = re.compile(r"\blog\.log_critical\s*\(")
 
 # Pattern for raw fmt print calls (excluding tprintf)
 FMT_PATTERN = re.compile(r"\bfmt\.(?:println|printf|print|eprintln|eprintf|eprint)\s*\(")
@@ -92,7 +93,17 @@ def main() -> int:
                     if tag not in CANONICAL_TAGS:
                         errors.append(f"[INVALID TAG] {rel_path}:{line_idx} -> Unknown tag '{tag}'")
 
-            # 2. Check forbidden fmt prints outside whitelist
+            # 2. Check that every log_critical is followed by os.exit within 5 lines
+            for m in LOG_CRITICAL_PATTERN.finditer(content):
+                line_idx = content[: m.start()].count("\n") + 1
+                subsequent = "\n".join(content.split("\n")[line_idx : line_idx + 5])
+                if "os.exit(" not in subsequent:
+                    errors.append(
+                        f"[CRITICAL WITHOUT EXIT] {rel_path}:{line_idx} -> "
+                        f"log_critical must be followed by os.exit within 5 lines"
+                    )
+
+            # 3. Check forbidden fmt prints outside whitelist
             if rel_path not in FMT_PRINT_WHITELIST:
                 lines = content.split("\n")
                 for line_idx, line in enumerate(lines, 1):
