@@ -191,8 +191,9 @@ init :: proc(
 	// Framebuffer resize callback
 	glfw.SetFramebufferSizeCallback(application.window, framebuffer_size_callback)
 
-	// Mouse input for camera
+	// Mouse input for camera & 3D raycast picking
 	glfw.SetCursorPosCallback(application.window, mouse_callback)
+	glfw.SetMouseButtonCallback(application.window, mouse_button_callback)
 	glfw.SetScrollCallback(application.window, scroll_callback)
 	glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 	application.camera_enabled = true
@@ -395,6 +396,8 @@ run :: proc(application: ^App) {
 				shadow_cubemap      = &application.scene.shadow_cubemap,
 				depth_downsample    = &application.scene.depth_downsample,
 				volumetric          = &application.scene.volumetric,
+				spheres             = &application.scene.spheres,
+				selection           = &application.scene.selection,
 				frame_time_ms       = application.scene.overlay.frame_time_display,
 				live_compute_tuning = &application.scene.env_mgr.compute_tuning,
 				apply_compute_tuning = apply_compute_tuning_callback,
