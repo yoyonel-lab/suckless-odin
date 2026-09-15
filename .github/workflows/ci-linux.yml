@@ -70,7 +70,7 @@ jobs:
 
       - name: Build Native Libraries (Tracy & SIMD)
         if: steps.cache-native-libs.outputs.cache-hit != 'true'
-        run: bash scripts/build_tracy_lib.sh
+        run: bash scripts/ci/build_tracy_linux.sh
 
       - name: Upload Native Libraries artifact
         uses: actions/upload-artifact@v4
