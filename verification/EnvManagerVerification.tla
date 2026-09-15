@@ -6,7 +6,7 @@ VARIABLES transition_state, ibl_state
 vars == <<transition_state, ibl_state>>
 
 TransitionStates == { "Idle", "Loading", "Wait_IBL", "Fade_Out", "Fade_In" }
-IBLStates == { "Idle", "Upload_Texture", "Upload_Progressive", "Generate_Mipmaps", "Luminance", "Specular_Init", "Specular_Mips", "Irradiance", "Done" }
+IBLStates == { "Idle", "Upload_Texture", "Upload_Progressive", "Generate_Mipmaps", "Luminance", "Cube_Convert", "Specular_Init", "Specular_Mips", "Irradiance", "Done" }
 
 TransitionTransitions == {
     << "Idle", "Loading" >>,
@@ -28,8 +28,10 @@ IBLTransitions == {
     << "Upload_Progressive", "Idle" >>,
     << "Generate_Mipmaps", "Luminance" >>,
     << "Generate_Mipmaps", "Idle" >>,
-    << "Luminance", "Specular_Init" >>,
+    << "Luminance", "Cube_Convert" >>,
     << "Luminance", "Idle" >>,
+    << "Cube_Convert", "Specular_Init" >>,
+    << "Cube_Convert", "Idle" >>,
     << "Specular_Init", "Specular_Mips" >>,
     << "Specular_Init", "Idle" >>,
     << "Specular_Mips", "Irradiance" >>,
@@ -86,6 +88,12 @@ IBL_Progress_GenerateMipmaps ==
 IBL_Progress_Luminance == 
     /\ (transition_state = "Wait_IBL" \/ transition_state = "Fade_In")
     /\ ibl_state = "Luminance"
+    /\ (ibl_state' = "Cube_Convert" \/ ibl_state' = "Idle")
+    /\ UNCHANGED <<transition_state>>
+
+IBL_Progress_CubeConvert == 
+    /\ (transition_state = "Wait_IBL" \/ transition_state = "Fade_In")
+    /\ ibl_state = "Cube_Convert"
     /\ (ibl_state' = "Specular_Init" \/ ibl_state' = "Idle")
     /\ UNCHANGED <<transition_state>>
 
@@ -143,6 +151,7 @@ Next ==
     \/ IBL_Progress_UploadProgressive
     \/ IBL_Progress_GenerateMipmaps
     \/ IBL_Progress_Luminance
+    \/ IBL_Progress_CubeConvert
     \/ IBL_Progress_SpecularInit
     \/ IBL_Progress_SpecularMips
     \/ IBL_Progress_Irradiance

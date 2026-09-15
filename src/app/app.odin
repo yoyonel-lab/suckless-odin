@@ -190,6 +190,7 @@ init :: proc(
 
 	// Basic OpenGL setup
 	gl.Enable(gl.DEPTH_TEST)
+	gl.Enable(gl.TEXTURE_CUBE_MAP_SEAMLESS)
 	gl.ClearColor(0.1, 0.1, 0.1, 1.0)
 	tracy.gpu_init()
 	tracy.frame_image_init(&application.frame_image)
@@ -346,6 +347,8 @@ run :: proc(application: ^App) {
 				status = "Generating Mipmaps..."
 			case .Luminance:
 				status = "Analyzing Luminance..."
+			case .Cube_Convert:
+				status = "Converting Equirect to Cubemap..."
 			case .Specular_Init:
 				status = "Initializing Specular Map..."
 			case .Specular_Mips:

@@ -188,6 +188,33 @@ test_background_program_links :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_equirect_to_cubemap_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/equirect_to_cubemap.vert", "shaders/equirect_to_cubemap.frag")
+	testing.expect(t, ok, "equirect_to_cubemap program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_background_cubemap_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/background.vert", "shaders/background_cubemap.frag")
+	testing.expect(t, ok, "background_cubemap program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
+test_background_blur_diff_program_links :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	program, ok := shader.load_program("shaders/background.vert", "shaders/background_blur_diff.frag")
+	testing.expect(t, ok, "background_blur_diff program linking failed")
+	if ok { gl.DeleteProgram(program) }
+}
+
+@(test)
 test_pbr_billboard_program_links :: proc(t: ^testing.T) {
 	if !ensure_gl_context(t) { return }
 

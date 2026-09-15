@@ -5,7 +5,7 @@ layout(location = 0) out vec4 FragColor;
 layout(location = 1) out vec2 VelocityOut;
 
 layout(binding = 0) uniform sampler2D envMap;        // Standard equirect
-layout(binding = 1) uniform sampler2D prefilterMap;  // IBL prefiltered equirect
+layout(binding = 1) uniform samplerCube prefilterMap;  // IBL prefiltered cubemap
 
 layout(location = 4) uniform float env_lod;          // LOD for standard env
 layout(location = 5) uniform float prefilter_lod;    // LOD for IBL prefilter
@@ -28,7 +28,7 @@ void main()
 	vec2 uv = SampleEquirectangular(dir);
 
 	vec3 colorA = textureLod(envMap, uv, env_lod).rgb;
-	vec3 colorB = textureLod(prefilterMap, uv, prefilter_lod).rgb;
+	vec3 colorB = textureLod(prefilterMap, dir, prefilter_lod).rgb;
 
 	// Amplified absolute difference
 	vec3 diff = abs(colorA - colorB) * diff_gain;

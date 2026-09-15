@@ -78,10 +78,10 @@ ibl_init :: proc(ibl: ^IBL_Resources, tuning: settings.Compute_Tuning_Params) ->
 // Bind IBL textures to their fixed texture units for rendering
 ibl_bind :: proc(ibl: ^IBL_Resources) {
 	gl.ActiveTexture(gl.TEXTURE0 + IBL_IRRADIANCE_UNIT)
-	gl.BindTexture(gl.TEXTURE_2D, ibl.irradiance_map)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, ibl.irradiance_map)
 
 	gl.ActiveTexture(gl.TEXTURE0 + IBL_PREFILTER_UNIT)
-	gl.BindTexture(gl.TEXTURE_2D, ibl.prefilter_map)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, ibl.prefilter_map)
 
 	gl.ActiveTexture(gl.TEXTURE0 + IBL_BRDF_LUT_UNIT)
 	gl.BindTexture(gl.TEXTURE_2D, ibl.brdf_lut)

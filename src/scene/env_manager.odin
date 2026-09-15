@@ -21,6 +21,7 @@ import gl "vendor:OpenGL"
 
 import dbg "../core/gl_debug"
 import log "../core/log"
+import mt "../core/math_types"
 import "../rendering"
 import settings "../core/settings"
 import tracy "../core/tracy"
@@ -106,6 +107,12 @@ Env_Manager :: struct {
 	transition_snapshot_tex: u32,
 	recycled_hdr_tex:        u32,
 
+	// Cubemap conversion resources (.Cube_Convert)
+	cube_convert_prog:       u32,
+	cube_fbo:                u32,
+	conv_vao:                u32,
+	conv_vbo:                u32,
+
 	// Dynamic compute shader & slicing parameters from JSON config
 	compute_tuning:          settings.Compute_Tuning_Params,
 
@@ -186,33 +193,56 @@ env_manager_create :: proc(mgr: ^Env_Manager, tuning := settings.DEFAULT_COMPUTE
 	// Generate empty VAO for procedural full-screen rendering
 	gl.GenVertexArrays(1, &mgr.overlay_vao)
 
-	// Initialize Immutable Double-Buffered IBL Texture Pools (OPT-04)
+	// Load equirect-to-cubemap conversion shader
+	conv_prog, conv_ok := load_shader("shaders/equirect_to_cubemap.vert", "shaders/equirect_to_cubemap.frag")
+	if !conv_ok {
+		async_loader_destroy(&mgr.loader)
+		return false
+	}
+	mgr.cube_convert_prog = conv_prog
+
+	// Create FBO and fullscreen triangle VAO/VBO for cubemap conversion
+	gl.GenFramebuffers(1, &mgr.cube_fbo)
+	gl.GenVertexArrays(1, &mgr.conv_vao)
+	gl.BindVertexArray(mgr.conv_vao)
+	verts := [9]f32{-1.0, -1.0, 0.0, 3.0, -1.0, 0.0, -1.0, 3.0, 0.0}
+	gl.GenBuffers(1, &mgr.conv_vbo)
+	gl.BindBuffer(gl.ARRAY_BUFFER, mgr.conv_vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, size_of(verts), &verts, gl.STATIC_DRAW)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3 * size_of(f32), 0)
+	gl.BindVertexArray(0)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	// Initialize Immutable Double-Buffered IBL Cubemap Pools (OPT-04)
 	for i in 0 ..< 2 {
 		gl.GenTextures(1, &mgr.specular_pool[i])
-		gl.BindTexture(gl.TEXTURE_2D, mgr.specular_pool[i])
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.specular_pool[i])
 		gl.TexStorage2D(
-			gl.TEXTURE_2D,
+			gl.TEXTURE_CUBE_MAP,
 			rendering.PREFILTER_MIP_LEVELS,
 			gl.RGBA16F,
 			rendering.PREFILTER_SIZE,
 			rendering.PREFILTER_SIZE,
 		)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 		dbg.object_label(gl.TEXTURE, mgr.specular_pool[i], fmt.ctprintf("IBL_Prefiltered_Specular_Pool_%d", i))
 
 		gl.GenTextures(1, &mgr.irradiance_pool[i])
-		gl.BindTexture(gl.TEXTURE_2D, mgr.irradiance_pool[i])
-		gl.TexStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, rendering.IRRADIANCE_SIZE, rendering.IRRADIANCE_SIZE)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.irradiance_pool[i])
+		gl.TexStorage2D(gl.TEXTURE_CUBE_MAP, 1, gl.RGBA16F, rendering.IRRADIANCE_SIZE, rendering.IRRADIANCE_SIZE)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 		dbg.object_label(gl.TEXTURE, mgr.irradiance_pool[i], fmt.ctprintf("IBL_Irradiance_Map_Pool_%d", i))
 	}
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
 	mgr.pool_active_idx = 0
 	mgr.pool_initialized = true
 
@@ -276,6 +306,12 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 		gl.DeleteBuffers(1, &mgr.luminance_pbo)
 		mgr.luminance_pbo = 0
 	}
+
+	// Clean up cubemap conversion resources
+	if mgr.cube_convert_prog != 0 { gl.DeleteProgram(mgr.cube_convert_prog); mgr.cube_convert_prog = 0 }
+	if mgr.cube_fbo != 0 { gl.DeleteFramebuffers(1, &mgr.cube_fbo); mgr.cube_fbo = 0 }
+	if mgr.conv_vao != 0 { gl.DeleteVertexArrays(1, &mgr.conv_vao); mgr.conv_vao = 0 }
+	if mgr.conv_vbo != 0 { gl.DeleteBuffers(1, &mgr.conv_vbo); mgr.conv_vbo = 0 }
 
 	// Free any unconsumed progressive upload data
 	if mgr.async_result.data != nil {
@@ -698,9 +734,74 @@ env_manager_ibl_luminance :: proc(mgr: ^Env_Manager) {
 		mgr.ibl_clamp_threshold = max(raw_threshold, DEFAULT_AUTO_THRESHOLD)
 	}
 
-	env_manager_set_ibl_state(mgr, .Specular_Init)
+	env_manager_set_ibl_state(mgr, .Cube_Convert)
 	tracy.message_c(fmt.tprintf("IBL: Luminance threshold = %.2f", mgr.ibl_clamp_threshold), IBL_TRACY_COLOR)
 	log.log_debug("scene.env", "IBL: Luminance threshold = %.2f", mgr.ibl_clamp_threshold)
+}
+
+@(private)
+env_manager_ibl_cube_convert :: proc(mgr: ^Env_Manager) {
+	dbg.push_group("IBL: Cube_Convert")
+	defer dbg.pop_group()
+	tracy.message_c("IBL: Equirect -> Cubemap Mip 0", IBL_TRACY_COLOR)
+
+	pending_idx := 1 - mgr.pool_active_idx
+	mgr.pending_spec_tex = mgr.specular_pool[pending_idx]
+
+	face_views := [6]mt.Mat4{
+		mt.look_at({0, 0, 0}, { 1,  0,  0}, {0, -1,  0}), // +X
+		mt.look_at({0, 0, 0}, {-1,  0,  0}, {0, -1,  0}), // -X
+		mt.look_at({0, 0, 0}, { 0,  1,  0}, {0,  0,  1}), // +Y
+		mt.look_at({0, 0, 0}, { 0, -1,  0}, {0,  0, -1}), // -Y
+		mt.look_at({0, 0, 0}, { 0,  0,  1}, {0, -1,  0}), // +Z
+		mt.look_at({0, 0, 0}, { 0,  0, -1}, {0, -1,  0}), // -Z
+	}
+	proj := mt.perspective(mt.radians(90.0), 1.0, 0.1, 10.0)
+
+	prev_fbo: i32
+	prev_viewport: [4]i32
+	gl.GetIntegerv(gl.FRAMEBUFFER_BINDING, &prev_fbo)
+	gl.GetIntegerv(gl.VIEWPORT, &prev_viewport[0])
+
+	gl.BindFramebuffer(gl.FRAMEBUFFER, mgr.cube_fbo)
+	gl.Viewport(0, 0, rendering.PREFILTER_SIZE, rendering.PREFILTER_SIZE)
+	gl.Disable(gl.DEPTH_TEST)
+	gl.Disable(gl.BLEND)
+
+	gl.UseProgram(mgr.cube_convert_prog)
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
+
+	gl.BindVertexArray(mgr.conv_vao)
+
+	for face in 0..<6 {
+		gl.FramebufferTexture2D(
+			gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+			gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(face),
+			mgr.pending_spec_tex, 0,
+		)
+
+		inv_vp := mt.mat4_inverse(mt.mat4_mul(proj, face_views[face]))
+		gl.UniformMatrix4fv(0, 1, false, &inv_vp[0][0])
+
+		gl.DrawArrays(gl.TRIANGLES, 0, 3)
+	}
+
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
+	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
+
+	// Generate complete mipmap chain on cubemap texture
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.pending_spec_tex)
+	gl.GenerateMipmap(gl.TEXTURE_CUBE_MAP)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
+
+	gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT | gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
+
+	env_manager_set_ibl_state(mgr, .Specular_Init)
+	log.log_debug("scene.env", "IBL: Cube convert (mip 0 + mipmaps) complete, proceeding to Specular_Init")
 }
 
 @(private)
@@ -799,6 +900,9 @@ env_manager_advance_ibl :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 
 	case .Luminance:
 		env_manager_ibl_luminance(mgr)
+
+	case .Cube_Convert:
+		env_manager_ibl_cube_convert(mgr)
 
 	case .Specular_Init:
 		env_manager_ibl_specular_init(mgr)
@@ -929,7 +1033,7 @@ env_manager_process_specular_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.IB
 
 		gl.UseProgram(ibl.spmap_program)
 		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.pending_spec_tex)
 
 		for mip in mgr.ibl_current_mip..<mgr.ibl_total_mips {
 			env_manager_dispatch_specular_mip(mgr, ibl, mip, 0, 1)
@@ -960,7 +1064,7 @@ env_manager_process_specular_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.IB
 
 		gl.UseProgram(ibl.spmap_program)
 		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.pending_spec_tex)
 
 		env_manager_dispatch_specular_mip(mgr, ibl, mgr.ibl_current_mip,
 			mgr.ibl_current_slice, mgr.ibl_total_slices)
@@ -1002,16 +1106,15 @@ env_manager_dispatch_specular_mip :: proc(
 		return
 	}
 
-	gl.BindImageTexture(1, mgr.pending_spec_tex, mip, false, 0, gl.WRITE_ONLY, gl.RGBA16F)
+	gl.BindImageTexture(1, mgr.pending_spec_tex, mip, true, 0, gl.WRITE_ONLY, gl.RGBA16F)
 	gl.Uniform1f(gl.GetUniformLocation(ibl.spmap_program, "roughnessValue"), roughness)
-	gl.Uniform1i(gl.GetUniformLocation(ibl.spmap_program, "currentMipLevel"), mip)
 	gl.Uniform1f(gl.GetUniformLocation(ibl.spmap_program, "clamp_threshold"), mgr.ibl_clamp_threshold)
 	gl.Uniform1i(gl.GetUniformLocation(ibl.spmap_program, "u_offset_y"), y_start)
 	gl.Uniform1i(gl.GetUniformLocation(ibl.spmap_program, "u_max_y"), y_end)
 
 	gx := (mip_w + 15) / 16
 	gy := (actual_lines + 15) / 16
-	gl.DispatchCompute(u32(gx), u32(gy), 1)
+	gl.DispatchCompute(u32(gx), u32(gy), 6) // face = gid.z
 	// ISO C11: "No barrier here: caller is responsible for issuing a single
 	// glMemoryBarrier after all slices are dispatched. Slices write to disjoint
 	// Y-ranges of the same image, so no inter-slice coherency is required."
@@ -1067,15 +1170,15 @@ env_manager_process_irradiance_slice :: proc(mgr: ^Env_Manager, ibl: ^rendering.
 
 	gl.UseProgram(ibl.irmap_program)
 	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, mgr.pending_hdr_tex)
-	gl.BindImageTexture(1, mgr.pending_irr_tex, 0, false, 0, gl.WRITE_ONLY, gl.RGBA16F)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.pending_spec_tex)
+	gl.BindImageTexture(1, mgr.pending_irr_tex, 0, true, 0, gl.WRITE_ONLY, gl.RGBA16F)
 	gl.Uniform1f(gl.GetUniformLocation(ibl.irmap_program, "clamp_threshold"), mgr.ibl_clamp_threshold)
 	gl.Uniform1i(gl.GetUniformLocation(ibl.irmap_program, "u_offset_y"), y_start)
 	gl.Uniform1i(gl.GetUniformLocation(ibl.irmap_program, "u_max_y"), y_end)
 
 	gx := (size + 15) / 16
 	gy := (actual_lines + 3) / 4
-	gl.DispatchCompute(u32(gx), u32(gy), 1)
+	gl.DispatchCompute(u32(gx), u32(gy), 6) // face = gid.z
 	// ISO C11: no barrier between slices — disjoint Y-ranges.
 	// Single barrier issued in .Done state before swap.
 	gl.UseProgram(0)

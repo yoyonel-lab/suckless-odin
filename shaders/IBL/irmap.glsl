@@ -2,8 +2,8 @@
 
 layout(local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
 
-layout(binding = 0) uniform sampler2D envMap;
-layout(binding = 1, rgba16f) restrict writeonly uniform image2D irradianceMap;
+layout(binding = 0) uniform samplerCube envMap;
+layout(binding = 1, rgba16f) restrict writeonly uniform imageCube irradianceMap;
 
 layout(location = 0) uniform float clamp_threshold;
 layout(location = 1) uniform int u_offset_y;
@@ -12,22 +12,24 @@ layout(location = 2) uniform int u_max_y;
 const float PI = 3.14159265359;
 const float TWO_PI = 2.0 * PI;
 
-// Helpers pour le mapping Equirectangulaire
-// Helpers pour le mapping Equirectangulaire
-vec2 dirToUV(vec3 v)
+// Convertit les coordonnées UV d'une face de cubemap en direction 3D unitaire
+// Convention OpenGL matching cubemap_face_view_matrix
+vec3 face_uv_to_dir(vec2 uv, uint face)
 {
-	float phi = (abs(v.z) < 1e-5 && abs(v.x) < 1e-5) ? 0.0 : atan(v.z, v.x);
-	vec2 uv = vec2(phi, asin(clamp(v.y, -1.0, 1.0)));
-	uv *= vec2(1.0 / TWO_PI, 1.0 / PI);
-	uv += 0.5;
-	return uv;
-}
-
-vec3 uvToDir(vec2 uv)
-{
-	float phi = (uv.x - 0.5) * TWO_PI;
-	float theta = (uv.y - 0.5) * PI;
-	return vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi));
+	vec2 sc_tc = uv * 2.0 - 1.0;
+	float sc = sc_tc.x;
+	float tc = sc_tc.y;
+	vec3 dir;
+	switch (face) {
+	case 0u: dir = vec3( 1.0, -tc, -sc); break; // +X
+	case 1u: dir = vec3(-1.0, -tc,  sc); break; // -X
+	case 2u: dir = vec3(  sc,  1.0,  tc); break; // +Y
+	case 3u: dir = vec3(  sc, -1.0, -tc); break; // -Y
+	case 4u: dir = vec3(  sc, -tc,  1.0); break; // +Z
+	case 5u: dir = vec3( -sc, -tc, -1.0); break; // -Z
+	default: dir = vec3(0.0, 0.0, 1.0);  break;
+	}
+	return normalize(dir);
 }
 
 void OrthonormalBasis(vec3 n, out vec3 t, out vec3 b)
@@ -59,12 +61,14 @@ void main(void)
 	ivec2 outSize = imageSize(irradianceMap);
 	ivec2 pos = ivec2(gl_GlobalInvocationID.x,
 	                  gl_GlobalInvocationID.y + u_offset_y);
+	uint face = gl_GlobalInvocationID.z;
 
-	if (pos.x >= outSize.x || pos.y >= outSize.y || pos.y >= u_max_y)
+	if (pos.x >= outSize.x || pos.y >= outSize.y || pos.y >= u_max_y || face >= 6u)
 		return;
 
-	vec2 uv = vec2(pos) / vec2(outSize);
-	vec3 N = normalize(uvToDir(uv));
+	// Coordonnées UV centrées demi-texel
+	vec2 uv = (vec2(pos) + 0.5) / vec2(outSize);
+	vec3 N = face_uv_to_dir(uv, face);
 
 	vec3 irradiance = vec3(0.0);
 	vec3 up, right;
@@ -88,9 +92,9 @@ void main(void)
 			                 tangentSample.y * up +
 			                 tangentSample.z * N;
 
-			// On échantillonne l'envMap d'origine
+			// Échantillonnage cubemap direct
 			vec3 env_color =
-			    textureLod(envMap, dirToUV(sampleVec), 0.0).rgb;
+			    textureLod(envMap, sampleVec, 0.0).rgb;
 
 			/* Sanitize Input */
 			if (any(isnan(env_color)) || any(isinf(env_color)))
@@ -112,5 +116,5 @@ void main(void)
 		irradiance = vec3(0.0);
 	irradiance = max(irradiance, vec3(0.0));
 
-	imageStore(irradianceMap, pos, vec4(irradiance, 1.0));
+	imageStore(irradianceMap, ivec3(pos, face), vec4(irradiance, 1.0));
 }

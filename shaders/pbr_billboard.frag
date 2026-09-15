@@ -54,9 +54,9 @@ uniform bool  u_point_shadow_pcf_jitter;
 uniform bool  u_point_shadow_temporal_jitter;
 uniform int   u_frame_count;
 
-// IBL textures (equirectangular 2D, same binding as suckless-ogl)
-layout(binding = 15) uniform sampler2D irradianceMap;
-layout(binding = 16) uniform sampler2D prefilterMap;
+// IBL textures (cubemap, bindings 15 and 16)
+layout(binding = 15) uniform samplerCube irradianceMap;
+layout(binding = 16) uniform samplerCube prefilterMap;
 layout(binding = 17) uniform sampler2D brdfLUT;
 layout(binding = 18) uniform samplerCube u_point_shadow_cubemap;
 layout(binding = 19) uniform sampler2DArray u_baked_ao_maps;
@@ -93,17 +93,6 @@ vec4 apply_split_line(vec4 color, float edgeFactor)
 // -------------------------------------------------------------------
 const float PI = 3.14159265359;
 const float EPSILON = 1e-6;
-const vec2 INV_ATAN = vec2(0.15915494309189535, 0.3183098861837907); // 1/(2*PI), 1/PI
-
-// -------------------------------------------------------------------
-// Equirectangular UV from direction
-// -------------------------------------------------------------------
-vec2 dirToUV(vec3 v)
-{
-    float phi = (abs(v.z) < 1e-5 && abs(v.x) < 1e-5) ? 0.0 : atan(v.z, v.x);
-    vec2 uv = vec2(phi, asin(clamp(v.y, -1.0, 1.0))) * INV_ATAN + 0.5;
-    return uv;
-}
 
 // -------------------------------------------------------------------
 // Equirectangular UV from surface normal for Baked AO sampling
@@ -156,15 +145,14 @@ vec3 compute_IBL_PBR(vec3 N, vec3 V, vec3 R, vec3 F0, float NdotV,
     // Diffuse IBL
     vec3 kS = F;
     vec3 kD = (1.0 - kS) * (1.0 - metallic);
-    vec3 irradiance = textureLod(irradianceMap, dirToUV(N), 0.0).rgb;
+    vec3 irradiance = textureLod(irradianceMap, N, 0.0).rgb;
     irradiance = max(irradiance, vec3(0.0));
     vec3 diffuse = irradiance * albedo;
 
     // Specular IBL (split-sum)
     // PREFILTER_MIP_LEVELS == 11, so max mip level index is 10.0 (roughness = 1.0)
     const float MAX_REFLECTION_LOD = 10.0;
-    vec3 prefilteredColor = textureLod(prefilterMap, dirToUV(R),
-                                       roughness * MAX_REFLECTION_LOD).rgb;
+    vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
     prefilteredColor = max(prefilteredColor, vec3(0.0));
 
     // BRDF LUT lookup (texel-center correction)
@@ -517,12 +505,12 @@ void main()
         FragColor = apply_split_line(vec4(vec3(effectiveAO), edgeFactor), edgeFactor);
         return;
     } else if (u_pbr_debug_mode == 6) {
-        vec3 irradiance = textureLod(irradianceMap, dirToUV(N), 0.0).rgb;
+        vec3 irradiance = textureLod(irradianceMap, N, 0.0).rgb;
         FragColor = apply_split_line(vec4(irradiance, edgeFactor), edgeFactor);
         return;
     } else if (u_pbr_debug_mode == 7) {
-        const float MAX_REFLECTION_LOD = 4.0;
-        vec3 prefilteredColor = textureLod(prefilterMap, dirToUV(R), roughness * MAX_REFLECTION_LOD).rgb;
+        const float MAX_REFLECTION_LOD = 10.0;
+        vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
         FragColor = apply_split_line(vec4(prefilteredColor, edgeFactor), edgeFactor);
         return;
     } else if (u_pbr_debug_mode == 8) {

@@ -159,7 +159,7 @@ skybox_render :: proc(sky: ^Skybox, view, proj: mt.Mat4, split_enabled: bool = f
 	if sky.show_diff {
 		program = sky.program_diff
 	} else if sky.blur_source == .IBL_Prefilter && sky.ibl_prefilter_tex != 0 {
-		program = sky.program_equirect
+		program = sky.program_cubemap
 	} else if sky.mode == .Cubemap && sky.cubemap_tex != 0 {
 		program = sky.program_cubemap
 	} else {
@@ -200,19 +200,19 @@ skybox_render :: proc(sky: ^Skybox, view, proj: mt.Mat4, split_enabled: bool = f
 		gl_state.bind_texture(gl.TEXTURE_2D, sky.env_tex)
 		// Bind IBL prefilter on unit 1
 		gl_state.active_texture(gl.TEXTURE1)
-		gl_state.bind_texture(gl.TEXTURE_2D, sky.ibl_prefilter_tex)
+		gl_state.bind_texture(gl.TEXTURE_CUBE_MAP, sky.ibl_prefilter_tex)
 		// blur_lod for standard, prefilter_lod for IBL
 		gl.Uniform1f(4, sky.blur_lod)
 		prefilter_lod := sky.blur_lod * (f32(PREFILTER_MIP_LEVELS - 1) / 8.0)
 		gl.Uniform1f(5, prefilter_lod)
 		gl.Uniform1f(6, sky.diff_gain)
 	case sky.blur_source == .IBL_Prefilter && sky.ibl_prefilter_tex != 0:
-		// IBL prefilter mode: use equirect shader with prefilter map
+		// IBL prefilter mode: use cubemap shader with prefilter map on unit 1
 		// Map blur_lod [0..8] → prefilter mip [0..4]
 		prefilter_lod := sky.blur_lod * (f32(PREFILTER_MIP_LEVELS - 1) / 8.0)
 		gl.Uniform1f(4, prefilter_lod)
-		gl_state.active_texture(gl.TEXTURE0)
-		gl_state.bind_texture(gl.TEXTURE_2D, sky.ibl_prefilter_tex)
+		gl_state.active_texture(gl.TEXTURE1)
+		gl_state.bind_texture(gl.TEXTURE_CUBE_MAP, sky.ibl_prefilter_tex)
 	case sky.mode == .Cubemap && sky.cubemap_tex != 0:
 		gl.Uniform1f(4, sky.blur_lod)
 		gl_state.active_texture(gl.TEXTURE1)

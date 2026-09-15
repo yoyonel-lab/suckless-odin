@@ -671,6 +671,7 @@ test_integration_ibl_state_progression :: proc(t: ^testing.T) {
 	// Track which IBL states we visit
 	saw_upload := false
 	saw_mipmaps := false
+	saw_cube_convert := false
 	saw_spec_init := false
 	saw_spec_mips := false
 	saw_irradiance := false
@@ -687,6 +688,7 @@ test_integration_ibl_state_progression :: proc(t: ^testing.T) {
 		case .Upload_Progressive: // progressive vertical slice upload
 		case .Generate_Mipmaps: saw_mipmaps = true
 		case .Luminance: // adaptive threshold computation
+		case .Cube_Convert: saw_cube_convert = true
 		case .Specular_Init: saw_spec_init = true
 		case .Specular_Mips: saw_spec_mips = true
 		case .Irradiance: saw_irradiance = true
@@ -705,6 +707,7 @@ test_integration_ibl_state_progression :: proc(t: ^testing.T) {
 
 	testing.expect(t, saw_upload, "should visit Upload_Texture state")
 	testing.expect(t, saw_mipmaps, "should visit Generate_Mipmaps state")
+	testing.expect(t, saw_cube_convert, "should visit Cube_Convert state")
 	testing.expect(t, saw_spec_init, "should visit Specular_Init state")
 	testing.expect(t, saw_spec_mips, "should visit Specular_Mips state")
 	testing.expect(t, saw_irradiance, "should visit Irradiance state")

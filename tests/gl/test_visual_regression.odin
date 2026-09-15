@@ -26,6 +26,7 @@ import stbi "vendor:stb/image"
 import sc "../../src/scene"
 import cam "../../src/camera"
 import mt "../../src/core/math_types"
+import rendering "../../src/rendering"
 
 // --- Constants (matching legacy test_app.c) ---
 
@@ -382,4 +383,79 @@ test_visual_scene_multi_view :: proc(t: ^testing.T) {
 	for &vp in viewpoints {
 		check_viewpoint(t, &s, &rt, vp, gen_refs)
 	}
+}
+
+// =============================================================================
+// TEST: Roughness 1.0 + bright zenith HDR polar reflection visual regression
+// Locks in non-regression of equirectangular polar vortex singularity artifact.
+// =============================================================================
+
+@(test)
+test_visual_roughness_polar_pole :: proc(t: ^testing.T) {
+	if !ensure_gl_context(t) { return }
+
+	gen_refs_val, gen_refs_found := os.lookup_env_alloc("GEN_REFS", context.allocator)
+	gen_refs := gen_refs_found && gen_refs_val != ""
+	if gen_refs_found { delete(gen_refs_val) }
+
+	rt, rt_ok := render_target_create(TEST_WIDTH, TEST_HEIGHT)
+	if !rt_ok {
+		testing.expect(t, false, "Failed to create render target FBO")
+		return
+	}
+	defer render_target_destroy(&rt)
+
+	s: sc.Scene
+	if !sc.scene_create(&s, TEST_WIDTH, TEST_HEIGHT) {
+		testing.expect(t, false, "scene_create failed")
+		return
+	}
+	defer sc.scene_destroy(&s)
+
+	s.point_light.enabled = false
+	s.volumetric.params.enabled = false
+
+	// Force roughness 1.0 on all spheres to emphasize rough specular IBL convolution
+	for i in 0..<s.spheres.count {
+		s.spheres.instances[i].roughness = 1.0
+		s.spheres.instances[i].metallic = 1.0
+	}
+	rendering.instanced_upload(&s.spheres)
+
+	// Wait for async IBL pipeline to complete
+	for _ in 0..<5000 {
+		sc.scene_update(&s, 0.016)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.fbo)
+		gl.Viewport(0, 0, rt.width, rt.height)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		sc.scene_render(&s, rt.width, rt.height)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		if !s.env_mgr.is_first_load && s.env_mgr.transition_state == .Idle && s.env_mgr.ibl_state == .Idle { break }
+		time.sleep(1 * time.Millisecond)
+	}
+	if s.env_mgr.is_first_load || s.env_mgr.transition_state != .Idle || s.env_mgr.ibl_state != .Idle {
+		testing.expect(t, false, "IBL pipeline did not complete within timeout")
+		return
+	}
+
+	// Steady-state stabilization frames
+	for _ in 0..<5 {
+		sc.scene_update(&s, 0.016)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.fbo)
+		gl.Viewport(0, 0, rt.width, rt.height)
+		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+		sc.scene_render(&s, rt.width, rt.height)
+		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	}
+	gl.Finish()
+
+	// Capture pole of sphere reflection from above (top-down view directly at sphere pole)
+	polar_vp := Viewpoint{
+		name     = "polar_pole",
+		position = {0, 15.0, 0},
+		yaw      = -90.0,
+		pitch    = -89.0,
+		world_up = {0, 0, -1},
+	}
+	check_viewpoint(t, &s, &rt, polar_vp, gen_refs)
 }

@@ -8,12 +8,11 @@ const float Epsilon = 0.00001;
 #endif
 const float InvNumSamples = 1.0 / float(SAMPLE_COUNT);
 
-layout(binding = 0) uniform sampler2D envMap;  // Texture équirectangulaire HDR
+layout(binding = 0) uniform samplerCube envMap;  // Cubemap HDR source
 layout(binding = 1,
-       rgba16f) restrict writeonly uniform image2D prefilteredEnvMap;
+       rgba16f) restrict writeonly uniform imageCube prefilteredEnvMap;
 
 layout(location = 0) uniform float roughnessValue;
-layout(location = 1) uniform int currentMipLevel;
 layout(location = 2) uniform float clamp_threshold;
 
 layout(location = 3) uniform int u_offset_y;
@@ -21,14 +20,24 @@ layout(location = 4) uniform int u_max_y;
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-// Convertit un vecteur directionnel en coordonnées UV équirectangulaires
-vec2 dirToUV(vec3 v)
+// Convertit les coordonnées UV d'une face de cubemap en direction 3D unitaire
+// Convention OpenGL matching cubemap_face_view_matrix
+vec3 face_uv_to_dir(vec2 uv, uint face)
 {
-	float phi = (abs(v.z) < 1e-5 && abs(v.x) < 1e-5) ? 0.0 : atan(v.z, v.x);
-	vec2 uv = vec2(phi, asin(clamp(v.y, -1.0, 1.0)));
-	uv *= vec2(1.0 / TwoPI, 1.0 / PI);
-	uv += 0.5;
-	return uv;
+	vec2 sc_tc = uv * 2.0 - 1.0;
+	float sc = sc_tc.x;
+	float tc = sc_tc.y;
+	vec3 dir;
+	switch (face) {
+	case 0u: dir = vec3( 1.0, -tc, -sc); break; // +X
+	case 1u: dir = vec3(-1.0, -tc,  sc); break; // -X
+	case 2u: dir = vec3(  sc,  1.0,  tc); break; // +Y
+	case 3u: dir = vec3(  sc, -1.0, -tc); break; // -Y
+	case 4u: dir = vec3(  sc, -tc,  1.0); break; // +Z
+	case 5u: dir = vec3( -sc, -tc, -1.0); break; // -Z
+	default: dir = vec3(0.0, 0.0, 1.0);  break;
+	}
+	return normalize(dir);
 }
 
 float radicalInverse_VdC(uint bits)
@@ -78,21 +87,14 @@ void main(void)
 	ivec2 outputSize = imageSize(prefilteredEnvMap);
 	ivec2 pos = ivec2(gl_GlobalInvocationID.x,
 	                  gl_GlobalInvocationID.y + u_offset_y);
+	uint face = gl_GlobalInvocationID.z;
 
-	if (pos.x >= outputSize.x || pos.y >= outputSize.y || pos.y >= u_max_y)
+	if (pos.x >= outputSize.x || pos.y >= outputSize.y || pos.y >= u_max_y || face >= 6u)
 		return;
 
-	// Calcul de la direction N à partir des coordonnées de l'image de
-	// sortie
-	vec2 st = vec2(pos) / vec2(outputSize);
-	float phi = (st.x - 0.5) * TwoPI;
-	float theta = (st.y - 0.5) * PI;
-
-	vec3 normal;
-	normal.x = cos(theta) * cos(phi);
-	normal.y = sin(theta);
-	normal.z = cos(theta) * sin(phi);
-	normal = normalize(normal);
+	// Coordonnées UV centrées demi-texel
+	vec2 uv = (vec2(pos) + 0.5) / vec2(outputSize);
+	vec3 normal = face_uv_to_dir(uv, face);
 
 	vec3 viewDir = normal;
 	vec3 tangent, bitangent;
@@ -107,6 +109,10 @@ void main(void)
 	/* Ensure valid clamp threshold */
 	float safeThreshold = max(clamp_threshold, 1.0);
 
+	float res = float(textureSize(envMap, 0).x);
+	float saTexel = 4.0 * PI / (6.0 * res * res);
+	float maxMip = max(log2(res), 0.0);
+
 	for (uint i = 0; i < SAMPLE_COUNT; ++i) {
 		vec2 u = sampleHammersley(i);
 		vec3 H = tangentToWorld(sampleGGX(u.x, u.y, roughnessValue),
@@ -120,35 +126,21 @@ void main(void)
 			float pdf = (ndfGGX(NoH, roughnessValue) * NoH) /
 			            (4.0 * VoH + 1e-5);
 
-			// Calcul du MIP level pour l'échantillonnage de l'env
-			// map d'entrée
-			float saTexel = 4.0 * PI /
-			                (6.0 * textureSize(envMap, 0).x *
-			                 textureSize(envMap, 0).y);
-			float saSample =
-			    1.0 / (float(SAMPLE_COUNT) * pdf + 1e-5);
+			// Calcul du MIP level pour l'échantillonnage de l'env map d'entrée cubemap
+			float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf + 1e-5);
 			float mipLevel = roughnessValue == 0.0
 			                     ? 0.0
 			                     : 0.5 * log2(saSample / saTexel);
-			float maxMip = max(log2(float(max(textureSize(envMap, 0).x, textureSize(envMap, 0).y))), 0.0);
-			if (mipLevel >= 0.0 && mipLevel <= maxMip) {
-				// Keep valid mipLevel
-			} else if (mipLevel < 0.0) {
-				mipLevel = 0.0;
-			} else {
-				mipLevel = maxMip;
-			}
+			mipLevel = clamp(mipLevel, 0.0, maxMip);
 
-			vec3 envColor =
-			    textureLod(envMap, dirToUV(L), mipLevel).rgb;
+			vec3 envColor = textureLod(envMap, L, mipLevel).rgb;
 
 			/* Sanitize envColor (remove NaNs) */
 			if (any(isnan(envColor)) || any(isinf(envColor))) {
 				envColor = vec3(0.0);
 			}
 
-			/* Clamping "Fireflies" pour éviter les NaNs/Artefacts
-			 * avec les cartes HDR très intenses */
+			/* Clamping "Fireflies" pour éviter les NaNs/Artefacts avec les cartes HDR très intenses */
 			envColor = min(envColor, vec3(safeThreshold));
 
 			accumulatedColor += envColor * NoL;
@@ -164,5 +156,5 @@ void main(void)
 	/* Force clamp to prevent INF/MAX_FLOAT issues in the texture */
 	resultColor.rgb = min(resultColor.rgb, vec3(65500.0));
 
-	imageStore(prefilteredEnvMap, pos, resultColor);
+	imageStore(prefilteredEnvMap, ivec3(pos, face), resultColor);
 }

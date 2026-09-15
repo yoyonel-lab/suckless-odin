@@ -352,15 +352,6 @@ render :: proc(g: ^Gui) {
 	if g.ctx == nil { return }
 	imgui.Render()
 	imgui_impl_opengl3.RenderDrawData(imgui.GetDrawData())
-
-	// Restore prefilter LOD after ImGui has actually drawn
-	if g.ibl_prefilter_id != 0 {
-		gl.BindTexture(gl.TEXTURE_2D, g.ibl_prefilter_id)
-		gl.TexParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_LOD, -1000.0)
-		gl.TexParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAX_LOD, 1000.0)
-		gl.BindTexture(gl.TEXTURE_2D, 0)
-		g.ibl_prefilter_id = 0
-	}
 }
 
 toggle :: proc(g: ^Gui) {
@@ -884,11 +875,9 @@ draw_ibl_debug_irradiance :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 			g.ibl_scroll_target = .None
 		}
 		if imgui.CollapsingHeader("Irradiance Map (Diffuse IBL)", {.DefaultOpen}) {
-			imgui.Text("ID: %d  Size: %dx%d  Format: RGBA16F",
+			imgui.Text("ID: %d  Size: %dx%d (Cubemap 6 faces)  Format: RGBA16F",
 				state.ibl_irradiance_map, IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
-			draw_image_with_inspector(g, state.ibl_irradiance_map,
-				imgui.Vec2{preview_w, preview_w},
-				IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
+			imgui.TextDisabled("(Cubemap texture - 6 faces)")
 			imgui.Spacing()
 		}
 	}
@@ -902,26 +891,14 @@ draw_ibl_debug_prefilter :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 			g.ibl_scroll_target = .None
 		}
 		if imgui.CollapsingHeader("Prefilter Map (Specular IBL)", {.DefaultOpen}) {
-			imgui.Text("ID: %d  Size: %dx%d  Mips: %d  Format: RGBA16F",
+			imgui.Text("ID: %d  Size: %dx%d (Cubemap 6 faces)  Mips: %d  Format: RGBA16F",
 				state.ibl_prefilter_map, IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE,
 				IBL_PREFILTER_MIP_LEVELS)
 
 			imgui.SliderInt("Mip Level (Roughness)", &g.ibl_mip_level, 0, IBL_PREFILTER_MIP_LEVELS - 1)
 			roughness := f32(g.ibl_mip_level) / f32(IBL_PREFILTER_MIP_LEVELS - 1)
 			imgui.Text("Roughness: %.2f", roughness)
-
-			// Clamp LOD to force the selected mip level display.
-			mip_f := f32(g.ibl_mip_level)
-			gl.BindTexture(gl.TEXTURE_2D, state.ibl_prefilter_map)
-			gl.TexParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_LOD, mip_f)
-			gl.TexParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAX_LOD, mip_f)
-			gl.BindTexture(gl.TEXTURE_2D, 0)
-			g.ibl_prefilter_id = state.ibl_prefilter_map
-
-			draw_image_with_inspector(g, state.ibl_prefilter_map,
-				imgui.Vec2{preview_w, preview_w},
-				IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, g.ibl_mip_level)
-
+			imgui.TextDisabled("(Cubemap texture - 6 faces)")
 			imgui.Spacing()
 		}
 	}
@@ -951,19 +928,19 @@ draw_ibl_debug_memory_estimate :: proc(state: Scene_State) {
 	imgui.Separator()
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "GPU Memory Estimate")
 	env_kb := (state.env_texture_width * state.env_texture_height * 8 * 4 / 3) / 1024
-	irr_kb := i32((IBL_IRRADIANCE_SIZE * IBL_IRRADIANCE_SIZE * 8) / 1024)
+	irr_kb := i32((IBL_IRRADIANCE_SIZE * IBL_IRRADIANCE_SIZE * 6 * 8) / 1024)
 	brdf_kb := i32((IBL_BRDF_LUT_SIZE * IBL_BRDF_LUT_SIZE * 4) / 1024)
 	pf_bytes: i32 = 0
 	for mip in 0 ..< IBL_PREFILTER_MIP_LEVELS {
 		mip_w := max(i32(1), IBL_PREFILTER_SIZE >> u32(mip))
 		mip_h := max(i32(1), IBL_PREFILTER_SIZE >> u32(mip))
-		pf_bytes += mip_w * mip_h * 8
+		pf_bytes += mip_w * mip_h * 6 * 8
 	}
 	pf_kb := pf_bytes / 1024
 	total_kb := env_kb + irr_kb + brdf_kb + pf_kb
 	imgui.Text("  Env HDR:    %d KB (%dx%d + mips)", env_kb, state.env_texture_width, state.env_texture_height)
-	imgui.Text("  Irradiance: %d KB", irr_kb)
-	imgui.Text("  Prefilter:  %d KB (%d mips)", pf_kb, IBL_PREFILTER_MIP_LEVELS)
+	imgui.Text("  Irradiance: %d KB (cubemap)", irr_kb)
+	imgui.Text("  Prefilter:  %d KB (%d mips, cubemap)", pf_kb, IBL_PREFILTER_MIP_LEVELS)
 	imgui.Text("  BRDF LUT:   %d KB", brdf_kb)
 	imgui.Text("  Total:      %.1f MB", f32(total_kb) / 1024.0)
 }
