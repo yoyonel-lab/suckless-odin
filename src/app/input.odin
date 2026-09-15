@@ -27,9 +27,9 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		return
 	}
 
-	// When ImGui has keyboard focus, only block printable character keys
-	// (so F2, Escape, F-keys etc. still work for toggling the GUI)
-	if gui.wants_keyboard(&app.imgui) && key >= glfw.KEY_SPACE && key <= glfw.KEY_GRAVE_ACCENT {
+	// When ImGui is visible, block all printable/gameplay character keys
+	// (so F2, Escape, F-keys still work, but typing letters/spaces never triggers camera/fullscreen)
+	if app.imgui.visible && key >= glfw.KEY_SPACE && key <= glfw.KEY_GRAVE_ACCENT {
 		return
 	}
 

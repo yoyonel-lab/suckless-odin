@@ -35,11 +35,19 @@ Volumetric_Session_Settings :: struct {
 	upsample_mode:          i32  `json:"upsample_mode"`,
 	upsample_sharpness:     f32  `json:"upsample_sharpness"`,
 	resolution_divider:     i32  `json:"resolution_divider"`,
-	shadow_cache:           bool `json:"shadow_cache"`,
-	time_slice_mode:        i32  `json:"time_slice_mode"`,
-	shadow_res_index:       i32  `json:"shadow_res_index"`,
-	preview_mode:           i32  `json:"preview_mode"`,
-	preview_exposure_boost: f32  `json:"preview_exposure_boost"`,
+	shadow_cache:           bool    `json:"shadow_cache"`,
+	time_slice_mode:        i32     `json:"time_slice_mode"`,
+	shadow_res_index:       i32     `json:"shadow_res_index"`,
+	preview_mode:           i32     `json:"preview_mode"`,
+	preview_exposure_boost: f32     `json:"preview_exposure_boost"`,
+	depth_edge_threshold:   f32     `json:"depth_edge_threshold"`,
+	depth_preview_mode:     i32     `json:"depth_preview_mode"`,
+	depth_preview_min:      f32     `json:"depth_preview_min"`,
+	depth_preview_max:      f32     `json:"depth_preview_max"`,
+	shadow_near_plane:      f32     `json:"shadow_near_plane"`,
+	shadow_far_plane:       f32     `json:"shadow_far_plane"`,
+	zoom_scale:             f32     `json:"zoom_scale"`,
+	zoom_center:            mt.Vec2 `json:"zoom_center"`,
 }
 
 Point_Light_Session_Settings :: struct {
@@ -101,6 +109,7 @@ Session_State :: struct {
 	sort_mode: i32 `json:"sort_mode"`,
 	edge_aa_enabled: bool `json:"edge_aa_enabled"`,
 	edge_aa_debug: bool `json:"edge_aa_debug"`,
+	env_path: string `json:"env_path"`,
 	
 	postfx_active: bool `json:"postfx_active"`,
 	postfx_settings: postfx.Settings_File `json:"postfx_settings"`,
@@ -115,8 +124,25 @@ Session_State :: struct {
 	camera_enabled: bool `json:"camera_enabled"`,
 	perf_mode_active: bool `json:"perf_mode_active"`,
 	specular_aa: Specular_AA_Settings `json:"specular_aa"`,
+	specular_occlusion_enabled:        bool `json:"specular_occlusion_enabled"`,
+	specular_occlusion_strength:       f32  `json:"specular_occlusion_strength"`,
+	horizon_clipping_enabled:          bool `json:"horizon_clipping_enabled"`,
+	specular_occlusion_debug_mode:     i32  `json:"specular_occlusion_debug_mode"`,
+	specular_occlusion_split_enabled:  bool `json:"specular_occlusion_split_enabled"`,
+	specular_occlusion_split_position: f32  `json:"specular_occlusion_split_position"`,
+	pbr_debug_mode:                    i32  `json:"pbr_debug_mode"`,
+	grid_ao_enabled:                   bool `json:"grid_ao_enabled"`,
+	grid_ao_intensity:                 f32  `json:"grid_ao_intensity"`,
+	ao_target_sphere:                  i32  `json:"ao_target_sphere"`,
+	ao_range_start:                    i32  `json:"ao_range_start"`,
+	ao_range_end:                      i32  `json:"ao_range_end"`,
+	ao_bake_cpu:                       bool `json:"ao_bake_cpu"`,
+	ao_bake_gpu:                       bool `json:"ao_bake_gpu"`,
+	ao_num_samples:                    i32  `json:"ao_num_samples"`,
+	use_baked_ao:                      bool `json:"use_baked_ao"`,
 	volumetric: Volumetric_Session_Settings `json:"volumetric"`,
 	point_light: Point_Light_Session_Settings `json:"point_light"`,
+	optimization_profile: i32 `json:"optimization_profile"`,
 }
 
 SESSION_FILE_PATH :: "session.json"
@@ -157,5 +183,6 @@ load_session :: proc(state: ^Session_State, path: string = SESSION_FILE_PATH) ->
 session_free :: proc(state: ^Session_State) {
 	delete(state.postfx_settings.name)
 	delete(state.postfx_settings.lut3d_path)
+	delete(state.env_path)
 }
 

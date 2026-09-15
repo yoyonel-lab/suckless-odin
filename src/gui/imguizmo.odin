@@ -1,6 +1,7 @@
 package gui
 
 import "core:c"
+import mt "../core/math_types"
 
 when ODIN_OS == .Windows {
 	foreign import libguizmo "../../deps/libimguizmo_windows_x64.lib"
@@ -85,4 +86,35 @@ foreign libguizmo {
 
 	@(link_name = "ImGuizmo_SetGizmoSizeClipSpace")
 	guizmo_set_gizmo_size_clip_space :: proc(value: f32) ---
+}
+
+// Typed Odin wrappers for ImGuizmo FFI
+guizmo_manipulate_mat4 :: proc(
+	view, proj: ^mt.Mat4,
+	op: Guizmo_Operation,
+	mode: Guizmo_Mode,
+	mat: ^mt.Mat4,
+	delta_matrix: ^mt.Mat4 = nil,
+	snap: ^mt.Vec3 = nil,
+) -> bool {
+	v_ptr := ([^]f32)(&view[0][0]) if view != nil else nil
+	p_ptr := ([^]f32)(&proj[0][0]) if proj != nil else nil
+	m_ptr := ([^]f32)(&mat[0][0]) if mat != nil else nil
+	d_ptr := ([^]f32)(&delta_matrix[0][0]) if delta_matrix != nil else nil
+	s_ptr := ([^]f32)(&snap.x) if snap != nil else nil
+	return guizmo_manipulate(v_ptr, p_ptr, op, mode, m_ptr, d_ptr, s_ptr)
+}
+
+guizmo_decompose_mat4 :: proc(mat: ^mt.Mat4) -> (translation, rotation, scale: mt.Vec3) {
+	if mat == nil do return
+	m_ptr := ([^]f32)(&mat[0][0])
+	guizmo_decompose_matrix(m_ptr, ([^]f32)(&translation.x), ([^]f32)(&rotation.x), ([^]f32)(&scale.x))
+	return
+}
+
+guizmo_recompose_mat4 :: proc(translation, rotation, scale: mt.Vec3, mat: ^mt.Mat4) {
+	if mat == nil do return
+	t := translation; r := rotation; s := scale
+	m_ptr := ([^]f32)(&mat[0][0])
+	guizmo_recompose_matrix(([^]f32)(&t.x), ([^]f32)(&r.x), ([^]f32)(&s.x), m_ptr)
 }

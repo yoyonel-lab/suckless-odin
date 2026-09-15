@@ -7,6 +7,7 @@ import "core:os"
 
 import scene "../scene"
 import postfx "../rendering/postfx"
+import rendering "../rendering"
 
 // Run a fixed-frame benchmark: enable all effects, render N frames, print stats.
 // Uses glFinish() per frame for accurate GPU timing (not just CPU submission).
@@ -33,6 +34,7 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 
 	fmt.println("=== BENCHMARK START ===")
 	fmt.printfln("  GPU: %s", gl.GetString(gl.RENDERER))
+	fmt.printfln("  Optimization Profile: %s", rendering.optimization_profile_name(application.scene.optimization_profile))
 	fmt.printfln("  Frames: %d (warmup: %d, measured: %d)", total_frames, effective_warmup, measured_frames)
 	fmt.printfln("  Effects: Vignette+Grain+Exposure+ChromAbbr+Bloom+ColorGrading+DoF+AutoExposure+FXAA+Tonemap+Banding")
 
@@ -96,15 +98,33 @@ BENCHMARK_SCREENSHOT_PATH :: "/tmp/benchmark_frame.ppm"
 
 @(private)
 dump_benchmark_frame :: proc(application: ^App, width, height: i32) {
-	// Read from scene FBO (COLOR_ATTACHMENT0 is the HDR render target)
-	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, application.scene.postfx_pipeline.scene_fbo)
-	gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
-	defer gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
-
 	pixels := make([]u8, int(width * height * 3))
 	defer delete(pixels)
 
+	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
+
+	// Read from default backbuffer (fully tone-mapped and resolved postfx frame)
+	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
+	gl.ReadBuffer(gl.BACK)
 	gl.ReadPixels(0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
+
+	// If backbuffer is completely zeroed (e.g. headless unmapped Xvfb under Wine),
+	// fallback to reading directly from scene HDR FBO
+	is_empty := true
+	for p in pixels {
+		if p != 0 {
+			is_empty = false
+			break
+		}
+	}
+
+	if is_empty && application.scene.postfx_pipeline.scene_fbo != 0 {
+		gl.BindFramebuffer(gl.READ_FRAMEBUFFER, application.scene.postfx_pipeline.scene_fbo)
+		gl.ReadBuffer(gl.COLOR_ATTACHMENT0)
+		gl.ReadPixels(0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
+	}
+
+	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, 0)
 
 	fd, err := os.open(BENCHMARK_SCREENSHOT_PATH, os.O_WRONLY | os.O_CREATE | os.O_TRUNC)
 	if err != nil {
@@ -126,3 +146,4 @@ dump_benchmark_frame :: proc(application: ^App, width, height: i32) {
 
 	fmt.printfln("  Screenshot: %s", BENCHMARK_SCREENSHOT_PATH)
 }
+
