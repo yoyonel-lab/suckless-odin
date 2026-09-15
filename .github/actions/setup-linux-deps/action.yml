@@ -28,3 +28,9 @@ runs:
       with:
         name: imgui-lib
         path: deps/odin-imgui
+
+    - name: Download Native Libraries (Tracy & SIMD)
+      uses: actions/download-artifact@v4
+      with:
+        name: native-libs
+        path: deps

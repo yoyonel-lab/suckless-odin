@@ -59,6 +59,28 @@ jobs:
           path: deps/odin-imgui/imgui_linux_x64.a
           retention-days: 1
 
+      - name: Cache Native Libraries (Tracy & SIMD)
+        id: cache-native-libs
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/libtracy.a
+            deps/libsimd.a
+          key: native-libs-${{ hashFiles('scripts/build_tracy_lib.sh') }}-${{ hashFiles('deps/tracy/**') }}
+
+      - name: Build Native Libraries (Tracy & SIMD)
+        if: steps.cache-native-libs.outputs.cache-hit != 'true'
+        run: bash scripts/build_tracy_lib.sh
+
+      - name: Upload Native Libraries artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs
+          path: |
+            deps/libtracy.a
+            deps/libsimd.a
+          retention-days: 1
+
   # ─── 2. BUILD MATRIX (Linux targets) ───────────────────────────────────────
   build:
     name: Build (${{ matrix.mode }})
