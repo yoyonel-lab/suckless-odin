@@ -109,6 +109,7 @@ Env_Manager :: struct {
 
 	// Cubemap conversion resources (.Cube_Convert)
 	cube_convert_prog:       u32,
+	cube_downsample_prog:    u32,
 	cube_fbo:                u32,
 	conv_vao:                u32,
 	conv_vbo:                u32,
@@ -200,6 +201,15 @@ env_manager_create :: proc(mgr: ^Env_Manager, tuning := settings.DEFAULT_COMPUTE
 		return false
 	}
 	mgr.cube_convert_prog = conv_prog
+
+	// Load downsample shader (for seamless cross-face mipmap generation)
+	down_prog, down_ok := load_shader("shaders/equirect_to_cubemap.vert", "shaders/downsample_cubemap.frag")
+	if !down_ok {
+		gl.DeleteProgram(conv_prog)
+		async_loader_destroy(&mgr.loader)
+		return false
+	}
+	mgr.cube_downsample_prog = down_prog
 
 	// Create FBO and fullscreen triangle VAO/VBO for cubemap conversion
 	gl.GenFramebuffers(1, &mgr.cube_fbo)
@@ -309,6 +319,7 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 
 	// Clean up cubemap conversion resources
 	if mgr.cube_convert_prog != 0 { gl.DeleteProgram(mgr.cube_convert_prog); mgr.cube_convert_prog = 0 }
+	if mgr.cube_downsample_prog != 0 { gl.DeleteProgram(mgr.cube_downsample_prog); mgr.cube_downsample_prog = 0 }
 	if mgr.cube_fbo != 0 { gl.DeleteFramebuffers(1, &mgr.cube_fbo); mgr.cube_fbo = 0 }
 	if mgr.conv_vao != 0 { gl.DeleteVertexArrays(1, &mgr.conv_vao); mgr.conv_vao = 0 }
 	if mgr.conv_vbo != 0 { gl.DeleteBuffers(1, &mgr.conv_vbo); mgr.conv_vbo = 0 }
@@ -784,24 +795,62 @@ env_manager_ibl_cube_convert :: proc(mgr: ^Env_Manager) {
 		inv_vp := mt.mat4_inverse(mt.mat4_mul(proj, face_views[face]))
 		gl.UniformMatrix4fv(0, 1, false, &inv_vp[0][0])
 
+		gl.Clear(gl.COLOR_BUFFER_BIT)
 		gl.DrawArrays(gl.TRIANGLES, 0, 3)
 	}
 
+	// === Pass 2: Seamless cross-face mipmap downsampling ===
+	// Manual downsampling with GL_TEXTURE_CUBE_MAP_SEAMLESS ensures continuity across face seams.
+	gl.UseProgram(mgr.cube_downsample_prog)
+	gl.ActiveTexture(gl.TEXTURE1)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.pending_spec_tex)
+
+	// Clamp max LOD to prevent sampling from uninitialized higher mips
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, 0)
+
+	for mip in 1..<i32(rendering.PREFILTER_MIP_LEVELS) {
+		mip_size := i32(rendering.PREFILTER_SIZE) >> u32(mip)
+		if mip_size < 1 { mip_size = 1 }
+		gl.Viewport(0, 0, mip_size, mip_size)
+
+		// Allow reading up to mip-1 (previous level we just wrote)
+		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, mip - 1)
+
+		// Source LOD = previous mip level
+		gl.Uniform1f(4, f32(mip - 1))
+
+		for face in 0..<6 {
+			gl.FramebufferTexture2D(
+				gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+				gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(face),
+				mgr.pending_spec_tex, mip,
+			)
+
+			inv_vp := mt.mat4_inverse(mt.mat4_mul(proj, face_views[face]))
+			gl.UniformMatrix4fv(0, 1, false, &inv_vp[0][0])
+
+			gl.Clear(gl.COLOR_BUFFER_BIT)
+			gl.DrawArrays(gl.TRIANGLES, 0, 3)
+		}
+		gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT | gl.FRAMEBUFFER_BARRIER_BIT)
+	}
+
+	// Restore max level to allow full mipchain sampling
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, rendering.PREFILTER_MIP_LEVELS - 1)
+
 	gl.BindVertexArray(0)
 	gl.UseProgram(0)
+	gl.ActiveTexture(gl.TEXTURE1)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
+	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
 	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
 
-	// Generate complete mipmap chain on cubemap texture
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.pending_spec_tex)
-	gl.GenerateMipmap(gl.TEXTURE_CUBE_MAP)
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
-
 	gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT | gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
 
 	env_manager_set_ibl_state(mgr, .Specular_Init)
-	log.log_debug("scene.env", "IBL: Cube convert (mip 0 + mipmaps) complete, proceeding to Specular_Init")
+	log.log_debug("scene.env", "IBL: Cube convert (mip 0 + seamless mipmaps) complete, proceeding to Specular_Init")
 }
 
 @(private)

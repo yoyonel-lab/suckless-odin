@@ -54,6 +54,7 @@ ensure_gl_context :: proc(t: ^testing.T) -> bool {
 	glfw.MakeContextCurrent(gl_window)
 	gl.load_up_to(GL_MAJOR, GL_MINOR, gl_set_proc_address)
 	gl_state.reset()
+	gl.Enable(gl.TEXTURE_CUBE_MAP_SEAMLESS)
 	return true
 }
 
