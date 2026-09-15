@@ -105,7 +105,7 @@ optimization_profile_apply :: proc(profile: Optimization_Profile, vr: ^Volumetri
 // Logs the active optimization profile and its technical subsystem parameters
 optimization_profile_log :: proc(profile: Optimization_Profile, vr: ^Volumetric_Renderer, light: ^Point_Light, sc: ^Shadow_Cubemap) {
 	prof_name := optimization_profile_name(profile)
-	log.log_info("suckless-odin.opt", "Active Optimization Profile: %s", prof_name)
+	log.log_info("core.perf", "Active Optimization Profile: %s", prof_name)
 
 	if vr != nil {
 		blur_str := "Off"
@@ -118,12 +118,12 @@ optimization_profile_log :: proc(profile: Optimization_Profile, vr: ^Volumetric_
 		case 1: upsample_str = "Nearest-Depth"
 		case 2: upsample_str = "Joint Bilateral (JBU 2x2)"
 		}
-		log.log_info("suckless-odin.opt", "  * [Volumetric] Steps: %d, Downscale: 1/%d, Upsample: %s, Blur: %s, TAA Mode: %d (alpha=%.2f)",
+		log.log_info("core.perf", "  * [Volumetric] Steps: %d, Downscale: 1/%d, Upsample: %s, Blur: %s, TAA Mode: %d (alpha=%.2f)",
 			vr.params.step_count, vr.params.resolution_divider, upsample_str, blur_str, vr.params.taa_mode, vr.params.taa_alpha)
 	}
 
 	if light != nil {
-		log.log_info("suckless-odin.opt", "  * [Shadows] PCF Samples: %d, Filter Radius: %.3f, Shadow TAA: %v (mode=%d, alpha=%.2f)",
+		log.log_info("core.perf", "  * [Shadows] PCF Samples: %d, Filter Radius: %.3f, Shadow TAA: %v (mode=%d, alpha=%.2f)",
 			light.shadow_pcf_samples, light.shadow_filter_radius, light.shadow_taa_enabled, light.shadow_taa_mode, light.shadow_taa_alpha)
 	}
 
@@ -133,7 +133,7 @@ optimization_profile_log :: proc(profile: Optimization_Profile, vr: ^Volumetric_
 		case 1: slice_str = "Time-Slicing (2 faces/frame)"
 		case 2: slice_str = "Time-Slicing (1 face/frame)"
 		}
-		log.log_info("suckless-odin.opt", "  * [Shadow Cubemap] Resolution: %dx%d, Update: %s",
+		log.log_info("core.perf", "  * [Shadow Cubemap] Resolution: %dx%d, Update: %s",
 			sc.resolution, sc.resolution, slice_str)
 	}
 }

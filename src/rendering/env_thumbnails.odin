@@ -63,7 +63,7 @@ env_thumbnail_load :: proc(path: string) -> Env_Thumbnail {
 	w, h, channels: c.int
 	data := stbi.loadf(path_c, &w, &h, &channels, 4)
 	if data == nil {
-		log.log_warning("suckless-odin.texture", "Failed to load thumbnail HDR: %s", path)
+		log.log_warning("render.texture", "Failed to load thumbnail HDR: %s", path)
 		return thumb
 	}
 	defer stbi.image_free(data)
@@ -94,7 +94,7 @@ env_thumbnails_init :: proc(mgr: ^Env_Thumbnail_Manager, hdr_paths: []string) {
 		thumb := env_thumbnail_load(path)
 		append(&mgr.thumbnails, thumb)
 	}
-	log.log_info("suckless-odin.texture", "Loaded %d environment map thumbnails", len(mgr.thumbnails))
+	log.log_info("render.texture", "Loaded %d environment map thumbnails", len(mgr.thumbnails))
 }
 
 env_thumbnails_destroy :: proc(mgr: ^Env_Thumbnail_Manager) {

@@ -202,7 +202,7 @@ ao_worker_proc :: proc(t: ^thread.Thread) {
 load_ao_compute_shader :: proc(filepath: string) -> (program: u32, ok: bool) {
 	data, err := os.read_entire_file_from_path(filepath, context.temp_allocator)
 	if err != nil {
-		log.log_error("suckless-odin.ao_baker", "Failed to read AO compute shader: %s", filepath)
+		log.log_error("render.texture", "Failed to read AO compute shader: %s", filepath)
 		return 0, false
 	}
 
@@ -217,7 +217,7 @@ load_ao_compute_shader :: proc(filepath: string) -> (program: u32, ok: bool) {
 		log_buf: [1024]u8
 		length: i32
 		gl.GetShaderInfoLog(shader, 1024, &length, &log_buf[0])
-		log.log_error("suckless-odin.ao_baker", "AO Compute shader compile error: %s", string(log_buf[:length]))
+		log.log_error("render.texture", "AO Compute shader compile error: %s", string(log_buf[:length]))
 		gl.DeleteShader(shader)
 		return 0, false
 	}
@@ -232,7 +232,7 @@ load_ao_compute_shader :: proc(filepath: string) -> (program: u32, ok: bool) {
 		log_buf: [1024]u8
 		length: i32
 		gl.GetProgramInfoLog(prog, 1024, &length, &log_buf[0])
-		log.log_error("suckless-odin.ao_baker", "AO Compute program link error: %s", string(log_buf[:length]))
+		log.log_error("render.texture", "AO Compute program link error: %s", string(log_buf[:length]))
 		gl.DeleteProgram(prog)
 		return 0, false
 	}
@@ -292,7 +292,7 @@ ao_baker_init :: proc(baker: ^AO_Baker, width: i32 = DEFAULT_AO_MAP_WIDTH, heigh
 	// 3. Load Compute Shaders (Single 2D Diagnostic + Layered In-VRAM Array)
 	program, ok := load_ao_compute_shader("shaders/compute/ao_baker.glsl")
 	if !ok {
-		log.log_warning("suckless-odin.ao_baker", "Failed to compile AO 2D compute shader (diagnostic GPU bake disabled)")
+		log.log_warning("render.texture", "Failed to compile AO 2D compute shader (diagnostic GPU bake disabled)")
 	}
 	baker.gpu_compute_program = program
 
@@ -306,7 +306,7 @@ ao_baker_init :: proc(baker: ^AO_Baker, width: i32 = DEFAULT_AO_MAP_WIDTH, heigh
 
 	arr_program, arr_ok := load_ao_compute_shader("shaders/compute/ao_baker_array.glsl")
 	if !arr_ok {
-		log.log_warning("suckless-odin.ao_baker", "Failed to compile AO Array compute shader (direct In-VRAM GPU bake disabled)")
+		log.log_warning("render.texture", "Failed to compile AO Array compute shader (direct In-VRAM GPU bake disabled)")
 	}
 	baker.gpu_array_compute_program = arr_program
 
@@ -321,7 +321,7 @@ ao_baker_init :: proc(baker: ^AO_Baker, width: i32 = DEFAULT_AO_MAP_WIDTH, heigh
 	// 4. Initialize 2D Texture Array and load all 100 sphere maps from disk
 	ao_baker_load_all_maps_from_disk(baker, "build")
 
-	log.log_info("suckless-odin.ao_baker", "AO Baker initialized (%dx%d, cpu_tex=%d, gpu_tex=%d, array_tex=%d, compute_prog=%d, array_prog=%d)",
+	log.log_info("render.texture", "AO Baker initialized (%dx%d, cpu_tex=%d, gpu_tex=%d, array_tex=%d, compute_prog=%d, array_prog=%d)",
 		width, height, baker.cpu_texture_id, baker.gpu_texture_id, baker.ao_array_texture_id, baker.gpu_compute_program, baker.gpu_array_compute_program)
 	return true
 }
@@ -395,7 +395,7 @@ ao_baker_load_all_maps_from_disk :: proc(baker: ^AO_Baker, folder: string = "bui
 	gl.BindTexture(gl.TEXTURE_2D_ARRAY, 0)
 	baker.loaded_maps_count = i32(count)
 
-	log.log_info("suckless-odin.ao_baker", "Loaded %d/100 Baked AO Maps into Texture Array (ID %d)", count, baker.ao_array_texture_id)
+	log.log_info("render.texture", "Loaded %d/100 Baked AO Maps into Texture Array (ID %d)", count, baker.ao_array_texture_id)
 	return count, count > 0
 }
 
@@ -587,7 +587,7 @@ ao_baker_bake_range :: proc(
 	count := int(spheres.count)
 	if count == 0 do return false
 	if !bake_cpu && !bake_gpu {
-		log.log_warning("suckless-odin.ao_baker", "Cannot bake: neither CPU nor GPU method is enabled")
+		log.log_warning("render.texture", "Cannot bake: neither CPU nor GPU method is enabled")
 		return false
 	}
 
@@ -668,7 +668,7 @@ ao_baker_bake_range :: proc(
 	fmt.bprintf(baker.gpu_png_path[:], "build/ao_sphere_%02d_gpu.png", start_idx)
 
 	log.log_info(
-		"suckless-odin.ao_baker",
+		"render.texture",
 		"Offline AO Bake Complete: %d Spheres (#%d..#%d) | CPU=%.2f ms (%.1f Mrays/s), GPU=%.2f ms (%.1f Mrays/s), Max Delta=%.4f",
 		total_spheres, start_idx, end_idx, baker.cpu_time_ms, baker.cpu_mrays_per_sec, baker.gpu_time_ms, baker.gpu_mrays_per_sec, baker.max_delta,
 	)
@@ -749,7 +749,7 @@ ao_baker_bake_direct_vram :: proc(
 	baker.is_baked = true
 
 	log.log_info(
-		"suckless-odin.ao_baker",
+		"render.texture",
 		"Direct In-VRAM GPU Fast Bake Complete: %d Spheres (#%d..#%d) in %.2f ms (%.1f Mrays/s) | 0 Disk I/O, 0 CPU Readback",
 		num_spheres, start_idx, end_idx, gpu_ms, baker.gpu_mrays_per_sec,
 	)
