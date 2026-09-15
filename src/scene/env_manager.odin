@@ -110,6 +110,7 @@ Env_Manager :: struct {
 	// Cubemap conversion resources (.Cube_Convert)
 	cube_convert_prog:       u32,
 	cube_downsample_prog:    u32,
+	cube_scratch_tex:        u32,
 	cube_fbo:                u32,
 	conv_vao:                u32,
 	conv_vbo:                u32,
@@ -252,6 +253,24 @@ env_manager_create :: proc(mgr: ^Env_Manager, tuning := settings.DEFAULT_COMPUTE
 		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 		dbg.object_label(gl.TEXTURE, mgr.irradiance_pool[i], fmt.ctprintf("IBL_Irradiance_Map_Pool_%d", i))
 	}
+
+	// Scratch Cubemap for Hazard-Free Cross-Face Downsampling (Option B Ping-Pong)
+	gl.GenTextures(1, &mgr.cube_scratch_tex)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.cube_scratch_tex)
+	gl.TexStorage2D(
+		gl.TEXTURE_CUBE_MAP,
+		rendering.PREFILTER_MIP_LEVELS,
+		gl.RGBA16F,
+		rendering.PREFILTER_SIZE,
+		rendering.PREFILTER_SIZE,
+	)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	dbg.object_label(gl.TEXTURE, mgr.cube_scratch_tex, "IBL_Cube_Downsample_Scratch")
+
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
 	mgr.pool_active_idx = 0
 	mgr.pool_initialized = true
@@ -320,6 +339,7 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 	// Clean up cubemap conversion resources
 	if mgr.cube_convert_prog != 0 { gl.DeleteProgram(mgr.cube_convert_prog); mgr.cube_convert_prog = 0 }
 	if mgr.cube_downsample_prog != 0 { gl.DeleteProgram(mgr.cube_downsample_prog); mgr.cube_downsample_prog = 0 }
+	if mgr.cube_scratch_tex != 0 { gl.DeleteTextures(1, &mgr.cube_scratch_tex); mgr.cube_scratch_tex = 0 }
 	if mgr.cube_fbo != 0 { gl.DeleteFramebuffers(1, &mgr.cube_fbo); mgr.cube_fbo = 0 }
 	if mgr.conv_vao != 0 { gl.DeleteVertexArrays(1, &mgr.conv_vao); mgr.conv_vao = 0 }
 	if mgr.conv_vbo != 0 { gl.DeleteBuffers(1, &mgr.conv_vbo); mgr.conv_vbo = 0 }
@@ -799,31 +819,31 @@ env_manager_ibl_cube_convert :: proc(mgr: ^Env_Manager) {
 		gl.DrawArrays(gl.TRIANGLES, 0, 3)
 	}
 
-	// === Pass 2: Seamless cross-face mipmap downsampling ===
-	// Manual downsampling with GL_TEXTURE_CUBE_MAP_SEAMLESS ensures continuity across face seams.
+	// === Pass 2: Seamless cross-face mipmap downsampling (Option B: Ping-Pong Scratch) ===
+	// Reads previous mip level k-1 from pending_spec_tex on TEXTURE1,
+	// renders mip k into cube_scratch_tex via FBO (zero feedback hazard),
+	// then copies mip k to pending_spec_tex via gl.CopyImageSubData (pure copy).
 	gl.UseProgram(mgr.cube_downsample_prog)
 	gl.ActiveTexture(gl.TEXTURE1)
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, mgr.pending_spec_tex)
-
-	// Clamp max LOD to prevent sampling from uninitialized higher mips
-	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, 0)
 
 	for mip in 1..<i32(rendering.PREFILTER_MIP_LEVELS) {
 		mip_size := i32(rendering.PREFILTER_SIZE) >> u32(mip)
 		if mip_size < 1 { mip_size = 1 }
 		gl.Viewport(0, 0, mip_size, mip_size)
 
-		// Allow reading up to mip-1 (previous level we just wrote)
+		// Allow reading up to mip-1 (previous level we just copied to pending_spec_tex)
 		gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, mip - 1)
 
 		// Source LOD = previous mip level
 		gl.Uniform1f(4, f32(mip - 1))
 
+		// Render mip k into cube_scratch_tex (clean target, no feedback hazard)
 		for face in 0..<6 {
 			gl.FramebufferTexture2D(
 				gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
 				gl.TEXTURE_CUBE_MAP_POSITIVE_X + u32(face),
-				mgr.pending_spec_tex, mip,
+				mgr.cube_scratch_tex, mip,
 			)
 
 			inv_vp := mt.mat4_inverse(mt.mat4_mul(proj, face_views[face]))
@@ -832,10 +852,28 @@ env_manager_ibl_cube_convert :: proc(mgr: ^Env_Manager) {
 			gl.Clear(gl.COLOR_BUFFER_BIT)
 			gl.DrawArrays(gl.TRIANGLES, 0, 3)
 		}
-		gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT | gl.FRAMEBUFFER_BARRIER_BIT)
+
+		// Memory barrier for framebuffer completion before copying
+		gl.MemoryBarrier(gl.FRAMEBUFFER_BARRIER_BIT)
+
+		// Copy rendered mip k from scratch cubemap back to pending_spec_tex (all 6 faces)
+		gl.CopyImageSubData(
+			mgr.cube_scratch_tex, gl.TEXTURE_CUBE_MAP, mip, 0, 0, 0,
+			mgr.pending_spec_tex, gl.TEXTURE_CUBE_MAP, mip, 0, 0, 0,
+			mip_size, mip_size, 6,
+		)
+
+		// Ensure texture fetch barrier so next iteration can sample mip k from pending_spec_tex
+		gl.MemoryBarrier(gl.TEXTURE_FETCH_BARRIER_BIT)
 	}
 
-	// Restore max level to allow full mipchain sampling
+	// Detach scratch texture from FBO
+	gl.FramebufferTexture2D(
+		gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+		gl.TEXTURE_CUBE_MAP_POSITIVE_X, 0, 0,
+	)
+
+	// Restore max level on pending_spec_tex to allow full mipchain sampling
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, rendering.PREFILTER_MIP_LEVELS - 1)
 
 	gl.BindVertexArray(0)
