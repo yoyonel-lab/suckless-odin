@@ -588,7 +588,7 @@ draw_postfx_luminance_stops :: proc(p: ^postfx.Pipeline) {
 		postfx.pipeline_toggle(p, .Luminance_Debug)
 	}
 	if imgui.IsItemHovered() {
-		imgui.SetTooltip("Filament-style luminance visualization.\nColor-codes final pixel luminance by stops:\n  Cyan = middle gray (18%)\n  Blue = darker stops\n  Green/Yellow/Red = brighter stops")
+		imgui.SetTooltip("Filament-style luminance visualization.\nColor-codes final pixel luminance by stops:\n  Cyan = middle gray (18%%)\n  Blue = darker stops\n  Green/Yellow/Red = brighter stops")
 	}
 }
 

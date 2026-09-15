@@ -33,7 +33,7 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 
 		// Fast Cycle Buttons
 		if imgui.Button("< Previous Env (Page Up)") {
-			if len(state.hdr_files) > 0 && state.change_env != nil {
+			if len(state.hdr_files) > 0 && state.change_env != nil && state.current_hdr_index != nil {
 				new_idx := (curr_idx - 1 + i32(len(state.hdr_files))) % i32(len(state.hdr_files))
 				state.current_hdr_index^ = new_idx
 				state.change_env(state.scene_ptr, state.hdr_files[new_idx])
@@ -41,7 +41,7 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 		}
 		imgui.SameLine()
 		if imgui.Button("Next Env (Page Down) >") {
-			if len(state.hdr_files) > 0 && state.change_env != nil {
+			if len(state.hdr_files) > 0 && state.change_env != nil && state.current_hdr_index != nil {
 				new_idx := (curr_idx + 1) % i32(len(state.hdr_files))
 				state.current_hdr_index^ = new_idx
 				state.change_env(state.scene_ptr, state.hdr_files[new_idx])
@@ -70,7 +70,8 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 			imgui.TextDisabled("Click any thumbnail or button to switch environment map:")
 			imgui.Spacing()
 
-			for thumb, i in state.env_thumbnails {
+			for &thumb, i in state.env_thumbnails {
+				rendering.env_thumbnail_ensure_loaded(&thumb)
 				imgui.PushIDInt(i32(i))
 				is_active := (i32(i) == curr_idx)
 
@@ -88,7 +89,7 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 						{0.1, 0.1, 0.1, 1.0},
 						is_active ? {1.0, 1.0, 1.0, 1.0} : {0.7, 0.7, 0.7, 1.0},
 					)
-					if imgui.IsItemClicked(.Left) && !is_active && state.change_env != nil {
+					if imgui.IsItemClicked(.Left) && !is_active && state.change_env != nil && state.current_hdr_index != nil {
 						state.current_hdr_index^ = i32(i)
 						state.change_env(state.scene_ptr, thumb.path)
 					}
@@ -102,15 +103,15 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 
 				imgui.BeginGroup()
 				imgui.TextColored(imgui.Vec4{0.3, 1.0, 0.3, 1.0} if is_active else imgui.Vec4{1.0, 1.0, 1.0, 1.0},
-					fmt.ctprintf("%s", thumb.display_name))
-				imgui.TextDisabled(fmt.ctprintf("%s", thumb.filename))
+					"%s", fmt.ctprintf("%s", thumb.display_name))
+				imgui.TextDisabled("%s", fmt.ctprintf("%s", thumb.filename))
 				imgui.TextDisabled("%dx%d RGBA16F", thumb.width, thumb.height)
 
 				if is_active {
 					imgui.TextColored({0.2, 0.9, 0.2, 1.0}, "[ACTIVE] CURRENTLY LOADED")
 				} else {
 					if imgui.Button("Load Environment") {
-						if state.change_env != nil {
+						if state.change_env != nil && state.current_hdr_index != nil {
 							state.current_hdr_index^ = i32(i)
 							state.change_env(state.scene_ptr, thumb.path)
 						}
@@ -157,7 +158,7 @@ draw_filtered_env_map :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 	if fuzzy_match(filter, "Active Environment Map", "hdr environment active map current cedar bridge garage neon cathedral") {
 		imgui.Text("Active Texture ID: %d (%dx%d)", state.env_texture_id, state.env_texture_width, state.env_texture_height)
 		if imgui.Button("Cycle Next Env##filt") {
-			if len(state.hdr_files) > 0 && state.change_env != nil {
+			if len(state.hdr_files) > 0 && state.change_env != nil && state.current_hdr_index != nil {
 				new_idx := (curr_idx + 1) % i32(len(state.hdr_files))
 				state.current_hdr_index^ = new_idx
 				state.change_env(state.scene_ptr, state.hdr_files[new_idx])
@@ -174,7 +175,7 @@ draw_filtered_env_map :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 			if !is_active {
 				imgui.SameLine()
 				if imgui.SmallButton("Load##filt_thumb") {
-					if state.change_env != nil {
+					if state.change_env != nil && state.current_hdr_index != nil {
 						state.current_hdr_index^ = i32(i)
 						state.change_env(state.scene_ptr, thumb.path)
 					}

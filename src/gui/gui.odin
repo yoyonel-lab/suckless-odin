@@ -441,6 +441,9 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 	if is_sphere_target && (state.spheres == nil || sphere_idx < 0 || sphere_idx >= int(state.spheres.count)) do return
 
 	io := imgui.GetIO()
+	if io.DisplaySize.x <= 1.0 || io.DisplaySize.y <= 1.0 {
+		return
+	}
 	guizmo_set_rect(0, 0, io.DisplaySize.x, io.DisplaySize.y)
 	guizmo_set_orthographic(false)
 
@@ -1095,7 +1098,7 @@ draw_rendering_pbr_debug :: proc(state: Scene_State) {
 				imgui.SameLine()
 				imgui.TextDisabled("(?)")
 				if imgui.IsItemHovered() {
-					imgui.SetTooltip("Diagnostic modes for Specular Occlusion:\n- Off: Normal rendering\n- Grayscale Mask: Multiplier factor (White=100% lit specular, Black=occluded)\n- Delta Heatmap: Turbo false-color map of blocked specular energy (crevices)\n- Horizon Clipping Factor: Attenuation curve grazing surface tangent")
+					imgui.SetTooltip("Diagnostic modes for Specular Occlusion:\n- Off: Normal rendering\n- Grayscale Mask: Multiplier factor (White=100%% lit specular, Black=occluded)\n- Delta Heatmap: Turbo false-color map of blocked specular energy (crevices)\n- Horizon Clipping Factor: Attenuation curve grazing surface tangent")
 				}
 			}
 
@@ -1264,7 +1267,7 @@ draw_rendering_ao_baker :: proc(state: Scene_State) {
 	// ─── 4. Launch Bake Buttons ───────────────────────────────────────────────
 	if state.spheres != nil {
 		num_spheres_selected := int(abs(baker.range_end - baker.range_start) + 1)
-		fast_label := fmt.tprintf("⚡ Fast Bake Direct In-VRAM (%d Spheres)##ao_fast", num_spheres_selected)
+		fast_label := fmt.tprintf("[FAST] Bake Direct In-VRAM (%d Spheres)##ao_fast", num_spheres_selected)
 		if imgui.Button(strings.clone_to_cstring(fast_label, context.temp_allocator)) {
 			rendering.ao_baker_bake_direct_vram(
 				baker,
@@ -1276,7 +1279,7 @@ draw_rendering_ao_baker :: proc(state: Scene_State) {
 			)
 		}
 		if imgui.IsItemHovered() {
-			imgui.SetTooltip("100% In-VRAM GPU Compute Shader (Zero-Disk, Zero-Copy).\nDispatches directly to Texture 2D Array in milliseconds.")
+			imgui.SetTooltip("100%% In-VRAM GPU Compute Shader (Zero-Disk, Zero-Copy).\nDispatches directly to Texture 2D Array in milliseconds.")
 		}
 
 		imgui.SameLine()
@@ -1350,7 +1353,7 @@ draw_rendering_ao_baker :: proc(state: Scene_State) {
 				imgui.Image(gl_tex_ref(baker.cpu_texture_id), imgui.Vec2{220, 110})
 				if imgui.IsItemHovered() {
 					tt := fmt.tprintf("CPU Multi-threaded Ground Truth Raytracer (%d threads)\nTop = Sky (AO=1.0), Equator = Occlusion", baker.cpu_threads_used)
-					imgui.SetTooltip(strings.clone_to_cstring(tt, context.temp_allocator))
+					imgui.SetTooltip("%s", strings.clone_to_cstring(tt, context.temp_allocator))
 				}
 				t_line := fmt.tprintf("CPU Total Time: %.2f ms (%d Cores)", baker.cpu_time_ms, baker.cpu_threads_used)
 				imgui.TextUnformatted(strings.clone_to_cstring(t_line, context.temp_allocator))
@@ -1371,7 +1374,7 @@ draw_rendering_ao_baker :: proc(state: Scene_State) {
 				imgui.Image(gl_tex_ref(baker.gpu_texture_id), imgui.Vec2{220, 110})
 				if imgui.IsItemHovered() {
 					tt := fmt.tprintf("GPU Compute Shader (OpenGL 4.5 GL_R8 Image)\nExecuted directly in VRAM and exported to PNG.")
-					imgui.SetTooltip(strings.clone_to_cstring(tt, context.temp_allocator))
+					imgui.SetTooltip("%s", strings.clone_to_cstring(tt, context.temp_allocator))
 				}
 				t_line := fmt.tprintf("GPU Total Time: %.2f ms", baker.gpu_time_ms)
 				imgui.TextUnformatted(strings.clone_to_cstring(t_line, context.temp_allocator))
@@ -1631,7 +1634,7 @@ draw_filtered_rendering :: proc(g: ^Gui, state: Scene_State, filter: cstring) ->
 				imgui.Checkbox("Apply Baked AO to PBR Billboard##filt_ao_pbr", state.use_baked_ao)
 			}
 			if state.spheres != nil {
-				if imgui.SmallButton("⚡ Fast Bake Direct In-VRAM##filt_ao_fast") {
+				if imgui.SmallButton("[FAST] Bake Direct In-VRAM##filt_ao_fast") {
 					rendering.ao_baker_bake_direct_vram(
 						baker,
 						state.spheres,
