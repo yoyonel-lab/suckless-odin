@@ -731,6 +731,9 @@ load_shader :: proc(vert_path, frag_path: string) -> (u32, bool) {
 	log.log_debug("render.shader", "Linked shader program '%s + %s' (ID %d). Binary size: %d bytes",
 		vert_path, frag_path, program, bin_size)
 
+	return program, true
+}
+
 
 // ─── 3D Viewport Entity Picking ────────────────────────────────────────────
 
