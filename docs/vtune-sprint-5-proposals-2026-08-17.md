@@ -26,7 +26,13 @@ L'optimisation d'un moteur de rendu 3D haute performance exige une vision systé
 
 ---
 
-### 🚀 Piste A : Formats de Textures Haute Efficacité (`GL_R11F_G11F_B10F`)
+### ❌ Piste A : Formats de Textures Haute Efficacité (`GL_R11F_G11F_B10F`) — **REJETÉE**
+
+> [!WARNING]
+> **STATUT : REJETÉE (Mission C2 - 2026-09-16)**
+> Réévaluée avec audit alpha complet et validation visuelle stricte.
+> Bien que visuellement sans régression (PSNR 30-40 dB), le gain frametime mesuré sur 300 frames est < 1% (7.950 ms vs 8.103 ms) car le GPU est saturé par les passes Compute/ALU (raymarching volumétrique à 32 pas).
+> Voir le rapport complet de rejet : [docs/2026-09-16_c2_scene_format_r11g11b10f_rejection.md](2026-09-16_c2_scene_format_r11g11b10f_rejection.md).
 
 #### A. Description & Mécanisme Technique
 Remplacer le format de texture intermédiaire `GL_RGBA16F` (64 bits par pixel, 4 composantes FP16) par `GL_R11F_G11F_B10F` (32 bits par pixel, 3 composantes FP11/10 sans alpha) sur les cibles de rendu intermédiaires du pipeline PostFX (`scene_color_tex`, `fxaa_tex`, passes Bloom et filtres de post-traitement).

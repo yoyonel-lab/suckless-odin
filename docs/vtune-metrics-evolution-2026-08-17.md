@@ -129,7 +129,12 @@ Ce document consigne l'ensemble des mesures physiques collectées via **Intel VT
 
 ---
 
-### Sprint 5 (Piste A) : Formats de Textures Haute Efficacité GL_R11F_G11F_B10F (2026-08-17)
+### Sprint 5 (Piste A) : Formats de Textures Haute Efficacité GL_R11F_G11F_B10F (2026-08-17) — ❌ **REJETÉE DÉFINITIVEMENT (2026-09-16)**
+> [!WARNING]
+> **Évaluation Définitive (Mission C2)** : Réévaluée le 2026-09-16 sur branche dédiée (`feat/perf-scene-format`).
+> Bien que la non-régression visuelle ait été validée (crops 4x zoom + PSNR 30-40 dB), le gain de frametime global mesuré sur benchmark Quality est < 1% (7.950 ms vs 8.103 ms). Le goulot d'étranglement principal est Compute/ALU (raymarching volumétrique à 32 pas).
+> Voir document de rejet : [docs/2026-09-16_c2_scene_format_r11g11b10f_rejection.md](2026-09-16_c2_scene_format_r11g11b10f_rejection.md).
+
 * **Changements** :
   * `src/rendering/postfx/pipeline.odin` : Allocation de `scene_color_tex` en `GL_R11F_G11F_B10F` (32 bpp, 3 canaux FP11/10 sans alpha) au lieu de `GL_RGBA16F` (64 bpp).
   * `src/rendering/postfx/fxaa_prepass.odin` : Allocation de `fxaa_tex` en `GL_R11F_G11F_B10F`.
