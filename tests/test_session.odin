@@ -65,6 +65,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 	state_to_save.skybox_mode = 1
 	state_to_save.mipmap_mode = 2
 	state_to_save.ibl_debug_exposure = 0.5
+	state_to_save.ibl_debug_tonemap = true
+	state_to_save.ibl_roughness = 0.45
 	state_to_save.diff_gain = 2.5
 	state_to_save.edge_aa_enabled = true
 	state_to_save.show_blur_diff = true
@@ -208,6 +210,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.skybox_mode, 1)
 	testing.expect_value(t, loaded_state.mipmap_mode, 2)
 	testing.expect_value(t, loaded_state.ibl_debug_exposure, 0.5)
+	testing.expect_value(t, loaded_state.ibl_debug_tonemap, true)
+	testing.expect_value(t, loaded_state.ibl_roughness, 0.45)
 	testing.expect_value(t, loaded_state.diff_gain, 2.5)
 	testing.expect_value(t, loaded_state.edge_aa_enabled, true)
 	testing.expect_value(t, loaded_state.show_blur_diff, true)

@@ -66,6 +66,8 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 		gui_active_tab    = application.imgui.active_tab,
 		ibl_debug_open    = application.imgui.ibl_debug_open,
 		ibl_debug_exposure = application.imgui.ibl_debug_exposure,
+		ibl_debug_tonemap = application.imgui.ibl_debug_tonemap,
+		ibl_roughness     = application.imgui.ibl_roughness,
 		is_fullscreen     = application.is_fullscreen,
 		overlay_mode      = i32(s.overlay.mode),
 		camera_enabled    = application.camera_enabled,
@@ -246,6 +248,8 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 	application.imgui.restore_tab = 3
 	application.imgui.ibl_debug_open = state.ibl_debug_open
 	application.imgui.ibl_debug_exposure = state.ibl_debug_exposure
+	application.imgui.ibl_debug_tonemap = state.ibl_debug_tonemap
+	application.imgui.ibl_roughness = state.ibl_roughness
 	
 	s.overlay.mode = rendering.Overlay_Mode(state.overlay_mode)
 	

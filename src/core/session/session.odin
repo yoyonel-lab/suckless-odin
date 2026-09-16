@@ -118,6 +118,8 @@ Session_State :: struct {
 	gui_active_tab: i32 `json:"gui_active_tab"`,
 	ibl_debug_open: bool `json:"ibl_debug_open"`,
 	ibl_debug_exposure: f32 `json:"ibl_debug_exposure"`,
+	ibl_debug_tonemap: bool `json:"ibl_debug_tonemap"`,
+	ibl_roughness: f32 `json:"ibl_roughness"`,
 	
 	is_fullscreen: bool `json:"is_fullscreen"`,
 	overlay_mode: i32 `json:"overlay_mode"`,
