@@ -71,3 +71,14 @@
    - Couverture de mots-clés riches (labels, acronymes, termes techniques, synonymes).
    - Les sous-contrôles vivant dans des sous-onglets doivent proposer des boutons de navigation directe `Go To`.
 4. **Zéro Omission & Tolérance Zéro** : L'oubli d'un paramètre dans la persistance JSON `session.json`, dans sa restauration ou dans la barre de recherche ImGui est strictement prohibé.
+
+---
+
+## 🎨 RÈGLE DE RENDU & D'INVESTIGATION D'ARTEFACTS VISUELS
+
+1. **Protocole de Fix d'Artefact Visuel** : Tout fix d'artefact visuel exige AU PRÉALABLE :
+   - Un test de détection indépendant vu **ROUGE** avant toute modification de code.
+   - Une reproduction sur scène **RÉELLE** (pas seulement white-room synthétique).
+   - Les métriques quantitatives servent à la **bissection** ; le verdict final appartient strictement aux **captures paires** et à la validation humaine de l'opérateur.
+2. **Sanctuarisation des Références Visuelles** : Interdiction absolue de régénérer les golden references (`tests/references/ref_*.png`) pendant l'investigation d'un artefact non résolu.
+3. **Cycle de Vie des Features de Rendu Majeures** : Toute feature de rendu majeure doit être menée sur une branche courte, avec un point de validation visuelle opérateur **AVANT** tout outillage lourd de CI/PR.
