@@ -852,6 +852,9 @@ read_texture_pixel :: proc(g: ^Gui, tex_id: u32, x, y: i32, mip_level: i32 = 0) 
 		gl.ReadPixels(x, y, 1, 1, gl.RGBA, gl.FLOAT, &pixel[0])
 	}
 
+	// Detach texture to prevent state bleed
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, 0, 0)
+
 	// Restore previous FBO
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
 
