@@ -5,11 +5,11 @@ import gl "vendor:OpenGL"
 
 import log "../core/log"
 
-// OpenGL version — ISO port targets GL 4.4 Core (same as suckless-ogl)
+// OpenGL version — Modern OpenGL 4.5 Core
 GL_MAJOR :: 4
-GL_MINOR :: 4
+GL_MINOR :: 5
 
-// Creates a GLFW window with an OpenGL 4.4 core profile context.
+// Creates a GLFW window with an OpenGL 4.5 core profile context.
 // ISO port of window_create() from suckless-ogl/src/window.c.
 window_create :: proc(width, height: i32, title: cstring, samples: i32 = 1, vsync: bool = false) -> glfw.WindowHandle {
 	if !glfw.Init() {
