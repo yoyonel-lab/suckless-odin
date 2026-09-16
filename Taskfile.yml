@@ -252,12 +252,13 @@ tasks:
   # ─── TESTS (TEST) ──────────────────────────────────────────────────────────
 
   test:
-    desc: Run all tests (unit, cli, shader, gl)
+    desc: Run all tests (unit, cli, shader, gl, smoke-ui)
     cmds:
       - task: test-unit
       - task: test-cli
       - task: test-shader
       - task: test-gl
+      - task: test-smoke-ui
 
   test-unit:
     desc: Run unit tests
@@ -278,6 +279,13 @@ tasks:
     desc: Run OpenGL headless GPU tests on local display
     cmds:
       - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-test-gl -debug -thread-count:{{.TEST_THREADS}} -define:ODIN_TEST_THREADS=1 -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
+  test-smoke-ui:
+    desc: Smoke-test runtime UI interaction (IBL Debug inspector, LOD navigation, clean exit)
+    deps: [build-release]
+    cmds:
+      - chmod +x scripts/test_smoke_ui_ibl.sh
+      - ./scripts/test_smoke_ui_ibl.sh ./{{.BUILD_BASE}}/release/suckless-odin
 
   record-shadow-debug:
     desc: Generate HD screen recordings and comparison captures for Shadow Debug modes
@@ -394,6 +402,7 @@ tasks:
       - python3 scripts/check_imgui_safety.py
       - python3 scripts/verify_docs_links.py
       - python3 scripts/check_logs.py
+      - python3 scripts/check_gl_symbols.py
 
   test-docs-links:
     desc: Verify all documentation links and internal markdown anchors

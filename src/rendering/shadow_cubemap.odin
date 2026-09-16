@@ -135,7 +135,7 @@ shadow_cubemap_res_for_index :: proc(index: i32) -> i32 {
 	return resolutions[idx]
 }
 
-// Manages a 6-face Cubemap Framebuffer for Omnidirectional Point Light Shadows (Modern OpenGL 4.4 Core)
+// Manages a 6-face Cubemap Framebuffer for Omnidirectional Point Light Shadows (Modern OpenGL 4.5 Core)
 Shadow_Cubemap :: struct {
 	fbo:                  u32,
 	depth_cubemap:        u32, // GL_TEXTURE_CUBE_MAP, GL_DEPTH_COMPONENT32F

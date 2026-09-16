@@ -16,7 +16,7 @@ import gl_state "../../src/core/gl_state"
 // --- Headless GL context (shared, single-threaded) ---
 
 GL_MAJOR :: 4
-GL_MINOR :: 4
+GL_MINOR :: 5
 
 @(private)
 gl_window: glfw.WindowHandle = nil
