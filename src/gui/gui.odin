@@ -121,13 +121,21 @@ Gui :: struct {
 	search_buf:       [SEARCH_BUF_SIZE]u8,
 	focus_search:     bool,
 	focus_search_tab: bool,
-	ibl_debug_open:   bool,
-	ibl_scroll_target: IBL_Scroll_Target,
-	ibl_preview_size: f32,
-	ibl_mip_level:    i32,
-	ibl_prefilter_id: u32, // Tracked for LOD restore after render
-	ibl_debug_exposure: f32, // EV stops for debug preview tint (0 = neutral)
-	inspector_fbo:    u32, // Reusable FBO for pixel readback
+	ibl_debug_open:      bool,
+	ibl_scroll_target:   IBL_Scroll_Target,
+	ibl_preview_size:    f32,
+	ibl_mip_level:       i32,
+	ibl_roughness:       f32,
+	ibl_debug_tonemap:   bool,
+	ibl_debug_exposure:  f32, // EV stops for debug preview tint (0 = neutral)
+	ibl_prefilter_id:    u32, // Tracked for LOD restore after render
+	inspector_fbo:       u32, // Reusable FBO for pixel readback
+
+	// Preview compute resources for IBL tonemap/exposure
+	ibl_preview_program: u32,
+	ibl_irr_preview_tex: u32,
+	ibl_pf_preview_tex:  u32,
+	ibl_env_preview_tex: u32,
 
 	// Pixel inspector state (click-to-lock)
 	inspect_active:   bool,
@@ -167,6 +175,9 @@ init :: proc(g: ^Gui, window: glfw.WindowHandle) -> bool {
 	g.visible = false
 	g.ibl_preview_size = 256.0
 	g.ibl_mip_level = 0
+	g.ibl_roughness = 0.0
+	g.ibl_debug_exposure = 0.0
+	g.ibl_debug_tonemap = true
 
 	imgui.StyleColorsDark()
 
@@ -372,6 +383,22 @@ destroy :: proc(g: ^Gui) {
 	if g.inspector_fbo != 0 {
 		gl.DeleteFramebuffers(1, &g.inspector_fbo)
 		g.inspector_fbo = 0
+	}
+	if g.ibl_preview_program != 0 {
+		gl.DeleteProgram(g.ibl_preview_program)
+		g.ibl_preview_program = 0
+	}
+	if g.ibl_irr_preview_tex != 0 {
+		gl.DeleteTextures(1, &g.ibl_irr_preview_tex)
+		g.ibl_irr_preview_tex = 0
+	}
+	if g.ibl_pf_preview_tex != 0 {
+		gl.DeleteTextures(1, &g.ibl_pf_preview_tex)
+		g.ibl_pf_preview_tex = 0
+	}
+	if g.ibl_env_preview_tex != 0 {
+		gl.DeleteTextures(1, &g.ibl_env_preview_tex)
+		g.ibl_env_preview_tex = 0
 	}
 	if g.compute_tuning_loaded {
 		settings.destroy_compute_tuning_config(&g.compute_tuning_config)
@@ -703,7 +730,119 @@ draw_tab_scene :: proc(state: Scene_State) {
 IBL_IRRADIANCE_SIZE :: 64
 IBL_PREFILTER_SIZE  :: 1024
 IBL_BRDF_LUT_SIZE   :: 512
-IBL_PREFILTER_MIP_LEVELS :: 5
+
+// Query the immutable mip levels allocated by the driver
+query_texture_mips :: proc(tex_id: u32, default_mips: i32 = 1) -> i32 {
+	if tex_id == 0 do return default_mips
+	levels: i32 = 0
+	gl.BindTexture(gl.TEXTURE_2D, tex_id)
+	gl.GetTexParameteriv(gl.TEXTURE_2D, gl.TEXTURE_IMMUTABLE_LEVELS, &levels)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	if levels > 0 do return levels
+	return default_mips
+}
+
+IBL_PREVIEW_COMPUTE_SRC :: `#version 450 core
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) uniform sampler2D u_src_tex;
+layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_dst_tex;
+
+layout(location = 0) uniform float u_lod;
+layout(location = 1) uniform float u_exposure;
+layout(location = 2) uniform bool  u_tonemap;
+
+void main() {
+	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 dst_size = imageSize(u_dst_tex);
+	if (pos.x >= dst_size.x || pos.y >= dst_size.y) return;
+
+	vec2 uv = (vec2(pos) + 0.5) / vec2(dst_size);
+	vec4 src = textureLod(u_src_tex, uv, u_lod);
+
+	vec3 rgb = max(src.rgb, vec3(0.0)) * u_exposure;
+
+	if (u_tonemap) {
+		// Reinhard tonemapping
+		rgb = rgb / (rgb + vec3(1.0));
+		// sRGB gamma correction
+		rgb = pow(rgb, vec3(1.0 / 2.2));
+	}
+
+	imageStore(u_dst_tex, pos, vec4(rgb, 1.0));
+}
+`
+
+@(private)
+init_ibl_preview_program :: proc(g: ^Gui) -> bool {
+	if g.ibl_preview_program != 0 do return true
+
+	shader := gl.CreateShader(gl.COMPUTE_SHADER)
+	src_cstr := strings.clone_to_cstring(IBL_PREVIEW_COMPUTE_SRC)
+	defer delete(src_cstr)
+	gl.ShaderSource(shader, 1, &src_cstr, nil)
+	gl.CompileShader(shader)
+
+	status: i32
+	gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)
+	if status == 0 {
+		gl.DeleteShader(shader)
+		return false
+	}
+
+	prog := gl.CreateProgram()
+	gl.AttachShader(prog, shader)
+	gl.LinkProgram(prog)
+	gl.DeleteShader(shader)
+
+	gl.GetProgramiv(prog, gl.LINK_STATUS, &status)
+	if status == 0 {
+		gl.DeleteProgram(prog)
+		return false
+	}
+
+	g.ibl_preview_program = prog
+	return true
+}
+
+@(private)
+ensure_preview_texture :: proc(tex: ^u32, width, height: i32) {
+	if tex^ != 0 do return
+	gl.GenTextures(1, tex)
+	gl.BindTexture(gl.TEXTURE_2D, tex^)
+	gl.TexStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, width, height)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+}
+
+@(private)
+update_ibl_preview :: proc(g: ^Gui, src_tex: u32, dst_tex: u32, width, height: i32, lod: f32) {
+	if !init_ibl_preview_program(g) do return
+
+	gl.UseProgram(g.ibl_preview_program)
+
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, src_tex)
+
+	gl.BindImageTexture(1, dst_tex, 0, false, 0, gl.WRITE_ONLY, gl.RGBA16F)
+
+	exposure := math.pow(f32(2.0), g.ibl_debug_exposure)
+	gl.Uniform1f(0, lod)
+	gl.Uniform1f(1, exposure)
+	gl.Uniform1i(2, 1 if g.ibl_debug_tonemap else 0)
+
+	groups_x := u32((width + 15) / 16)
+	groups_y := u32((height + 15) / 16)
+	gl.DispatchCompute(groups_x, groups_y, 1)
+	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT | gl.TEXTURE_FETCH_BARRIER_BIT)
+
+	gl.BindImageTexture(1, 0, 0, false, 0, gl.WRITE_ONLY, gl.RGBA16F)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+	gl.UseProgram(0)
+}
 
 // Convert a GL texture handle to an ImGui TextureRef for display.
 @(private)
@@ -716,45 +855,79 @@ INSPECTOR_REGION :: 16
 INSPECTOR_DISPLAY :: 128
 INSPECTOR_RECT_COLOR :: 0xFF_00_FF_FF // Yellow (ABGR)
 
-// Display a texture with click-to-inspect pixel inspector shown inline to the right.
+// Display a texture with hover inspection and click-to-inspect pixel inspector shown inline.
 @(private)
-draw_image_with_inspector :: proc(g: ^Gui, tex_id: u32, display_size: imgui.Vec2, tex_w, tex_h: i32, mip_level: i32 = 0) {
-	tint := math.pow(f32(2.0), g.ibl_debug_exposure)
-	imgui.ImageWithBg(gl_tex_ref(tex_id), display_size, {0, 1}, {1, 0}, {0, 0, 0, 0}, {tint, tint, tint, 1})
+draw_image_with_inspector :: proc(
+	g: ^Gui,
+	display_tex_id: u32,
+	display_size: imgui.Vec2,
+	tex_w, tex_h: i32,
+	mip_level: i32 = 0,
+	source_tex_id: u32 = 0,
+) {
+	src_id := source_tex_id if source_tex_id != 0 else display_tex_id
+
+	tint: f32 = 1.0
+	if display_tex_id == src_id {
+		tint = math.pow(f32(2.0), g.ibl_debug_exposure)
+	}
+	imgui.ImageWithBg(gl_tex_ref(display_tex_id), display_size, {0, 1}, {1, 0}, {0, 0, 0, 0}, {tint, tint, tint, 1})
 
 	item_min := imgui.GetItemRectMin()
 	item_max := imgui.GetItemRectMax()
 
-	// On click: lock the inspection point
-	if imgui.IsItemClicked(.Left) {
+	mip_w := max(i32(1), tex_w >> u32(mip_level))
+	mip_h := max(i32(1), tex_h >> u32(mip_level))
+
+	// Hover inspection: read pre-tonemap pixel and show tooltip under cursor
+	if imgui.IsItemHovered() {
 		mouse_pos := imgui.GetMousePos()
-		rel_x := (mouse_pos.x - item_min.x) / display_size.x
-		rel_y := (mouse_pos.y - item_min.y) / display_size.y
+		rel_x := clamp((mouse_pos.x - item_min.x) / display_size.x, 0.0, 1.0)
+		rel_y := clamp((mouse_pos.y - item_min.y) / display_size.y, 0.0, 1.0)
+		uv := [2]f32{rel_x, 1.0 - rel_y}
 
-		g.inspect_active = true
-		g.inspect_uv = {rel_x, 1.0 - rel_y} // Flip Y for GL
-		g.inspect_tex_id = tex_id
-		g.inspect_tex_w = tex_w
-		g.inspect_tex_h = tex_h
-		g.inspect_mip = mip_level
+		tx := clamp(i32(uv[0] * f32(mip_w)), 0, mip_w - 1)
+		ty := clamp(i32(uv[1] * f32(mip_h)), 0, mip_h - 1)
+		hover_pixel := read_texture_pixel(g, src_id, tx, ty, mip_level)
 
-		// Read pixel
-		mip_w := max(i32(1), tex_w >> u32(mip_level))
-		mip_h := max(i32(1), tex_h >> u32(mip_level))
-		tx := clamp(i32(g.inspect_uv[0] * f32(mip_w)), 0, mip_w - 1)
-		ty := clamp(i32(g.inspect_uv[1] * f32(mip_h)), 0, mip_h - 1)
-		g.inspect_pixel = read_texture_pixel(g, tex_id, tx, ty, mip_level)
+		imgui.BeginTooltip()
+		imgui.Text("Texel: (%d, %d) / (%dx%d)", tx, ty, mip_w, mip_h)
+		imgui.Text("UV: (%.3f, %.3f)", uv[0], uv[1])
+		imgui.Separator()
+		imgui.TextColored(imgui.Vec4{1.0, 0.4, 0.4, 1.0}, "R: %.4f", hover_pixel[0])
+		imgui.TextColored(imgui.Vec4{0.4, 1.0, 0.4, 1.0}, "G: %.4f", hover_pixel[1])
+		imgui.TextColored(imgui.Vec4{0.4, 0.4, 1.0, 1.0}, "B: %.4f", hover_pixel[2])
+		imgui.TextColored(imgui.Vec4{0.8, 0.8, 0.8, 1.0}, "A: %.4f", hover_pixel[3])
+		lum := hover_pixel[0] * 0.2126 + hover_pixel[1] * 0.7152 + hover_pixel[2] * 0.0722
+		imgui.Text("Lum: %.4f", lum)
+		imgui.TextDisabled("(Click to lock inspector)")
+		imgui.EndTooltip()
+
+		if imgui.IsItemClicked(.Left) {
+			g.inspect_active = true
+			g.inspect_uv = uv
+			g.inspect_tex_id = src_id
+			g.inspect_tex_w = tex_w
+			g.inspect_tex_h = tex_h
+			g.inspect_mip = mip_level
+			g.inspect_pixel = hover_pixel
+		}
 	}
 
 	// If this texture is the inspected one: draw overlay + inline inspector
-	is_inspected := g.inspect_active && g.inspect_tex_id == tex_id && g.inspect_mip == mip_level
+	is_inspected := g.inspect_active && g.inspect_tex_id == src_id
 	if !is_inspected { return }
+
+	// If mip level changed while locked, refresh pixel value for current mip
+	if g.inspect_mip != mip_level {
+		g.inspect_mip = mip_level
+		tx := clamp(i32(g.inspect_uv[0] * f32(mip_w)), 0, mip_w - 1)
+		ty := clamp(i32(g.inspect_uv[1] * f32(mip_h)), 0, mip_h - 1)
+		g.inspect_pixel = read_texture_pixel(g, src_id, tx, ty, mip_level)
+	}
 
 	// --- Draw zoom rectangle overlay on the image ---
 	draw_list := imgui.GetWindowDrawList()
-
-	mip_w := max(i32(1), tex_w >> u32(mip_level))
-	mip_h := max(i32(1), tex_h >> u32(mip_level))
 
 	half_region_x := f32(INSPECTOR_REGION) * 0.5 / f32(mip_w)
 	half_region_y := f32(INSPECTOR_REGION) * 0.5 / f32(mip_h)
@@ -805,7 +978,7 @@ draw_image_with_inspector :: proc(g: ^Gui, tex_id: u32, display_size: imgui.Vec2
 		clamp(g.inspect_uv[1] - zoom_uv_half_y, 0.0, 1.0),
 	}
 
-	imgui.Image(gl_tex_ref(tex_id),
+	imgui.Image(gl_tex_ref(display_tex_id),
 		imgui.Vec2{INSPECTOR_DISPLAY, INSPECTOR_DISPLAY},
 		zoom_uv0, zoom_uv1)
 
@@ -814,7 +987,8 @@ draw_image_with_inspector :: proc(g: ^Gui, tex_id: u32, display_size: imgui.Vec2
 	texel_y := clamp(i32(g.inspect_uv[1] * f32(mip_h)), 0, mip_h - 1)
 
 	pixel := g.inspect_pixel
-	imgui.Text("(%d, %d)", texel_x, texel_y)
+	imgui.Text("Pos: (%d, %d)", texel_x, texel_y)
+	imgui.Text("LOD: %d (%dx%d)", mip_level, mip_w, mip_h)
 	imgui.TextColored(imgui.Vec4{1.0, 0.4, 0.4, 1.0}, "R %.4f", pixel[0])
 	imgui.TextColored(imgui.Vec4{0.4, 1.0, 0.4, 1.0}, "G %.4f", pixel[1])
 	imgui.TextColored(imgui.Vec4{0.4, 0.4, 1.0, 1.0}, "B %.4f", pixel[2])
@@ -827,20 +1001,23 @@ draw_image_with_inspector :: proc(g: ^Gui, tex_id: u32, display_size: imgui.Vec2
 	swatch := imgui.Vec4{pixel[0] / max_c, pixel[1] / max_c, pixel[2] / max_c, 1.0}
 	imgui.ColorButton("##swatch", swatch, {.NoTooltip}, imgui.Vec2{24, 24})
 
+	imgui.SameLine()
+	if imgui.SmallButton("Clear##inspector") {
+		g.inspect_active = false
+	}
+
 	imgui.EndGroup()
 }
 
-// Read a single pixel from a GL texture at given coordinates using FBO.
-@(private)
+// Read a single pixel from a GL texture at given coordinates (pre-tonemap float).
 read_texture_pixel :: proc(g: ^Gui, tex_id: u32, x, y: i32, mip_level: i32 = 0) -> [4]f32 {
 	pixel: [4]f32
+	if tex_id == 0 do return pixel
 
-	// Lazy-init FBO
 	if g.inspector_fbo == 0 {
 		gl.GenFramebuffers(1, &g.inspector_fbo)
 	}
 
-	// Save current FBO binding
 	prev_fbo: i32
 	gl.GetIntegerv(gl.FRAMEBUFFER_BINDING, &prev_fbo)
 
@@ -854,8 +1031,6 @@ read_texture_pixel :: proc(g: ^Gui, tex_id: u32, x, y: i32, mip_level: i32 = 0) 
 
 	// Detach texture to prevent state bleed
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, 0, 0)
-
-	// Restore previous FBO
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
 
 	return pixel
@@ -871,9 +1046,15 @@ draw_ibl_debug_env_map :: proc(g: ^Gui, state: Scene_State, preview_w, preview_h
 		if imgui.CollapsingHeader("Environment Map (Source HDR)", {.DefaultOpen}) {
 			imgui.Text("ID: %d  Size: %dx%d  Format: RGBA16F",
 				state.env_texture_id, state.env_texture_width, state.env_texture_height)
-			draw_image_with_inspector(g, state.env_texture_id,
+			ensure_preview_texture(&g.ibl_env_preview_tex, 512, 256)
+			display_tex := state.env_texture_id
+			if g.ibl_env_preview_tex != 0 {
+				update_ibl_preview(g, state.env_texture_id, g.ibl_env_preview_tex, 512, 256, 0.0)
+				display_tex = g.ibl_env_preview_tex
+			}
+			draw_image_with_inspector(g, display_tex,
 				imgui.Vec2{preview_w, preview_h},
-				state.env_texture_width, state.env_texture_height)
+				state.env_texture_width, state.env_texture_height, 0, state.env_texture_id)
 			imgui.Spacing()
 		}
 	}
@@ -889,9 +1070,15 @@ draw_ibl_debug_irradiance :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 		if imgui.CollapsingHeader("Irradiance Map (Diffuse IBL)", {.DefaultOpen}) {
 			imgui.Text("ID: %d  Size: %dx%d  Format: RGBA16F",
 				state.ibl_irradiance_map, IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
-			draw_image_with_inspector(g, state.ibl_irradiance_map,
+			ensure_preview_texture(&g.ibl_irr_preview_tex, IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
+			display_tex := state.ibl_irradiance_map
+			if g.ibl_irr_preview_tex != 0 {
+				update_ibl_preview(g, state.ibl_irradiance_map, g.ibl_irr_preview_tex, IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE, 0.0)
+				display_tex = g.ibl_irr_preview_tex
+			}
+			draw_image_with_inspector(g, display_tex,
 				imgui.Vec2{preview_w, preview_w},
-				IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE)
+				IBL_IRRADIANCE_SIZE, IBL_IRRADIANCE_SIZE, 0, state.ibl_irradiance_map)
 			imgui.Spacing()
 		}
 	}
@@ -905,25 +1092,55 @@ draw_ibl_debug_prefilter :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 			g.ibl_scroll_target = .None
 		}
 		if imgui.CollapsingHeader("Prefilter Map (Specular IBL)", {.DefaultOpen}) {
+			pf_mips := query_texture_mips(state.ibl_prefilter_map, 11)
 			imgui.Text("ID: %d  Size: %dx%d  Mips: %d  Format: RGBA16F",
-				state.ibl_prefilter_map, IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE,
-				IBL_PREFILTER_MIP_LEVELS)
+				state.ibl_prefilter_map, IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, pf_mips)
 
-			imgui.SliderInt("Mip Level (Roughness)", &g.ibl_mip_level, 0, IBL_PREFILTER_MIP_LEVELS - 1)
-			roughness := f32(g.ibl_mip_level) / f32(IBL_PREFILTER_MIP_LEVELS - 1)
-			imgui.Text("Roughness: %.2f", roughness)
+			max_mip := pf_mips - 1
 
-			// Clamp LOD to force the selected mip level display.
-			mip_f := f32(g.ibl_mip_level)
-			gl.BindTexture(gl.TEXTURE_2D, state.ibl_prefilter_map)
-			gl.TexParameterf(gl.TEXTURE_2D, gl.TEXTURE_MIN_LOD, mip_f)
-			gl.TexParameterf(gl.TEXTURE_2D, gl.TEXTURE_MAX_LOD, mip_f)
-			gl.BindTexture(gl.TEXTURE_2D, 0)
-			g.ibl_prefilter_id = state.ibl_prefilter_map
+			// LOD Mip Buttons row
+			imgui.Text("LOD Mip:")
+			imgui.SameLine()
+			for m: i32 = 0; m <= max_mip; m += 1 {
+				if m > 0 do imgui.SameLine()
+				is_active := (m == g.ibl_mip_level)
+				if is_active {
+					imgui.PushStyleColorImVec4(.Button, imgui.Vec4{0.2, 0.6, 1.0, 1.0})
+				}
+				btn_label := fmt.ctprintf("%d##pf_mip_%d", m, m)
+				if imgui.SmallButton(btn_label) {
+					g.ibl_mip_level = m
+					g.ibl_roughness = f32(m) / 10.0
+				}
+				if is_active {
+					imgui.PopStyleColor(1)
+				}
+			}
 
-			draw_image_with_inspector(g, state.ibl_prefilter_map,
+			// Roughness <-> LOD controls (pbr_billboard.frag: LOD = roughness * 10.0)
+			if imgui.SliderFloat("Roughness", &g.ibl_roughness, 0.0, 1.0, "%.3f") {
+				mapped_lod := g.ibl_roughness * 10.0
+				g.ibl_mip_level = clamp(i32(math.round(mapped_lod)), 0, max_mip)
+			}
+			if imgui.SliderInt("Mip Level (LOD)", &g.ibl_mip_level, 0, max_mip) {
+				g.ibl_roughness = f32(g.ibl_mip_level) / 10.0
+			}
+
+			mapped_lod := g.ibl_roughness * 10.0
+			imgui.TextColored(imgui.Vec4{0.7, 0.9, 1.0, 1.0},
+				"LOD = roughness * 10.0 = %.2f (Nearest Mip: %d / %d)",
+				mapped_lod, g.ibl_mip_level, max_mip)
+
+			ensure_preview_texture(&g.ibl_pf_preview_tex, 512, 512)
+			display_tex := state.ibl_prefilter_map
+			if g.ibl_pf_preview_tex != 0 {
+				update_ibl_preview(g, state.ibl_prefilter_map, g.ibl_pf_preview_tex, 512, 512, f32(g.ibl_mip_level))
+				display_tex = g.ibl_pf_preview_tex
+			}
+
+			draw_image_with_inspector(g, display_tex,
 				imgui.Vec2{preview_w, preview_w},
-				IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, g.ibl_mip_level)
+				IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, g.ibl_mip_level, state.ibl_prefilter_map)
 
 			imgui.Spacing()
 		}
@@ -943,21 +1160,21 @@ draw_ibl_debug_brdf_lut :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 			imgui.Text("X-axis: NdotV | Y-axis: Roughness")
 			draw_image_with_inspector(g, state.ibl_brdf_lut,
 				imgui.Vec2{preview_w, preview_w},
-				IBL_BRDF_LUT_SIZE, IBL_BRDF_LUT_SIZE)
+				IBL_BRDF_LUT_SIZE, IBL_BRDF_LUT_SIZE, 0, state.ibl_brdf_lut)
 			imgui.Spacing()
 		}
 	}
 }
 
 @(private)
-draw_ibl_debug_memory_estimate :: proc(state: Scene_State) {
+draw_ibl_debug_memory_estimate :: proc(state: Scene_State, pf_mips: i32) {
 	imgui.Separator()
 	imgui.TextColored(imgui.Vec4{0.6, 0.8, 1.0, 1.0}, "GPU Memory Estimate")
 	env_kb := (state.env_texture_width * state.env_texture_height * 8 * 4 / 3) / 1024
 	irr_kb := i32((IBL_IRRADIANCE_SIZE * IBL_IRRADIANCE_SIZE * 8) / 1024)
 	brdf_kb := i32((IBL_BRDF_LUT_SIZE * IBL_BRDF_LUT_SIZE * 4) / 1024)
 	pf_bytes: i32 = 0
-	for mip in 0 ..< IBL_PREFILTER_MIP_LEVELS {
+	for mip in 0 ..< pf_mips {
 		mip_w := max(i32(1), IBL_PREFILTER_SIZE >> u32(mip))
 		mip_h := max(i32(1), IBL_PREFILTER_SIZE >> u32(mip))
 		pf_bytes += mip_w * mip_h * 8
@@ -966,7 +1183,7 @@ draw_ibl_debug_memory_estimate :: proc(state: Scene_State) {
 	total_kb := env_kb + irr_kb + brdf_kb + pf_kb
 	imgui.Text("  Env HDR:    %d KB (%dx%d + mips)", env_kb, state.env_texture_width, state.env_texture_height)
 	imgui.Text("  Irradiance: %d KB", irr_kb)
-	imgui.Text("  Prefilter:  %d KB (%d mips)", pf_kb, IBL_PREFILTER_MIP_LEVELS)
+	imgui.Text("  Prefilter:  %d KB (%d mips)", pf_kb, pf_mips)
 	imgui.Text("  BRDF LUT:   %d KB", brdf_kb)
 	imgui.Text("  Total:      %.1f MB", f32(total_kb) / 1024.0)
 }
@@ -974,6 +1191,13 @@ draw_ibl_debug_memory_estimate :: proc(state: Scene_State) {
 @(private)
 draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 	imgui.SliderFloat("Preview Size", &g.ibl_preview_size, 64.0, 512.0)
+	imgui.Checkbox("Tonemapping (Reinhard)", &g.ibl_debug_tonemap)
+	imgui.SameLine()
+	imgui.TextDisabled("(?)")
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Reinhard tonemapping + sRGB gamma for HDR previews\nUncheck to view raw HDR (clamped)")
+	}
+
 	imgui.SliderFloat("Preview Exposure (EV)", &g.ibl_debug_exposure, -6.0, 6.0)
 	if imgui.IsItemDeactivatedAfterEdit() || imgui.IsItemClicked(.Right) {
 		g.ibl_debug_exposure = 0.0
@@ -983,11 +1207,13 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 	preview_w := g.ibl_preview_size
 	preview_h := preview_w * 0.5
 
+	pf_mips := query_texture_mips(state.ibl_prefilter_map, 11)
+
 	draw_ibl_debug_env_map(g, state, preview_w, preview_h)
 	draw_ibl_debug_irradiance(g, state, preview_w)
 	draw_ibl_debug_prefilter(g, state, preview_w)
 	draw_ibl_debug_brdf_lut(g, state, preview_w)
-	draw_ibl_debug_memory_estimate(state)
+	draw_ibl_debug_memory_estimate(state, pf_mips)
 }
 
 @(private)
@@ -1769,8 +1995,27 @@ draw_filtered_ibl :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> int {
 		imgui.SliderFloat("Preview Size", &g.ibl_preview_size, 64.0, 512.0)
 		match_count += 1
 	}
-	if fuzzy_match(filter, "Mip Level (Roughness)", "ibl prefilter specular mip roughness level") {
-		imgui.SliderInt("Mip Level (Roughness)", &g.ibl_mip_level, 0, IBL_PREFILTER_MIP_LEVELS - 1)
+	if fuzzy_match(filter, "Tonemapping", "ibl debug tonemap tonemapping reinhard gamma exposure hdr") {
+		imgui.Checkbox("Tonemapping (Reinhard)##filt", &g.ibl_debug_tonemap)
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Preview Exposure (EV)", "ibl debug exposure ev gain brightness") {
+		imgui.SliderFloat("Preview Exposure (EV)##filt", &g.ibl_debug_exposure, -6.0, 6.0)
+		match_count += 1
+	}
+	pf_mips := query_texture_mips(state.ibl_prefilter_map, 11)
+	max_mip := pf_mips - 1
+	if fuzzy_match(filter, "Roughness", "ibl prefilter specular roughness lod formula") {
+		if imgui.SliderFloat("Roughness##filt", &g.ibl_roughness, 0.0, 1.0, "%.3f") {
+			mapped_lod := g.ibl_roughness * 10.0
+			g.ibl_mip_level = clamp(i32(math.round(mapped_lod)), 0, max_mip)
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Mip Level (LOD)", "ibl prefilter specular mip lod roughness level") {
+		if imgui.SliderInt("Mip Level (LOD)##filt", &g.ibl_mip_level, 0, max_mip) {
+			g.ibl_roughness = f32(g.ibl_mip_level) / 10.0
+		}
 		match_count += 1
 	}
 	if fuzzy_match(filter, "Environment Map", "ibl hdr source environment map texture gpu") {
@@ -1788,7 +2033,7 @@ draw_filtered_ibl :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> int {
 	if fuzzy_match(filter, "Prefilter Map", "ibl specular prefilter ggx split sum texture gpu") {
 		ibl_goto_button(g, .Prefilter)
 		imgui.Text("Prefilter: ID=%d (%dx%d, %d mips)",
-			state.ibl_prefilter_map, IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, IBL_PREFILTER_MIP_LEVELS)
+			state.ibl_prefilter_map, IBL_PREFILTER_SIZE, IBL_PREFILTER_SIZE, pf_mips)
 		match_count += 1
 	}
 	if fuzzy_match(filter, "BRDF LUT", "ibl split sum brdf lookup table texture gpu") {
