@@ -141,7 +141,7 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	// Configure Volumetric lighting
 	s.volumetric.params.enabled = true
 	s.volumetric.params.shadows_enabled = true
-	s.volumetric.params.step_count = 32
+	s.volumetric.params.step_count = 20
 	if env_steps, found := os.lookup_env("VOLUMETRIC_STEPS", context.temp_allocator); found {
 		if parsed, ok := strconv.parse_int(env_steps); ok {
 			s.volumetric.params.step_count = i32(parsed)
@@ -154,6 +154,11 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	s.volumetric.params.jitter_enabled = true
 	s.volumetric.params.taa_mode = 2 // Motion-aware TAA
 	s.volumetric.params.taa_alpha = 0.20
+	if env_alpha, found := os.lookup_env("VOLUMETRIC_TAA_ALPHA", context.temp_allocator); found {
+		if parsed, ok := strconv.parse_f32(env_alpha); ok {
+			s.volumetric.params.taa_alpha = parsed
+		}
+	}
 	s.volumetric.params.blur_mode = 2 // 9-tap bilateral
 	s.volumetric.params.upsample_mode = 2 // JBU 2x2
 	s.volumetric.params.resolution_divider = 2
@@ -195,7 +200,11 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	defer delete(frame_t)
 	defer delete(vol_t)
 
-	sub_dir := fmt.tprintf("tests/reports/volumetric/%dsteps/", s.volumetric.params.step_count)
+	cfg_name := fmt.tprintf("%dsteps", s.volumetric.params.step_count)
+	if s.volumetric.params.taa_alpha != 0.20 {
+		cfg_name = fmt.tprintf("%dsteps_alpha%.2f", s.volumetric.params.step_count, s.volumetric.params.taa_alpha)
+	}
+	sub_dir := fmt.tprintf("tests/reports/volumetric/%s/", cfg_name)
 	os.make_directory(sub_dir)
 
 	// Save composite final scene (Angle 1: Center)
@@ -440,11 +449,11 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	// PHASE 3: Silhouette & Joint Bilateral Upsample (JBU) Edge Crop (4x Zoom)
 	// =========================================================================
 	// Extract 80x80 box around sphere edge with godray shaft in background
-	// Screen center is around (480, 270)
+	// Targeting lower sphere silhouette edge against godray background (x=270, y=410)
 	crop_orig_w: i32 = 80
 	crop_orig_h: i32 = 80
-	crop_x0: i32 = 440
-	crop_y0: i32 = 230
+	crop_x0: i32 = 270
+	crop_y0: i32 = 410
 	zoom: i32 = 4
 	crop_w := crop_orig_w * zoom
 	crop_h := crop_orig_h * zoom
@@ -466,10 +475,42 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 		}
 	}
 
+	// Automatic sanity check: verify crop has silhouette edge (not monochrome / blown-out)
+	crop_lum_sum: f64 = 0.0
+	crop_count := int(crop_orig_w * crop_orig_h)
+	for y in 0 ..< int(crop_orig_h) {
+		src_y := int(crop_y0) + y
+		for x in 0 ..< int(crop_orig_w) {
+			src_x := int(crop_x0) + x
+			src_idx := (src_y * int(width) + src_x) * 4
+			lum := 0.299 * f64(frame_t[src_idx + 0]) + 0.587 * f64(frame_t[src_idx + 1]) + 0.114 * f64(frame_t[src_idx + 2])
+			crop_lum_sum += lum
+		}
+	}
+	crop_lum_mean := crop_lum_sum / f64(crop_count)
+	crop_var_sum: f64 = 0.0
+	for y in 0 ..< int(crop_orig_h) {
+		src_y := int(crop_y0) + y
+		for x in 0 ..< int(crop_orig_w) {
+			src_x := int(crop_x0) + x
+			src_idx := (src_y * int(width) + src_x) * 4
+			lum := 0.299 * f64(frame_t[src_idx + 0]) + 0.587 * f64(frame_t[src_idx + 1]) + 0.114 * f64(frame_t[src_idx + 2])
+			diff := lum - crop_lum_mean
+			crop_var_sum += diff * diff
+		}
+	}
+	crop_lum_std := math.sqrt(crop_var_sum / f64(crop_count))
+	testing.expect(t, crop_lum_std >= 5.0, fmt.tprintf("Crop silhouette luminance std (%.2f) must be >= 5.0 (monochrome/blown-out rejection)", crop_lum_std))
+
 	path_crop := strings.concatenate({VOLUMETRIC_REPORT_DIR, "07_crop_silhouette_jbu_4x.png"}, context.temp_allocator)
 	vol_save_png(path_crop, crop_pixels, crop_w, crop_h, 4)
 	path_sub_crop := strings.concatenate({sub_dir, "07_crop_silhouette_jbu_4x.png"}, context.temp_allocator)
 	vol_save_png(path_sub_crop, crop_pixels, crop_w, crop_h, 4)
+
+	path_named_crop := fmt.tprintf("%scrop_silhouette_%s.png", VOLUMETRIC_REPORT_DIR, cfg_name)
+	vol_save_png(path_named_crop, crop_pixels, crop_w, crop_h, 4)
+	path_sub_named_crop := fmt.tprintf("%scrop_silhouette_%s.png", sub_dir, cfg_name)
+	vol_save_png(path_sub_named_crop, crop_pixels, crop_w, crop_h, 4)
 
 	// Collect GPU sub-pass timer metrics
 	vol_total_avg, _, _ := rendering.volumetric_timer_get_total_metrics(&s.volumetric.timers)
@@ -590,7 +631,7 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	// Calibrated production assertions:
 	// - tvar < 1.0 (calibrated at ~0.86 with IBL noise margin)
 	// - rms_contrast > 10.0 (calibrated at ~70.98 on godray shaft)
-	// - vol_max_diff < 50.0 (calibrated at ~46.33; checkerboard failure caused > 52.0)
+	// - vol_max_diff < 50.0 (calibrated at ~41.33 on 20 steps; natural PASS without recalibration)
 	testing.expect(t, tvar < 1.0, fmt.tprintf("Global temporal variance too high: %.4f", tvar))
 	testing.expect(t, rms_contrast > 10.0, fmt.tprintf("God rays contrast too low: %.2f", rms_contrast))
 	testing.expect(t, vol_max_diff < 50.0, fmt.tprintf("Pure volumetric sub-pixel max delta too high (flicker artifact): %.2f", vol_max_diff))
