@@ -211,7 +211,7 @@ task --list
 
 ```bash
 # Direct profile benchmarks (300 frames by default)
-task bench-quality          # Reference / Cinematic profile (32 steps, PCF 16-tap)
+task bench-quality          # Reference / Cinematic profile (20 steps, PCF 16-tap)
 task bench-balanced         # Recommended iGPU profile (16 steps + TAA, PCF 8-tap)
 task bench-ultra            # Maximum framerate profile (8 steps, PCF 4-tap)
 

@@ -23,6 +23,11 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 	application.scene.postfx_pipeline.enabled = true
 	application.scene.postfx_pipeline.ubo_dirty = true
 
+	// Ensure point light and volumetric lighting are active for benchmark load
+	application.scene.point_light.enabled = true
+	application.scene.volumetric.params.enabled = true
+	application.scene.volumetric.timers.enabled = true
+
 	// Compile optimized shader variant for this effect combination
 	postfx.pipeline_compile_variant(&application.scene.postfx_pipeline)
 
@@ -89,6 +94,10 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 	fmt.printfln("  Avg frame time:  %.3f ms", avg_ms)
 	fmt.printfln("  Avg FPS:         %.1f", avg_fps)
 	fmt.printfln("  Min theoretical: %.3f ms (based on %.1f FPS)", 1000.0 / avg_fps, avg_fps)
+	if application.scene.volumetric.timers.enabled {
+		rm_avg, rm_min, rm_max := rendering.volumetric_timer_get_metrics(&application.scene.volumetric.timers, .Raymarching)
+		fmt.printfln("  Live Raymarching Pass: %.3f ms (min: %.3f, max: %.3f)", rm_avg, rm_min, rm_max)
+	}
 	fmt.println("========================")
 }
 
