@@ -54,4 +54,26 @@ L'optimisation Early Exit (Early Shadow Rejection + Early Ray Termination via `u
 ### Conclusion de l'Audit & Verdict NO-GO
 1. **Gain réel vs Master = 0.000 ms** : L'Early Exit n'apporte aucun gain sur GPU vs `master`. Le dynamic branching introduit une légère pénalité (+0.133 ms) liée à la divergence de threads au sein des warps SIMD.
 2. **Biais méthodologique élucidé** : La comparaison A/B initiale (0.279 ms vs 0.316 ms, soit ~11.7%) mesurait en réalité une **désoptimisation auto-infligée** de l'état `OFF` induite par l'uniform dynamique, et non une accélération par rapport à la baseline vectorisée de production.
-3. **Action** : Retrait intégral de l'Early Exit dans le shader et le code Odin (commit `55d0717` ISO master). Redirection exclusive vers **C1 (16 pas stochastique)**.
+3. **Action** : Retrait intégral de l'Early Exit dans le shader et le code Odin (commit `55d0717` ISO master). Redirection exclusive vers **C1 (volumetric stochastique)**.
+
+---
+
+## 4. Promotion C1 : Standardisation du Profil Quality à 20 Pas Stochastiques
+
+Suite aux arbitrages visuels opérateurs sur le grain résiduel de la silhouette à $4\times$, une matrice de décision 4 configurations a été évaluée sur banc matériel identique (1920x1200, 300 frames, GPU Intel Xe) :
+
+### Matrice Décisionnelle & Arbitrage
+
+| Configuration | Raymarch Pass | Gain Raymarch | Frametime Global | Gain Frametime | Pure Vol Max Delta | Verdict Visuel |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **32 pas** ($\alpha=0.20$, Référence) | 1.104 ms | *Baseline* | 9.862 ms | *Baseline* | 42.33 / 255 | Référence propre |
+| **16 pas** ($\alpha=0.20$, C1 initial) | 0.583 ms | -47.2% | 9.268 ms | -6.0% | 55.00 / 255 | Grain visible sur arêtes ($4\times$) |
+| **16 pas** ($\alpha=0.15$, Levier L1) | 0.587 ms | -46.9% | 9.282 ms | -5.9% | 50.33 / 255 | Légère traînée temporelle |
+| **20 pas** ($\alpha=0.20$, Levier L2) | **0.714 ms** | **-35.3%** | **9.389 ms** | **-4.8%** | **41.33 / 255** | **✅ Équilibre validé opérateur** |
+
+### Décision Opérateur & Promotion
+Le profil **Quality** (`src/rendering/optimization_profiles.odin`) est promu officiellement à **20 pas stochastiques** ($\alpha=0.20$) :
+- **Gain Raymarch Pass** : **-35.3%** ($1.104 \to 0.714\text{ ms}$).
+- **Gain Frametime Global** : **-4.8%** ($9.862 \to 9.389\text{ ms}$, $101.4 \to 106.5\text{ FPS}$).
+- **Conformité Harness** : Toutes métriques sous seuils stricts sans aucun recalibrage requis (`vol_max_diff = 41.33 < 50.0`, `tvar = 0.8757 < 1.0`).
+

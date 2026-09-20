@@ -25,7 +25,7 @@ optimization_profile_apply :: proc(profile: Optimization_Profile, vr: ^Volumetri
 	switch profile {
 	case .Quality:
 		if vr != nil {
-			vr.params.step_count = 32
+			vr.params.step_count = 20
 			vr.params.resolution_divider = 2
 			vr.params.upsample_mode = 2
 			vr.params.upsample_sharpness = 300.0
@@ -33,7 +33,7 @@ optimization_profile_apply :: proc(profile: Optimization_Profile, vr: ^Volumetri
 			vr.params.blur_sharpness = 600.0
 			vr.params.jitter_enabled = true
 			vr.params.taa_mode = 2
-			vr.params.taa_alpha = 0.25
+			vr.params.taa_alpha = 0.20
 		}
 		if light != nil {
 			light.shadow_pcf_samples = 16

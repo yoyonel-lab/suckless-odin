@@ -642,7 +642,7 @@ tasks:
       - "{{.RUNNER}}env mesa_glthread=true MESA_NO_ERROR=1 vblank_mode=0 __GL_SYNC_TO_VBLANK=0 ./{{.BUILD_BASE}}/release/suckless-odin --benchmark --benchmark-frames={{.FRAMES}} --opt-profile={{.PROFILE}} {{.CLI_ARGS}}"
 
   bench-quality:
-    desc: Run GPU render benchmark on Quality profile (32 steps, PCF 16-tap, full cubemap)
+    desc: Run GPU render benchmark on Quality profile (20 steps, PCF 16-tap, full cubemap)
     cmds:
       - task: bench-render
         vars:
