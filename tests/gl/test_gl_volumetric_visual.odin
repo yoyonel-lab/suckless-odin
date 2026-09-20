@@ -124,6 +124,10 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 		render_frame(&s, &rt)
 	}
 
+	// Reset total_time & frame_count to guarantee 100% deterministic orbit angle
+	s.total_time = 0.0
+	s.frame_count = 0
+
 	// -------------------------------------------------------------------------
 	// Setup Golden Reference Volumetric Environment
 	// -------------------------------------------------------------------------
@@ -138,7 +142,6 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	s.point_light.orbit_radius = 2.0
 	s.point_light.orbit_speed = 1.0
 
-	// Configure Volumetric lighting
 	s.volumetric.params.enabled = true
 	s.volumetric.params.shadows_enabled = true
 	s.volumetric.params.step_count = 20
@@ -147,10 +150,36 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 			s.volumetric.params.step_count = i32(parsed)
 		}
 	}
+
+	is_sun_mode := false
+	if env_mode, found := os.lookup_env("VOLUMETRIC_LIGHT_MODE", context.temp_allocator); found {
+		if env_mode == "sun" || env_mode == "directional" || env_mode == "1" {
+			is_sun_mode = true
+		}
+	}
+
+	if is_sun_mode {
+		s.volumetric.params.light_mode = .Sun_Directional
+		s.volumetric.params.sun_intensity = 1.8
+		s.volumetric.params.intensity_mult = 1.0
+		s.point_light.enabled = false
+		if env_sun_int, found := os.lookup_env("VOLUMETRIC_SUN_INTENSITY", context.temp_allocator); found {
+			if parsed, ok := strconv.parse_f32(env_sun_int); ok {
+				s.volumetric.params.sun_intensity = parsed
+			}
+		}
+	} else {
+		s.volumetric.params.light_mode = .Omni_Point
+	}
+
 	s.volumetric.params.scattering_coeff = 0.04
 	s.volumetric.params.extinction_coeff = 0.06
 	s.volumetric.params.anisotropy_g = 0.62 // Forward Mie scattering for prominent godrays
-	s.volumetric.params.intensity_mult = 2.2
+	if is_sun_mode {
+		s.volumetric.params.intensity_mult = rendering.volumetric_get_default_intensity(.Sun_Directional)
+	} else {
+		s.volumetric.params.intensity_mult = 2.2
+	}
 	s.volumetric.params.jitter_enabled = true
 	s.volumetric.params.taa_mode = 2 // Motion-aware TAA
 	s.volumetric.params.taa_alpha = 0.20
@@ -162,6 +191,7 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	s.volumetric.params.blur_mode = 2 // 9-tap bilateral
 	s.volumetric.params.upsample_mode = 2 // JBU 2x2
 	s.volumetric.params.resolution_divider = 2
+
 
 	// Render routine closure
 	render_frame :: proc(s: ^sc.Scene, rt: ^Render_Target) {
@@ -201,7 +231,9 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	defer delete(vol_t)
 
 	cfg_name := fmt.tprintf("%dsteps", s.volumetric.params.step_count)
-	if s.volumetric.params.taa_alpha != 0.20 {
+	if is_sun_mode {
+		cfg_name = fmt.tprintf("sun_%dsteps", s.volumetric.params.step_count)
+	} else if s.volumetric.params.taa_alpha != 0.20 {
 		cfg_name = fmt.tprintf("%dsteps_alpha%.2f", s.volumetric.params.step_count, s.volumetric.params.taa_alpha)
 	}
 	sub_dir := fmt.tprintf("tests/reports/volumetric/%s/", cfg_name)
@@ -519,6 +551,9 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	blur_avg, _, _ := rendering.volumetric_timer_get_metrics(&s.volumetric.timers, .Bilateral_Blur)
 	jbu_avg, _, _ := rendering.volumetric_timer_get_metrics(&s.volumetric.timers, .Composite_Upsample)
 
+	rms_nominal: f64 = 3.5 if is_sun_mode else 12.0
+	rms_min: f64 = 3.0 if is_sun_mode else 10.0
+
 	// =========================================================================
 	// PHASE 4: Human-in-the-Loop Markdown Audit Report Generation
 	// =========================================================================
@@ -540,7 +575,7 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 | **Max Pixel Delta** | **%.2f / 255** | $< 15.0$ | %s | Delta maximal sub-pixel (détection trame oscillante). |
 | **Pure Volumetric TVar (W/2)** | **%.4f / 255** | $< 2.00$ | %s | Variance temporelle pure du buffer volumétrique (sans géométrie opaque). |
 | **Pure Volumetric Max Delta** | **%.2f / 255** | $< 50.0$ | %s | Delta sub-pixel max du buffer volumétrique (stabilité sous jitter). |
-| **God Rays RMS Contrast** | **%.2f** | $> 12.00$ | %s | Contraste des faisceaux lumineux à travers les sphères occluantes. |
+| **God Rays RMS Contrast** | **%.2f** | $> %.2f$ | %s | Contraste des faisceaux lumineux à travers les sphères occluantes. |
 | **Résolution Raymarching** | **%dx%d** | Demi-résolution | ✅ PASS | Facteur d'upsampling $2\times$ guidé par profondeur pleine résolution (JBU). |
 
 ### ⏱️ Répartition des Passes GPU Volumétriques (Chronométrage Matériel)
@@ -548,43 +583,17 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 | Sous-Passe Volumétrique | Temps GPU Mesuré | Part Relative | Description Technique |
 | :--- | :---: | :---: | :--- |
 | **1. Raymarching Analytique (Pass 1)** | **%.3f ms** | **%.1f%%** | 32 pas, Beer-Lambert, Phase Henyey-Greenstein, Shadow Cubemap. |
-| **2. TAA Reprojection & Blending (Pass 2)** | **%.3f ms** | **%.1f%%** | Reprojection temporelle, détection disocclusion, accumulation EMA. |
-| **3. Joint Bilateral Blur (Pass 3)** | **%.3f ms** | **%.1f%%** | Filtrage bilatéral séparable 9-tap guidé par profondeur. |
-| **4. JBU Composite (Pass 4)** | **%.3f ms** | **%.1f%%** | Joint Bilateral Upsampling $2\times 2$ pleine résolution dans le HDR. |
-| **TOTAL Pipeline Volumétrique** | **%.3f ms** | **100.0%%** | Coût GPU global du brouillard volumétrique. |
+| **2. Reprojection Temporelle TAA (Pass 2)** | **%.3f ms** | **%.1f%%** | Historique ping-pong, vélocité caméra, neighborhood clamping 3x3. |
+| **3. Flou Bilatéral Séparable (Pass 3)** | **%.3f ms** | **%.1f%%** | Flou guidé par profondeur 9-tap 1D horizontal & vertical. |
+| **4. Upsampling Bilatéral JBU (Pass 4)** | **%.3f ms** | **%.1f%%** | Reconstruction $2\times 2$ guidée par profondeur plein écran. |
+| **TOTAL VOLUMÉTRIQUE FILTRÉ** | **%.3f ms** | **100.0%%** | Budget garanti $< 1.50$ ms (soit < %.1f%% d'une frame à 60 FPS). |
 
 ---
 
-## 🖼️ 2. Galerie de Diagnostic & Observations Visuelles
+## 🔬 2. Protocole de Validation Visuelle Opérateur
 
-### A. Rendu Composite Final & Faisceaux Isolés
-| 01. Scène Complète avec God Rays | 03. Brouillard Volumétrique Isolé (Pur Raymarching + TAA) |
-| :---: | :---: |
-| ![Composite Final](01_static_scene_composite.png) | ![Faisceaux Isolés](03_static_volumetric_isolated.png) |
-| *Scène globale avec éclairage physique et ombres.* | *Puits de lumière traversant les sphères (fond noir).* |
-
-### B. Cartes de Cohérence Temporelle & Scintillement
-| 02. Heatmap de Flicker (Différence x20) | 04. Carte d'Acceptation TAA Statique |
-| :---: | :---: |
-| ![Flicker Map](02_static_flicker_map_20x.png) | ![TAA Acceptance Statique](04_static_taa_acceptance.png) |
-| *Noir = Stabilité parfaite ($0\Delta$). Rouge = Scintillement.* | *Vert = Historique convergé (%.1f%% pixels lissés).* |
-
-### C. Balayage Dynamique & Non-Ghosting (Camera Sweep Strip)
-![Camera Sweep](06_camera_sweep_strip_4panels.png)
-*Strip chronologique (4 trames successives pendant une translation de caméra de gauche à droite).*
-*Permet de vérifier l'absence de traînées fantômes (*ghosting*) et la réactivité du clamping d'historique.*
-
-| 05. Carte d'Acceptation TAA en Plein Mouvement | 07. Crop Silhouette & Détourage JBU (Zoom 4x) |
-| :---: | :---: |
-| ![TAA Acceptance Dynamique](05_dynamic_taa_acceptance.png) | ![Silhouette JBU Crop](07_crop_silhouette_jbu_4x.png) |
-| *Rouge = Disocclusions géométriques détectées et nettoyées.* | *Inspection sub-pixel du contour des sphères (zéro fuite de brouillard).* |
-
----
-
-## 🎯 3. Guide de Décision pour l'Opérateur
-
-1. **Si TVar < 0.80 et Flicker Map noire** : Le TAA et le filtrage bilatéral convergent parfaitement sans bruit résiduel.
-2. **Si Pure Volumetric Max Delta < 50.0** : Zéro scintillement structurel sur les arêtes et silhouettes.
+1. **Si le Heatmap de Flicker 20x est uniformément sombre (<4/255)** : Le TAA et le jitter IGN convergent sans vibration perceptible.
+2. **Si l'Acceptance Map TAA est majoritairement blanche** : L'historique temporel est conservé (>90%% de confiance sans disocclusion erronée).
 3. **Si le Crop 4x Silhouette est net** : Le JBU $2\times 2$ isole proprement la géométrie opaque sans bavure.
 4. **Si le Strip Dynamique ne présente pas de traînée baveuse** : Le shader de reprojection TAA est stable en mouvement.
 `,
@@ -599,8 +608,8 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 		(vol_tvar < 2.00 ? "✅ PASS" : "⚠️ WARN"),
 		vol_max_diff,
 		(vol_max_diff < 50.0 ? "✅ PASS" : "⚠️ FAIL"),
-		rms_contrast,
-		(rms_contrast > 12.0 ? "✅ PASS" : "⚠️ WARN"),
+		rms_contrast, rms_nominal,
+		(rms_contrast > rms_nominal ? "✅ PASS" : "⚠️ WARN"),
 		low_w, low_h,
 		rm_avg, (rm_avg / max(0.001, vol_total_avg)) * 100.0,
 		taa_avg, (taa_avg / max(0.001, vol_total_avg)) * 100.0,
@@ -622,7 +631,7 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	fmt.printfln("  Pure Volumetric TVar (W/2)  : %.4f / 255 (target < 2.00) -> %s", vol_tvar, (vol_tvar < 2.00 ? "PASS" : "WARN"))
 	fmt.printfln("  Pure Volumetric Max Delta   : %.2f / 255 (target < 50.0) -> %s", vol_max_diff, (vol_max_diff < 50.0 ? "PASS" : "FAIL"))
 	fmt.printfln("  Pure Vol Flicker Pixels     : %d (%.2f%%)", vol_flicker_count, (f32(vol_flicker_count) / f32(vol_pixel_count)) * 100.0)
-	fmt.printfln("  God Rays RMS Contrast       : %.2f (target > 12.00)     -> %s", rms_contrast, (rms_contrast > 12.0 ? "PASS" : "WARN"))
+	fmt.printfln("  God Rays RMS Contrast       : %.2f (target > %.2f)     -> %s", rms_contrast, rms_nominal, (rms_contrast > rms_nominal ? "PASS" : "WARN"))
 	fmt.printfln("  GPU Raymarching Pass        : %.3f ms (%.1f%%)", rm_avg, (rm_avg / max(0.001, vol_total_avg)) * 100.0)
 	fmt.printfln("  GPU Total Volumetric        : %.3f ms", vol_total_avg)
 	fmt.printfln("  Report & Artifacts saved    : %s", VOLUMETRIC_REPORT_DIR)
@@ -630,7 +639,7 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 
 	// Calibrated production assertions:
 	// - tvar < 1.0 (calibrated at ~0.86 with IBL noise margin)
-	// - rms_contrast > 10.0 (calibrated at ~70.98 on godray shaft)
+	// - rms_contrast > rms_min (calibrated at ~70.98 on godray shaft Omni; ~4.19 on calibrated Sun)
 	// - vol_max_diff < 50.0 (calibrated at ~41.33 on 20 steps hardware GPU; relaxed to <95 on CI llvmpipe software rasterizer)
 	renderer_cstr := gl.GetString(gl.RENDERER)
 	is_software := false
@@ -650,6 +659,6 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	}
 
 	testing.expect(t, tvar < 1.0, fmt.tprintf("Global temporal variance too high: %.4f", tvar))
-	testing.expect(t, rms_contrast > 10.0, fmt.tprintf("God rays contrast too low: %.2f", rms_contrast))
+	testing.expect(t, rms_contrast > rms_min, fmt.tprintf("God rays contrast too low: %.2f (threshold: %.1f)", rms_contrast, rms_min))
 	testing.expect(t, vol_max_diff < max_delta_threshold, fmt.tprintf("Pure volumetric sub-pixel max delta too high (flicker artifact): %.2f (threshold: %.1f)", vol_max_diff, max_delta_threshold))
 }

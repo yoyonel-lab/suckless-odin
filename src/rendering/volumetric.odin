@@ -78,12 +78,33 @@ Volumetric_Composite_Mode :: enum i32 {
 	Weight_Attenuation   = 4, // Upsample bilateral depth weight map
 }
 
+// Light source mode for volumetric raymarching
+Volumetric_Light_Mode :: enum i32 {
+	Omni_Point      = 0, // Legacy point light bounding sphere raymarch + shadow cubemap
+	Sun_Directional = 1, // Full-screen directional sun raymarch + ortho shadow map
+}
+
+// Master intensity defaults calibrated per light mode
+// Sun Directional accumulates across the entire frustum (unbounded) vs local point light sphere
+VOLUMETRIC_DEFAULT_INTENSITY_OMNI :: 1.0
+VOLUMETRIC_DEFAULT_INTENSITY_SUN  :: 0.25
+
+volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
+	#partial switch mode {
+	case .Sun_Directional: return VOLUMETRIC_DEFAULT_INTENSITY_SUN
+	case:                  return VOLUMETRIC_DEFAULT_INTENSITY_OMNI
+	}
+}
+
 // Tunable volumetric medium & filtering parameters (serializable for presets)
 Volumetric_Params :: struct {
 	enabled:                      bool,
 	composite_in_scene:           bool, // Additively blend in-scattering into scene HDR
 	isolate_in_scene:             bool, // Debug mode: Isolate volumetric lighting (black background / no IBL)
 	shadows_enabled:              bool, // Cast volumetric shadow shafts (God Rays) via shadow cubemap
+	light_mode:                   Volumetric_Light_Mode, // Light source selection
+	sun_intensity:                f32,  // Directional sun volumetric intensity multiplier (default 1.0)
+	max_ray_distance:             f32,  // Directional raymarch distance limit in meters (default 64.0)
 
 	// Physical medium parameters
 	step_count:                   i32,  // Raymarching steps (default 16, range 4..64)
@@ -136,7 +157,7 @@ Volumetric_Renderer :: struct {
 	prev_inv_view_proj:     mt.Mat4,
 	prev_cam_pos:           mt.Vec3,
 
-	// Raymarching Shader & Uniform Locations
+	// Point Light Raymarching Shader & Uniform Locations
 	program:                u32,
 	composite_program:      u32,
 	loc_inv_view_proj:      i32,
@@ -157,12 +178,35 @@ Volumetric_Renderer :: struct {
 	loc_intensity_mult:     i32,
 	loc_jitter_enabled:     i32,
 
+	// Sun Directional Raymarching Shader & Uniform Locations
+	directional_program:          u32,
+	loc_dir_inv_view_proj:        i32,
+	loc_dir_cam_pos:              i32,
+	loc_dir_near_plane:           i32,
+	loc_dir_far_plane:            i32,
+	loc_dir_frame_idx:            i32,
+	loc_dir_sun_view_proj:        i32,
+	loc_dir_sun_dir:              i32,
+	loc_dir_sun_color:            i32,
+	loc_dir_sun_intensity:        i32,
+	loc_dir_shadow_bias:          i32,
+	loc_dir_shadows_enabled:      i32,
+	loc_dir_shadow_res:           i32,
+	loc_dir_max_ray_distance:     i32,
+	loc_dir_step_count:           i32,
+	loc_dir_scattering_coeff:     i32,
+	loc_dir_extinction_coeff:     i32,
+	loc_dir_anisotropy_g:         i32,
+	loc_dir_intensity_mult:       i32,
+	loc_dir_jitter_enabled:       i32,
+
 	// TAA Reprojection Shader & Uniform Locations
 	taa_program:            u32,
 	loc_taa_inv_view_proj:  i32,
 	loc_taa_prev_view_proj: i32,
 	loc_taa_cam_pos:        i32,
 	loc_taa_prev_cam_pos:   i32,
+
 	loc_taa_near_plane:     i32,
 	loc_taa_far_plane:      i32,
 	loc_taa_mode:           i32,
@@ -252,6 +296,9 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		composite_in_scene     = true,
 		isolate_in_scene       = false,
 		shadows_enabled        = true,
+		light_mode             = .Omni_Point,
+		sun_intensity          = 1.0,
+		max_ray_distance       = 64.0,
 		step_count             = 16,
 		scattering_coeff       = 0.025,
 		extinction_coeff       = 0.05,
@@ -307,6 +354,34 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_low_res_depth"), 0)
 	gl.Uniform1i(gl.GetUniformLocation(vr.program, "u_shadow_cubemap"), 1)
 	gl.UseProgram(0)
+
+	// Sun Directional Raymarching Program
+	vr.directional_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_raymarch_directional.frag") or_return
+	vr.loc_dir_inv_view_proj    = gl.GetUniformLocation(vr.directional_program, "u_inv_view_proj")
+	vr.loc_dir_cam_pos          = gl.GetUniformLocation(vr.directional_program, "u_cam_pos")
+	vr.loc_dir_near_plane       = gl.GetUniformLocation(vr.directional_program, "u_near_plane")
+	vr.loc_dir_far_plane        = gl.GetUniformLocation(vr.directional_program, "u_far_plane")
+	vr.loc_dir_frame_idx        = gl.GetUniformLocation(vr.directional_program, "u_frame_idx")
+	vr.loc_dir_sun_view_proj    = gl.GetUniformLocation(vr.directional_program, "u_sun_view_proj")
+	vr.loc_dir_sun_dir          = gl.GetUniformLocation(vr.directional_program, "u_sun_dir")
+	vr.loc_dir_sun_color        = gl.GetUniformLocation(vr.directional_program, "u_sun_color")
+	vr.loc_dir_sun_intensity    = gl.GetUniformLocation(vr.directional_program, "u_sun_intensity")
+	vr.loc_dir_shadow_bias      = gl.GetUniformLocation(vr.directional_program, "u_shadow_bias")
+	vr.loc_dir_shadows_enabled  = gl.GetUniformLocation(vr.directional_program, "u_shadows_enabled")
+	vr.loc_dir_shadow_res       = gl.GetUniformLocation(vr.directional_program, "u_shadow_resolution")
+	vr.loc_dir_max_ray_distance = gl.GetUniformLocation(vr.directional_program, "u_max_ray_distance")
+	vr.loc_dir_step_count       = gl.GetUniformLocation(vr.directional_program, "u_step_count")
+	vr.loc_dir_scattering_coeff = gl.GetUniformLocation(vr.directional_program, "u_scattering_coeff")
+	vr.loc_dir_extinction_coeff = gl.GetUniformLocation(vr.directional_program, "u_extinction_coeff")
+	vr.loc_dir_anisotropy_g     = gl.GetUniformLocation(vr.directional_program, "u_anisotropy_g")
+	vr.loc_dir_intensity_mult   = gl.GetUniformLocation(vr.directional_program, "u_intensity_mult")
+	vr.loc_dir_jitter_enabled   = gl.GetUniformLocation(vr.directional_program, "u_jitter_enabled")
+
+	gl.UseProgram(vr.directional_program)
+	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_low_res_depth"), 0)
+	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_sun_shadow_map"), 1)
+	gl.UseProgram(0)
+
 
 	// TAA Program
 	vr.taa_program = shader.load_program("shaders/postfx/postfx.vert", "shaders/postfx/volumetric_taa.frag") or_return
@@ -581,6 +656,7 @@ volumetric_render :: proc(
 	low_res_depth_tex: u32,
 	prev_low_res_depth_tex: u32,
 	shadow_cubemap_tex: u32,
+	sun_shadow: ^Sun_Shadow,
 	inv_view_proj: ^mt.Mat4,
 	view_proj: ^mt.Mat4,
 	cam_pos: mt.Vec3,
@@ -612,52 +688,102 @@ volumetric_render :: proc(
 	gl.Disable(gl.DEPTH_TEST)
 	gl.Disable(gl.BLEND)
 
-	gl.UseProgram(vr.program)
+	if vr.params.light_mode == .Sun_Directional && vr.directional_program != 0 {
+		gl.UseProgram(vr.directional_program)
 
-	// Bind Low-Res Depth (unit 0) & Shadow Cubemap (unit 1)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
+		// Unit 0: Low-Res Depth (2D)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
 
-	gl.ActiveTexture(gl.TEXTURE1)
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, shadow_cubemap_tex)
+		// Unit 1: Sun Ortho Shadow Depth Map (2D)
+		sun_tex: u32 = sun_shadow.depth_texture if sun_shadow != nil else 0
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_2D, sun_tex)
 
-	// Upload Camera & Medium Uniforms
-	gl.UniformMatrix4fv(vr.loc_inv_view_proj, 1, false, &inv_view_proj[0][0])
-	gl.Uniform3f(vr.loc_cam_pos, cam_pos.x, cam_pos.y, cam_pos.z)
-	gl.Uniform1f(vr.loc_near_plane, near_plane)
-	gl.Uniform1f(vr.loc_far_plane, far_plane)
-	gl.Uniform1i(vr.loc_frame_idx, frame_idx)
+		gl.UniformMatrix4fv(vr.loc_dir_inv_view_proj, 1, false, &inv_view_proj[0][0])
+		gl.Uniform3f(vr.loc_dir_cam_pos, cam_pos.x, cam_pos.y, cam_pos.z)
+		gl.Uniform1f(vr.loc_dir_near_plane, near_plane)
+		gl.Uniform1f(vr.loc_dir_far_plane, far_plane)
+		gl.Uniform1i(vr.loc_dir_frame_idx, frame_idx)
 
-	// Upload Point Light Uniforms (from Point_Light aggregate)
-	light_pos := point_light_get_position(light, total_time) if light != nil else mt.Vec3{}
-	light_radius := light.radius if light != nil else 10.0
-	light_color := light.color if light != nil else mt.Vec3{1, 1, 1}
-	light_intensity := light.intensity if light != nil else 1.0
-	shadow_bias := light.shadow_bias if light != nil else 0.001
-	shadows_enabled := (light != nil && light.enabled && vr.params.shadows_enabled)
+		sun_vp := sun_shadow.view_proj if sun_shadow != nil else mt.Mat4(1.0)
+		sun_dir := sun_shadow.detection.direction if sun_shadow != nil else SUN_FALLBACK_DIRECTION
+		sun_res := f32(sun_shadow.resolution) if sun_shadow != nil else 1024.0
+		shadows_enabled := (sun_shadow != nil && sun_shadow.enabled && vr.params.shadows_enabled)
 
-	gl.Uniform3f(vr.loc_light_pos, light_pos.x, light_pos.y, light_pos.z)
-	gl.Uniform1f(vr.loc_light_radius, light_radius)
-	gl.Uniform3f(vr.loc_light_color, light_color.x, light_color.y, light_color.z)
-	gl.Uniform1f(vr.loc_light_intensity, light_intensity)
-	gl.Uniform1f(vr.loc_shadow_bias, shadow_bias)
-	gl.Uniform1i(vr.loc_shadows_enabled, 1 if shadows_enabled else 0)
+		gl.UniformMatrix4fv(vr.loc_dir_sun_view_proj, 1, false, &sun_vp[0][0])
+		gl.Uniform3f(vr.loc_dir_sun_dir, sun_dir.x, sun_dir.y, sun_dir.z)
+		gl.Uniform3f(vr.loc_dir_sun_color, 1.0, 0.95, 0.85)
+		gl.Uniform1f(vr.loc_dir_sun_intensity, vr.params.sun_intensity)
+		gl.Uniform1f(vr.loc_dir_shadow_bias, 0.0015)
+		gl.Uniform1i(vr.loc_dir_shadows_enabled, 1 if shadows_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_shadow_res, sun_res)
+		gl.Uniform1f(vr.loc_dir_max_ray_distance, vr.params.max_ray_distance)
 
-	// Upload Raymarching parameters
-	gl.Uniform1i(vr.loc_step_count, vr.params.step_count)
-	gl.Uniform1f(vr.loc_scattering_coeff, vr.params.scattering_coeff)
-	gl.Uniform1f(vr.loc_extinction_coeff, vr.params.extinction_coeff)
-	gl.Uniform1f(vr.loc_anisotropy_g, vr.params.anisotropy_g)
-	gl.Uniform1f(vr.loc_intensity_mult, vr.params.intensity_mult)
-	gl.Uniform1i(vr.loc_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
+		gl.Uniform1i(vr.loc_dir_step_count, vr.params.step_count)
+		gl.Uniform1f(vr.loc_dir_scattering_coeff, vr.params.scattering_coeff)
+		gl.Uniform1f(vr.loc_dir_extinction_coeff, vr.params.extinction_coeff)
+		gl.Uniform1f(vr.loc_dir_anisotropy_g, vr.params.anisotropy_g)
+		gl.Uniform1f(vr.loc_dir_intensity_mult, vr.params.intensity_mult)
+		gl.Uniform1i(vr.loc_dir_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
 
-	fullscreen_triangle_draw(&vr.triangle)
+		fullscreen_triangle_draw(&vr.triangle)
 
-	gl.ActiveTexture(gl.TEXTURE1)
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
-	gl.UseProgram(0)
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+		gl.UseProgram(0)
+	} else {
+		// Legacy Omni Point Raymarching
+		gl.UseProgram(vr.program)
+
+		// Bind Low-Res Depth (unit 0) & Shadow Cubemap (unit 1)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, low_res_depth_tex)
+
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, shadow_cubemap_tex)
+
+		// Upload Camera & Medium Uniforms
+		gl.UniformMatrix4fv(vr.loc_inv_view_proj, 1, false, &inv_view_proj[0][0])
+		gl.Uniform3f(vr.loc_cam_pos, cam_pos.x, cam_pos.y, cam_pos.z)
+		gl.Uniform1f(vr.loc_near_plane, near_plane)
+		gl.Uniform1f(vr.loc_far_plane, far_plane)
+		gl.Uniform1i(vr.loc_frame_idx, frame_idx)
+
+		// Upload Point Light Uniforms (from Point_Light aggregate)
+		light_pos := point_light_get_position(light, total_time) if light != nil else mt.Vec3{}
+		light_radius := light.radius if light != nil else 10.0
+		light_color := light.color if light != nil else mt.Vec3{1, 1, 1}
+		light_intensity := light.intensity if light != nil else 1.0
+		shadow_bias := light.shadow_bias if light != nil else 0.001
+		shadows_enabled := (light != nil && light.enabled && vr.params.shadows_enabled)
+
+		gl.Uniform3f(vr.loc_light_pos, light_pos.x, light_pos.y, light_pos.z)
+		gl.Uniform1f(vr.loc_light_radius, light_radius)
+		gl.Uniform3f(vr.loc_light_color, light_color.x, light_color.y, light_color.z)
+		gl.Uniform1f(vr.loc_light_intensity, light_intensity)
+		gl.Uniform1f(vr.loc_shadow_bias, shadow_bias)
+		gl.Uniform1i(vr.loc_shadows_enabled, 1 if shadows_enabled else 0)
+
+		// Upload Raymarching parameters
+		gl.Uniform1i(vr.loc_step_count, vr.params.step_count)
+		gl.Uniform1f(vr.loc_scattering_coeff, vr.params.scattering_coeff)
+		gl.Uniform1f(vr.loc_extinction_coeff, vr.params.extinction_coeff)
+		gl.Uniform1f(vr.loc_anisotropy_g, vr.params.anisotropy_g)
+		gl.Uniform1f(vr.loc_intensity_mult, vr.params.intensity_mult)
+		gl.Uniform1i(vr.loc_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
+
+		fullscreen_triangle_draw(&vr.triangle)
+
+		gl.ActiveTexture(gl.TEXTURE1)
+		gl.BindTexture(gl.TEXTURE_CUBE_MAP, 0)
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+		gl.UseProgram(0)
+	}
+
 	dbg.pop_group()
 	tracy.zone_end(zone_raymarch)
 	volumetric_timer_end(&vr.timers, .Raymarching)
@@ -706,11 +832,12 @@ volumetric_render :: proc(
 
 		// Dynamic responsive TAA alpha during light motion with smooth graceful transition
 		effective_alpha := vr.params.taa_alpha
-		if light != nil && (light.is_interacting || light.motion_cooldown > 0.0) {
+		if vr.params.light_mode == .Omni_Point && light != nil && (light.is_interacting || light.motion_cooldown > 0.0) {
 			blend := min(f32(1.0), light.motion_cooldown / 0.40)
 			blend_smooth := blend * blend * (3.0 - 2.0 * blend)
 			effective_alpha = math.lerp(vr.params.taa_alpha, 0.70, blend_smooth)
 		}
+
 
 		// TAA parameters
 		gl.Uniform1i(vr.loc_taa_mode, vr.params.taa_mode)
@@ -884,6 +1011,7 @@ volumetric_update_preview :: proc(
 		gl.ActiveTexture(gl.TEXTURE0 + u)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 	}
+	gl.ActiveTexture(gl.TEXTURE0)
 	gl.UseProgram(0)
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
@@ -985,6 +1113,10 @@ volumetric_destroy :: proc(vr: ^Volumetric_Renderer) {
 		gl.DeleteProgram(vr.program)
 		vr.program = 0
 	}
+	if vr.directional_program != 0 {
+		gl.DeleteProgram(vr.directional_program)
+		vr.directional_program = 0
+	}
 	if vr.taa_program != 0 {
 		gl.DeleteProgram(vr.taa_program)
 		vr.taa_program = 0
@@ -1009,4 +1141,15 @@ volumetric_set_anisotropy :: proc(vr: ^Volumetric_Renderer, light: ^Point_Light,
 	if light != nil {
 		light.phase_g = clamped_g
 	}
+}
+
+// Switches volumetric light mode, adapting intensity_mult if it was at previous mode default
+volumetric_set_light_mode :: proc(vr: ^Volumetric_Renderer, mode: Volumetric_Light_Mode) {
+	if vr == nil || vr.params.light_mode == mode do return
+	prev_mode := vr.params.light_mode
+	vr.params.light_mode = mode
+	if vr.params.intensity_mult == volumetric_get_default_intensity(prev_mode) {
+		vr.params.intensity_mult = volumetric_get_default_intensity(mode)
+	}
+	vr.history_valid = false
 }

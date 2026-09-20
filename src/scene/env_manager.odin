@@ -1167,6 +1167,15 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	// Update skybox to use new env texture
 	rendering.skybox_update_env(&scene.skybox, scene.env_texture.id, scene.ibl.prefilter_map)
 
+	// Update Sun directional shadow map detection & mark dirty
+	scene.sun_shadow.detection = mgr.async_result.sun_detection
+	scene.sun_shadow.is_dirty = true
+	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, confidence=%d, detected=%v",
+		scene.sun_shadow.detection.azimuth,
+		scene.sun_shadow.detection.elevation,
+		scene.sun_shadow.detection.confidence,
+		scene.sun_shadow.detection.sun_detected)
+
 	log.log_debug("scene.env", "Environment textures swapped simultaneously (pool slot %d active)", mgr.pool_active_idx)
 	elapsed_ms := time.duration_milliseconds(time.tick_since(mgr.load_start_tick))
 	log.log_info("render.ibl", "IBL environment ready in %.2f ms, descriptor set updated.", elapsed_ms)

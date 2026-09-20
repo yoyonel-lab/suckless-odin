@@ -21,6 +21,7 @@ import stbi "vendor:stb/image"
 import log "../core/log"
 import simd "../core/simd_utils"
 import tracy "../core/tracy"
+import "../rendering"
 
 // --- Async state machine (ISO: AsyncState enum) ---
 
@@ -43,12 +44,13 @@ Async_Poll_Result :: enum {
 ASYNC_MAX_PATH :: 256
 
 Async_Request :: struct {
-	path:     [ASYNC_MAX_PATH]u8, // null-terminated path
-	data:     [^]u16,             // decoded RGBA float16 pixels (SIMD-converted from FP32)
-	width:    i32,
-	height:   i32,
-	channels: i32,
-	state:    Async_State,
+	path:          [ASYNC_MAX_PATH]u8, // null-terminated path
+	data:          [^]u16,             // decoded RGBA float16 pixels (SIMD-converted from FP32)
+	width:         i32,
+	height:        i32,
+	channels:      i32,
+	sun_detection: rendering.Sun_Detection,
+	state:         Async_State,
 }
 
 // --- Async loader (ISO: AsyncLoader struct) ---
@@ -314,6 +316,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 
 		tracy.zone_end(zone)
 
+		sun_detection: rendering.Sun_Detection
 		if half_data != nil {
 			tracy.async_status_transition(.Convert)
 			conv_zone := tracy.zone_begin(&float_half_convert_loc)
@@ -321,6 +324,8 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			tracy.zone_end(conv_zone)
 			tracy.message_c(fmt.tprintf("Direct Decoded HDR->FP16: %dx%d (%d KB)",
 				w, h, pixel_count * 2 / 1024), tracy.COLOR_IO_CONVERT)
+
+			sun_detection = rendering.sun_detect_from_fp16(half_data, w, h)
 		}
 
 		// Re-acquire mutex to update state
@@ -336,6 +341,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			loader.request.width = i32(w)
 			loader.request.height = i32(h)
 			loader.request.channels = 4
+			loader.request.sun_detection = sun_detection
 			loader.request.state = .Ready
 			tracy.async_status_transition(.Ready)
 			tracy.message_c(fmt.tprintf("Loaded: %s (%dx%d, FP16)", path_cstr, w, h), tracy.COLOR_IO_READY)

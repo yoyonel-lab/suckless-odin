@@ -100,6 +100,11 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			composite_in_scene     = s.volumetric.params.composite_in_scene,
 			isolate_in_scene       = s.volumetric.params.isolate_in_scene,
 			shadows_enabled        = s.volumetric.params.shadows_enabled,
+			light_mode             = i32(s.volumetric.params.light_mode),
+			sun_intensity          = s.volumetric.params.sun_intensity,
+			max_ray_distance       = s.volumetric.params.max_ray_distance,
+			sun_azimuth            = s.sun_shadow.detection.azimuth,
+			sun_elevation          = s.sun_shadow.detection.elevation,
 			step_count             = s.volumetric.params.step_count,
 			scattering_coeff       = s.volumetric.params.scattering_coeff,
 			extinction_coeff       = s.volumetric.params.extinction_coeff,
@@ -291,11 +296,28 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.volumetric.params.composite_in_scene     = state.volumetric.composite_in_scene
 		s.volumetric.params.isolate_in_scene       = state.volumetric.isolate_in_scene
 		s.volumetric.params.shadows_enabled        = state.volumetric.shadows_enabled
+		s.volumetric.params.light_mode             = rendering.Volumetric_Light_Mode(state.volumetric.light_mode)
+		if state.volumetric.sun_intensity > 0 {
+			s.volumetric.params.sun_intensity      = state.volumetric.sun_intensity
+		}
+		if state.volumetric.max_ray_distance > 0 {
+			s.volumetric.params.max_ray_distance   = state.volumetric.max_ray_distance
+		}
+		if !s.sun_shadow.detection.sun_detected {
+			if state.volumetric.sun_elevation > 0 || state.volumetric.sun_azimuth != 0 {
+				s.sun_shadow.detection.azimuth   = state.volumetric.sun_azimuth
+				s.sun_shadow.detection.elevation = state.volumetric.sun_elevation
+				s.sun_shadow.detection.direction = rendering.sun_angles_to_dir(state.volumetric.sun_azimuth, state.volumetric.sun_elevation)
+				s.sun_shadow.is_dirty = true
+				s.sun_shadow.preview_dirty = true
+			}
+		}
 		s.volumetric.params.step_count             = state.volumetric.step_count
 		s.volumetric.params.scattering_coeff       = state.volumetric.scattering_coeff
 		s.volumetric.params.extinction_coeff       = state.volumetric.extinction_coeff
 		rendering.volumetric_set_anisotropy(&s.volumetric, &s.point_light, state.volumetric.anisotropy_g)
-		s.volumetric.params.intensity_mult         = state.volumetric.intensity_mult
+		def_intensity := rendering.volumetric_get_default_intensity(s.volumetric.params.light_mode)
+		s.volumetric.params.intensity_mult         = state.volumetric.intensity_mult if state.volumetric.intensity_mult > 0.0 else def_intensity
 		s.volumetric.params.jitter_enabled         = state.volumetric.jitter_enabled
 		s.volumetric.params.taa_mode               = state.volumetric.taa_mode
 		s.volumetric.params.taa_alpha              = state.volumetric.taa_alpha

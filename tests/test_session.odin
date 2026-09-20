@@ -81,6 +81,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 		composite_in_scene     = true,
 		isolate_in_scene       = false,
 		shadows_enabled        = true,
+		light_mode             = 1,
+		sun_intensity          = 1.8,
+		max_ray_distance       = 80.0,
+		sun_azimuth            = 120.0,
+		sun_elevation          = 35.0,
 		step_count             = 32,
 		scattering_coeff       = 0.035,
 		extinction_coeff       = 0.050,
@@ -224,6 +229,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 
 	// Volumetric validation
 	testing.expect_value(t, loaded_state.volumetric.enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.light_mode, 1)
+	testing.expect_value(t, loaded_state.volumetric.sun_intensity, f32(1.8))
+	testing.expect_value(t, loaded_state.volumetric.max_ray_distance, f32(80.0))
+	testing.expect_value(t, loaded_state.volumetric.sun_azimuth, f32(120.0))
+	testing.expect_value(t, loaded_state.volumetric.sun_elevation, f32(35.0))
 	testing.expect_value(t, loaded_state.volumetric.step_count, 32)
 	testing.expect_value(t, loaded_state.volumetric.anisotropy_g, 0.75)
 	testing.expect_value(t, loaded_state.volumetric.scattering_coeff, 0.035)

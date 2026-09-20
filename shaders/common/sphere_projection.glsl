@@ -48,6 +48,17 @@ void computeBillboardSphere(vec3 quadVertexPos, vec3 sphereCenterWorld,
     float sx = projection[0][0];
     float sy = projection[1][1];
 
+    if (projection[2][3] == 0.0 && projection[3][3] == 1.0) {
+        // Orthographic projection: camera rays are parallel along view -Z
+        vec3 vertexViewOffset = vec3(quadVertexPos.x * 2.0 * sphereRadius,
+                                     quadVertexPos.y * 2.0 * sphereRadius,
+                                     sphereRadius);
+        vec3 vertexViewPos = viewPos + vertexViewOffset;
+        outClipPos = projection * vec4(vertexViewPos, 1.0);
+        outWorldPos = sphereCenterWorld + transpose(mat3(view)) * vertexViewOffset;
+        return;
+    }
+
     if (distSq <= r2 + max(r2 * 0.005, 1e-4)) {
         // Inside sphere: fullscreen quad for ray-casting
         outClipPos = vec4(quadVertexPos.xy * 2.0, 0.0, 1.0);

@@ -63,6 +63,7 @@ Scene_State :: struct {
 	// Point Light & Shadows (Phase 1)
 	point_light:    ^rendering.Point_Light,
 	shadow_cubemap: ^rendering.Shadow_Cubemap,
+	sun_shadow:     ^rendering.Sun_Shadow,
 
 	// Volumetric Lighting & Depth Downsampling (Phase 2 & 3)
 	depth_downsample: ^rendering.Depth_Downsample,
@@ -376,6 +377,12 @@ render :: proc(g: ^Gui) {
 
 toggle :: proc(g: ^Gui) {
 	g.visible = !g.visible
+}
+
+get_draw_data_counts :: proc() -> (vtx_count: int, idx_count: int, cmd_lists: int) {
+	draw_data := imgui.GetDrawData()
+	if draw_data == nil do return 0, 0, 0
+	return int(draw_data.TotalVtxCount), int(draw_data.TotalIdxCount), int(draw_data.CmdListsCount)
 }
 
 destroy :: proc(g: ^Gui) {
@@ -1046,6 +1053,16 @@ draw_ibl_debug_env_map :: proc(g: ^Gui, state: Scene_State, preview_w, preview_h
 		if imgui.CollapsingHeader("Environment Map (Source HDR)", {.DefaultOpen}) {
 			imgui.Text("ID: %d  Size: %dx%d  Format: RGBA16F",
 				state.env_texture_id, state.env_texture_width, state.env_texture_height)
+
+			if state.sun_shadow != nil {
+				det := state.sun_shadow.detection
+				status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback Direction (Fixed 45 deg, South)"
+				status_col := imgui.Vec4{1.0, 0.85, 0.2, 1.0} if det.sun_detected else imgui.Vec4{0.7, 0.7, 0.7, 1.0}
+				imgui.TextColored(status_col, "Sun Detection: %s", status_str)
+				imgui.Text("  Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
+					det.azimuth, det.elevation, det.confidence, det.peak_intensity)
+			}
+
 			ensure_preview_texture(&g.ibl_env_preview_tex, 512, 256)
 			display_tex := state.env_texture_id
 			if g.ibl_env_preview_tex != 0 {
@@ -1055,8 +1072,73 @@ draw_ibl_debug_env_map :: proc(g: ^Gui, state: Scene_State, preview_w, preview_h
 			draw_image_with_inspector(g, display_tex,
 				imgui.Vec2{preview_w, preview_h},
 				state.env_texture_width, state.env_texture_height, 0, state.env_texture_id)
+
+			// Draw Sun Direction Marker Overlay on the preview image
+			if state.sun_shadow != nil {
+				item_min := imgui.GetItemRectMin()
+				sun_uv := rendering.sun_dir_to_uv(state.sun_shadow.detection.direction)
+				sun_cx := item_min.x + sun_uv[0] * preview_w
+				sun_cy := item_min.y + (1.0 - sun_uv[1]) * preview_h
+
+				draw_list := imgui.GetWindowDrawList()
+				marker_col: u32 = 0xFF_00_D7_FF if state.sun_shadow.detection.sun_detected else 0xFF_88_88_88
+				// Outer reticle circle
+				imgui.DrawList_AddCircle(draw_list, imgui.Vec2{sun_cx, sun_cy}, 10.0, marker_col, 24, 2.0)
+				// Center pinpoint
+				imgui.DrawList_AddCircle(draw_list, imgui.Vec2{sun_cx, sun_cy}, 3.0, marker_col, 16, 2.0)
+				// Crosshair lines
+				imgui.DrawList_AddLine(draw_list, imgui.Vec2{sun_cx - 14.0, sun_cy}, imgui.Vec2{sun_cx + 14.0, sun_cy}, marker_col, 1.5)
+				imgui.DrawList_AddLine(draw_list, imgui.Vec2{sun_cx, sun_cy - 14.0}, imgui.Vec2{sun_cx, sun_cy + 14.0}, marker_col, 1.5)
+
+				label_str := "SUN" if state.sun_shadow.detection.sun_detected else "SUN (Fallback)"
+				label_cstr := strings.clone_to_cstring(label_str, context.temp_allocator)
+				imgui.DrawList_AddText(draw_list, imgui.Vec2{sun_cx + 12.0, sun_cy - 8.0}, marker_col, label_cstr)
+			}
+
 			imgui.Spacing()
 		}
+	}
+}
+
+@(private)
+draw_ibl_debug_sun_shadow :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
+	if state.sun_shadow == nil do return
+	ss := state.sun_shadow
+
+	if imgui.CollapsingHeader("Sun Directional Shadow Map (Ortho Depth)", {.DefaultOpen}) {
+		det := ss.detection
+		status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback (Fixed 45 deg, South)"
+		status_col := imgui.Vec4{1.0, 0.85, 0.2, 1.0} if det.sun_detected else imgui.Vec4{0.7, 0.7, 0.7, 1.0}
+
+		imgui.TextColored(status_col, "Status: %s", status_str)
+		imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
+			det.azimuth, det.elevation, det.confidence, det.peak_intensity)
+		imgui.Text("Resolution: %dx%d (Hardware Depth D32F)", ss.resolution, ss.resolution)
+		imgui.Text("Ortho Fit: X=[%.1f..%.1f] Y=[%.1f..%.1f]  |  Near: %.2fm  Far: %.2fm",
+			ss.ortho_bounds[0], ss.ortho_bounds[1], ss.ortho_bounds[2], ss.ortho_bounds[3],
+			ss.near_plane, ss.far_plane)
+
+		if ss.is_dirty {
+			imgui.TextColored(imgui.Vec4{1.0, 0.3, 0.3, 1.0}, "[Cache: Dirty]")
+		} else {
+			imgui.TextColored(imgui.Vec4{0.2, 1.0, 0.2, 1.0}, "[Cache: Clean]")
+		}
+		imgui.SameLine()
+		if imgui.SmallButton("Force Re-render##sun_shadow") {
+			ss.is_dirty = true
+		}
+
+		// Update 2D preview atlas on-demand when visible and dirty
+		if ss.preview_dirty {
+			rendering.sun_shadow_update_preview_atlas(ss)
+		}
+
+		if ss.preview_tex != 0 {
+			draw_image_with_inspector(g, ss.preview_tex,
+				imgui.Vec2{preview_w, preview_w},
+				ss.preview_w, ss.preview_h, 0, ss.preview_tex)
+		}
+		imgui.Spacing()
 	}
 }
 
@@ -1210,6 +1292,7 @@ draw_tab_ibl_debug :: proc(g: ^Gui, state: Scene_State) {
 	pf_mips := query_texture_mips(state.ibl_prefilter_map, 11)
 
 	draw_ibl_debug_env_map(g, state, preview_w, preview_h)
+	draw_ibl_debug_sun_shadow(g, state, preview_w)
 	draw_ibl_debug_irradiance(g, state, preview_w)
 	draw_ibl_debug_prefilter(g, state, preview_w)
 	draw_ibl_debug_brdf_lut(g, state, preview_w)
