@@ -21,6 +21,7 @@ Volumetric_Session_Settings :: struct {
 	shadows_enabled:        bool `json:"shadows_enabled"`,
 	light_mode:             i32  `json:"light_mode"`,
 	sun_intensity:          f32  `json:"sun_intensity"`,
+	sun_intensity_auto:     bool `json:"sun_intensity_auto"`,
 	max_ray_distance:       f32  `json:"max_ray_distance"`,
 	sun_azimuth:            f32  `json:"sun_azimuth"`,
 	sun_elevation:          f32  `json:"sun_elevation"`,

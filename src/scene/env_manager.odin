@@ -1170,11 +1170,13 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	// Update Sun directional shadow map detection & mark dirty
 	scene.sun_shadow.detection = mgr.async_result.sun_detection
 	scene.sun_shadow.is_dirty = true
-	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, confidence=%d, detected=%v",
+	rendering.volumetric_update_sun_auto_scale(&scene.volumetric, scene.sun_shadow.detection)
+	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, confidence=%d, detected=%v, auto_scale=%.3f",
 		scene.sun_shadow.detection.azimuth,
 		scene.sun_shadow.detection.elevation,
 		scene.sun_shadow.detection.confidence,
-		scene.sun_shadow.detection.sun_detected)
+		scene.sun_shadow.detection.sun_detected,
+		scene.volumetric.params.sun_auto_scale)
 
 	log.log_debug("scene.env", "Environment textures swapped simultaneously (pool slot %d active)", mgr.pool_active_idx)
 	elapsed_ms := time.duration_milliseconds(time.tick_since(mgr.load_start_tick))

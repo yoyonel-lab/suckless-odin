@@ -89,6 +89,11 @@ Volumetric_Light_Mode :: enum i32 {
 VOLUMETRIC_DEFAULT_INTENSITY_OMNI :: 1.0
 VOLUMETRIC_DEFAULT_INTENSITY_SUN  :: 0.25
 
+// Sun directional auto-intensity normalization constants (calibrated on cedar_bridge: 0.25 * 64428.3)
+VOLUMETRIC_SUN_L_REF     :: 16107.0
+VOLUMETRIC_SUN_SCALE_MIN :: 0.05
+VOLUMETRIC_SUN_SCALE_MAX :: 2.0
+
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
 	case .Sun_Directional: return VOLUMETRIC_DEFAULT_INTENSITY_SUN
@@ -104,6 +109,8 @@ Volumetric_Params :: struct {
 	shadows_enabled:              bool, // Cast volumetric shadow shafts (God Rays) via shadow cubemap
 	light_mode:                   Volumetric_Light_Mode, // Light source selection
 	sun_intensity:                f32,  // Directional sun volumetric intensity multiplier (default 1.0)
+	sun_intensity_auto:           bool, // When true, directional sun volumetric intensity auto-scales to envmap peak
+	sun_auto_scale:               f32,  // Computed auto-scale factor (L_ref / peak_lum clamped)
 	max_ray_distance:             f32,  // Directional raymarch distance limit in meters (default 64.0)
 
 	// Physical medium parameters
@@ -298,6 +305,8 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		shadows_enabled        = true,
 		light_mode             = .Omni_Point,
 		sun_intensity          = 1.0,
+		sun_intensity_auto     = true,
+		sun_auto_scale         = VOLUMETRIC_DEFAULT_INTENSITY_SUN,
 		max_ray_distance       = 64.0,
 		step_count             = 16,
 		scattering_coeff       = 0.025,
@@ -724,7 +733,7 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_dir_scattering_coeff, vr.params.scattering_coeff)
 		gl.Uniform1f(vr.loc_dir_extinction_coeff, vr.params.extinction_coeff)
 		gl.Uniform1f(vr.loc_dir_anisotropy_g, vr.params.anisotropy_g)
-		gl.Uniform1f(vr.loc_dir_intensity_mult, vr.params.intensity_mult)
+		gl.Uniform1f(vr.loc_dir_intensity_mult, volumetric_get_effective_intensity(vr))
 		gl.Uniform1i(vr.loc_dir_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
 
 		fullscreen_triangle_draw(&vr.triangle)
@@ -772,7 +781,7 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_scattering_coeff, vr.params.scattering_coeff)
 		gl.Uniform1f(vr.loc_extinction_coeff, vr.params.extinction_coeff)
 		gl.Uniform1f(vr.loc_anisotropy_g, vr.params.anisotropy_g)
-		gl.Uniform1f(vr.loc_intensity_mult, vr.params.intensity_mult)
+		gl.Uniform1f(vr.loc_intensity_mult, volumetric_get_effective_intensity(vr))
 		gl.Uniform1i(vr.loc_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
 
 		fullscreen_triangle_draw(&vr.triangle)
@@ -1156,4 +1165,28 @@ volumetric_set_light_mode :: proc(vr: ^Volumetric_Renderer, mode: Volumetric_Lig
 		vr.params.intensity_mult = volumetric_get_default_intensity(mode)
 	}
 	vr.history_valid = false
+}
+
+// Computes normalized volumetric intensity scale factor based on detected sun peak luminance
+volumetric_compute_sun_auto_scale :: proc(det: Sun_Detection) -> f32 {
+	if !det.sun_detected || det.peak_intensity <= 0.0 {
+		return VOLUMETRIC_DEFAULT_INTENSITY_SUN
+	}
+	scale := VOLUMETRIC_SUN_L_REF / det.peak_intensity
+	return clamp(scale, VOLUMETRIC_SUN_SCALE_MIN, VOLUMETRIC_SUN_SCALE_MAX)
+}
+
+// Updates cached auto-scale intensity factor from newly evaluated sun detection
+volumetric_update_sun_auto_scale :: proc(vr: ^Volumetric_Renderer, det: Sun_Detection) {
+	if vr == nil do return
+	vr.params.sun_auto_scale = volumetric_compute_sun_auto_scale(det)
+}
+
+// Resolves effective master intensity multiplier according to active light mode and auto normalization state
+volumetric_get_effective_intensity :: proc(vr: ^Volumetric_Renderer) -> f32 {
+	if vr == nil do return VOLUMETRIC_DEFAULT_INTENSITY_OMNI
+	if vr.params.light_mode == .Sun_Directional && vr.params.sun_intensity_auto {
+		return vr.params.sun_auto_scale
+	}
+	return vr.params.intensity_mult
 }

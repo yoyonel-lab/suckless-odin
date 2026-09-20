@@ -93,6 +93,16 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
 						det.azimuth, det.elevation, det.confidence, det.peak_intensity)
 
+					if vr.params.sun_intensity_auto {
+						if det.sun_detected {
+							imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Auto-Scale: %.3fx (L_ref %.0f / Peak %.1f)",
+								vr.params.sun_auto_scale, rendering.VOLUMETRIC_SUN_L_REF, det.peak_intensity)
+						} else {
+							imgui.TextColored({0.9, 0.7, 0.3, 1.0}, "Auto-Scale: %.2fx (Fallback fixed — direct sun not detected)",
+								vr.params.sun_auto_scale)
+						}
+					}
+
 					imgui.SliderFloat("Sun Volumetric Intensity", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
 					imgui.SliderFloat("Max Ray Distance", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
 
@@ -137,11 +147,25 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			if imgui.SliderFloat("Anisotropy (g)", &g_val, -0.90, 0.90, "%.2f") {
 				rendering.volumetric_set_anisotropy(vr, light, g_val)
 			}
-			imgui.SliderFloat("Intensity Multiplier", &vr.params.intensity_mult, 0.0, 10.0, "%.2f")
+			eff_int := rendering.volumetric_get_effective_intensity(vr)
+			slider_val := eff_int
+			if imgui.SliderFloat("Intensity Multiplier", &slider_val, 0.0, 10.0, "%.2f") {
+				vr.params.intensity_mult = slider_val
+				if vr.params.light_mode == .Sun_Directional {
+					vr.params.sun_intensity_auto = false
+				}
+			}
 			imgui.SameLine()
+			if vr.params.light_mode == .Sun_Directional {
+				imgui.Checkbox("Auto##sun_auto_intensity", &vr.params.sun_intensity_auto)
+				imgui.SameLine()
+			}
 			def_int := rendering.volumetric_get_default_intensity(vr.params.light_mode)
 			if imgui.Button("Reset##intensity") {
 				vr.params.intensity_mult = def_int
+				if vr.params.light_mode == .Sun_Directional {
+					vr.params.sun_intensity_auto = true
+				}
 			}
 			imgui.Checkbox("Volumetric Shadows (God Rays)", &vr.params.shadows_enabled)
 			imgui.SameLine()
@@ -531,12 +555,26 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		match_count += 1
 	}
 
-	if fuzzy_match(filter, "Volumetric Intensity Multiplier", "volumetric intensity mult master brightness power") {
-		imgui.SliderFloat("Master Intensity##filt", &vr.params.intensity_mult, 0.0, 10.0, "%.2fx")
+	if fuzzy_match(filter, "Volumetric Intensity Multiplier", "volumetric intensity mult master brightness power auto sun") {
+		eff_val := rendering.volumetric_get_effective_intensity(vr)
+		slider_val := eff_val
+		if imgui.SliderFloat("Master Intensity##filt", &slider_val, 0.0, 10.0, "%.2fx") {
+			vr.params.intensity_mult = slider_val
+			if vr.params.light_mode == .Sun_Directional {
+				vr.params.sun_intensity_auto = false
+			}
+		}
 		imgui.SameLine()
+		if vr.params.light_mode == .Sun_Directional {
+			imgui.Checkbox("Auto##filt_sun_auto", &vr.params.sun_intensity_auto)
+			imgui.SameLine()
+		}
 		def_int := rendering.volumetric_get_default_intensity(vr.params.light_mode)
 		if imgui.Button("Reset##filt_intensity") {
 			vr.params.intensity_mult = def_int
+			if vr.params.light_mode == .Sun_Directional {
+				vr.params.sun_intensity_auto = true
+			}
 		}
 		match_count += 1
 	}

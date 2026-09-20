@@ -25,7 +25,7 @@ import rendering "../../src/rendering"
 // Output folder for human operator inspection
 VOLUMETRIC_REPORT_DIR :: "tests/reports/volumetric/"
 
-@(private="file")
+@(private)
 vol_save_png :: proc(path: string, pixels: []u8, w, h, channels: i32) -> bool {
 	c_path := strings.clone_to_cstring(path, context.temp_allocator)
 	stride := w * channels
@@ -33,7 +33,7 @@ vol_save_png :: proc(path: string, pixels: []u8, w, h, channels: i32) -> bool {
 	return result != 0
 }
 
-@(private="file")
+@(private)
 vol_flip_vertical :: proc(pixels: []u8, w, h, channels: i32) -> []u8 {
 	flipped := make([]u8, int(w * h * channels))
 	stride := int(w * channels)
@@ -44,7 +44,7 @@ vol_flip_vertical :: proc(pixels: []u8, w, h, channels: i32) -> []u8 {
 	return flipped
 }
 
-@(private="file")
+@(private)
 vol_capture_fbo_rgba :: proc(fbo: u32, w, h: i32) -> []u8 {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
 	raw_pixels := make([]u8, int(w * h * 4))

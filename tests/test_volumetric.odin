@@ -249,5 +249,87 @@ test_volumetric_presets_and_timers :: proc(t: ^testing.T) {
 	testing.expect_value(t, w.display_max, 3.0)
 }
 
+// Verifies Sun volumetric auto intensity scaling formula, L_ref calibration, clamps, and fallback
+@(test)
+test_volumetric_sun_auto_scale :: proc(t: ^testing.T) {
+	// 1. Cedar Bridge calibration reference: peak = 64428.3 -> auto_scale ~ 0.25
+	det_cedar := rendering.Sun_Detection{
+		peak_intensity = 64428.3,
+		sun_detected   = true,
+	}
+	scale_cedar := rendering.volumetric_compute_sun_auto_scale(det_cedar)
+	testing.expect(t, math.abs(scale_cedar - 0.25) < 0.001, "Cedar Bridge should produce ~0.25 auto scale")
 
+	// 2. River Alcove: peak = 65504.0 (FP16 max) -> auto_scale ~ 0.24589
+	det_river := rendering.Sun_Detection{
+		peak_intensity = 65504.0,
+		sun_detected   = true,
+	}
+	scale_river := rendering.volumetric_compute_sun_auto_scale(det_river)
+	testing.expect(t, math.abs(scale_river - (16107.0 / 65504.0)) < 0.001, "River Alcove scale mismatch")
 
+	// 3. Small Cathedral: peak = 51697.3 -> auto_scale ~ 0.31156
+	det_cath := rendering.Sun_Detection{
+		peak_intensity = 51697.3,
+		sun_detected   = true,
+	}
+	scale_cath := rendering.volumetric_compute_sun_auto_scale(det_cath)
+	testing.expect(t, math.abs(scale_cath - (16107.0 / 51697.3)) < 0.001, "Small Cathedral scale mismatch")
+
+	// 4. Fallback when sun_detected = false: must retain default 0.25 without dividing by peak
+	det_photo := rendering.Sun_Detection{
+		peak_intensity = 111.8,
+		sun_detected   = false,
+	}
+	scale_photo := rendering.volumetric_compute_sun_auto_scale(det_photo)
+	testing.expect_value(t, scale_photo, rendering.VOLUMETRIC_DEFAULT_INTENSITY_SUN)
+
+	det_garage := rendering.Sun_Detection{
+		peak_intensity = 22.0,
+		sun_detected   = false,
+	}
+	scale_garage := rendering.volumetric_compute_sun_auto_scale(det_garage)
+	testing.expect_value(t, scale_garage, rendering.VOLUMETRIC_DEFAULT_INTENSITY_SUN)
+
+	// 5. Extreme clamps:
+	// Very bright peak (e.g. 1,000,000.0) -> SCALE_MIN = 0.05
+	det_supernova := rendering.Sun_Detection{
+		peak_intensity = 1_000_000.0,
+		sun_detected   = true,
+	}
+	scale_min := rendering.volumetric_compute_sun_auto_scale(det_supernova)
+	testing.expect_value(t, scale_min, rendering.VOLUMETRIC_SUN_SCALE_MIN)
+
+	// Low peak but detected (e.g. 500.0) -> SCALE_MAX = 2.0
+	det_dim := rendering.Sun_Detection{
+		peak_intensity = 500.0,
+		sun_detected   = true,
+	}
+	scale_max := rendering.volumetric_compute_sun_auto_scale(det_dim)
+	testing.expect_value(t, scale_max, rendering.VOLUMETRIC_SUN_SCALE_MAX)
+}
+
+// Verifies volumetric effective intensity resolution with auto mode & manual override
+@(test)
+test_volumetric_effective_intensity_override :: proc(t: ^testing.T) {
+	vr: rendering.Volumetric_Renderer
+	vr.params.light_mode = .Sun_Directional
+	vr.params.sun_intensity_auto = true
+	vr.params.sun_auto_scale = 0.25
+	vr.params.intensity_mult = 1.8
+
+	// In Sun mode with auto enabled -> effective intensity must be sun_auto_scale
+	eff := rendering.volumetric_get_effective_intensity(&vr)
+	testing.expect_value(t, eff, f32(0.25))
+
+	// Manual override (sun_intensity_auto = false) -> effective intensity must be intensity_mult
+	vr.params.sun_intensity_auto = false
+	eff_manual := rendering.volumetric_get_effective_intensity(&vr)
+	testing.expect_value(t, eff_manual, f32(1.8))
+
+	// In Omni mode -> always intensity_mult regardless of sun_intensity_auto flag
+	vr.params.light_mode = .Omni_Point
+	vr.params.sun_intensity_auto = true
+	eff_omni := rendering.volumetric_get_effective_intensity(&vr)
+	testing.expect_value(t, eff_omni, f32(1.8))
+}
