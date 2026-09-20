@@ -41,21 +41,21 @@ Le harnais exécute un scénario physique reproductible en rendu offscreen $960\
 * Exécution de 16 trames pour convergence complète de l'historique TAA.
 * Calcul de la variance inter-trames :
   $$\text{TVar} = \frac{1}{W \times H} \sum_{x,y} |I_{15}(x,y) - I_{14}(x,y)|$$
-* Génération de [`02_static_flicker_map_20x.png`](../tests/reports/volumetric/02_static_flicker_map_20x.png) (amplification $20\times$) : une image noire atteste d'une stabilité $0\Delta$.
+* Génération de `02_static_flicker_map_20x.png` (amplification $20\times$) : une image noire atteste d'une stabilité $0\Delta$.
 
 ### B. Contraste des Puits de Lumière (God Rays Contrast)
 * Mesure du contraste RMS sur la région des faisceaux :
   $$\text{RMS Contrast} = \frac{\sqrt{\frac{1}{N} \sum (L - \bar{L})^2}}{\bar{L}}$$
-* Capture isolée du brouillard sur fond noir pur : [`03_static_volumetric_isolated.png`](../tests/reports/volumetric/03_static_volumetric_isolated.png).
+* Capture isolée du brouillard sur fond noir pur : `03_static_volumetric_isolated.png`.
 
 ### C. Préservation Sub-Pixel des Silhouettes (JBU 2x2 Edge Test)
-* Extraction d'un crop $80\times 80$ au centre de l'écran où une sphère coupe un faisceau lumineux intense, agrandi $4\times$ en plus proche voisin : [`07_crop_silhouette_jbu_4x.png`](../tests/reports/volumetric/07_crop_silhouette_jbu_4x.png).
+* Extraction d'un crop $80\times 80$ au centre de l'écran où une sphère coupe un faisceau lumineux intense, agrandi $4\times$ en plus proche voisin : `07_crop_silhouette_jbu_4x.png`.
 * Vérifie que le Joint Bilateral Upsampling n'introduit aucune bavure de brouillard sur la surface opaque.
 
 ### D. Cohérence en Mouvement & Non-Ghosting (Camera Sweep Strip)
 * Travelling horizontal de caméra ($X = -2.5\text{m} \to +2.5\text{m}$) sur 12 frames.
-* Montage d'un strip chronologique 4 panneaux : [`06_camera_sweep_strip_4panels.png`](../tests/reports/volumetric/06_camera_sweep_strip_4panels.png).
-* Inspection de la texture GPU d'acceptation TAA : [`05_dynamic_taa_acceptance.png`](../tests/reports/volumetric/05_dynamic_taa_acceptance.png) (Vert = reprojecté sainement, Rouge = disocclusion propre sans smearing).
+* Montage d'un strip chronologique 4 panneaux : `06_camera_sweep_strip_4panels.png`.
+* Inspection de la texture GPU d'acceptation TAA : `05_dynamic_taa_acceptance.png` (Vert = reprojecté sainement, Rouge = disocclusion propre sans smearing).
 
 ### E. Chronométrage Matériel GPU Découplé (`GL_TIME_ELAPSED`)
 * Requêtes GPU asynchrones en double-buffering ($N-1$) mesurant le coût réel de chaque sous-passe sans bloquer le pipeline graphique.
@@ -73,14 +73,14 @@ Le harnais exécute un scénario physique reproductible en rendu offscreen $960\
   Exécution en **~1.4 seconde** sur GPU physique.
 * **Benchmark Débit Complet Moteur (1920x1200 uncapped)** :
   ```bash
-  task bench-quality    # Profil Quality (32 pas, 16 PCF, 6 faces)
+  task bench-quality    # Profil Quality (20 pas, PCF 16-tap, full cubemap)
   task bench-balanced   # Profil Balanced (16 pas, 8 PCF, 2 faces)
   task bench-ultra      # Profil Ultra (8 pas, 4 PCF, 1 face, 1/4 res)
   ```
 
 ### Restitution Opérateur
-Tous les artefacts et le rapport de synthèse sont générés dans [`tests/reports/volumetric/`](../tests/reports/volumetric/) :
-* [`tests/reports/volumetric/README.md`](../tests/reports/volumetric/README.md) : Tableau de bord des métriques, tableau des timers GPU et galerie d'images avec guide d'interprétation.
+Tous les artefacts et le rapport de synthèse sont générés dans `tests/reports/volumetric/` :
+* `tests/reports/volumetric/README.md` : Tableau de bord des métriques, tableau des timers GPU et galerie d'images avec guide d'interprétation.
 * 7 captures PNG haute résolution couvrant l'ensemble des diagnostics spatiaux et temporels.
 
 ---
