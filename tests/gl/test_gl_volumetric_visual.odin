@@ -11,6 +11,7 @@ import "core:time"
 import "core:math"
 import "core:os"
 import "core:strings"
+import "core:strconv"
 import "core:c"
 
 import gl "vendor:OpenGL"
@@ -126,17 +127,26 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	// -------------------------------------------------------------------------
 	// Setup Golden Reference Volumetric Environment
 	// -------------------------------------------------------------------------
-	// Position Point Light behind the sphere grid to cast godray beams towards camera
+	// Position Point Light behind the sphere grid with Orbit Animation ON (dynamic alpha 0.70 stress test)
 	s.point_light.enabled = true
 	s.point_light.position = mt.Vec3{0.0, 2.5, -6.5}
 	s.point_light.radius = 32.0
 	s.point_light.intensity = 4.2
 	s.point_light.color = mt.Vec3{1.0, 0.94, 0.82} // Warm light
+	s.point_light.is_animated = true
+	s.point_light.orbit_center = mt.Vec3{0.0, 2.5, -6.5}
+	s.point_light.orbit_radius = 2.0
+	s.point_light.orbit_speed = 1.0
 
 	// Configure Volumetric lighting
 	s.volumetric.params.enabled = true
 	s.volumetric.params.shadows_enabled = true
 	s.volumetric.params.step_count = 32
+	if env_steps, found := os.lookup_env("VOLUMETRIC_STEPS", context.temp_allocator); found {
+		if parsed, ok := strconv.parse_int(env_steps); ok {
+			s.volumetric.params.step_count = i32(parsed)
+		}
+	}
 	s.volumetric.params.scattering_coeff = 0.04
 	s.volumetric.params.extinction_coeff = 0.06
 	s.volumetric.params.anisotropy_g = 0.62 // Forward Mie scattering for prominent godrays
@@ -185,9 +195,49 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	defer delete(frame_t)
 	defer delete(vol_t)
 
-	// Save composite final scene
+	sub_dir := fmt.tprintf("tests/reports/volumetric/%dsteps/", s.volumetric.params.step_count)
+	os.make_directory(sub_dir)
+
+	// Save composite final scene (Angle 1: Center)
 	path_comp := strings.concatenate({VOLUMETRIC_REPORT_DIR, "01_static_scene_composite.png"}, context.temp_allocator)
 	vol_save_png(path_comp, frame_t, width, height, 4)
+	path_a1 := strings.concatenate({VOLUMETRIC_REPORT_DIR, "01_angle1_center.png"}, context.temp_allocator)
+	vol_save_png(path_a1, frame_t, width, height, 4)
+	path_sub_a1 := strings.concatenate({sub_dir, "01_angle1_center.png"}, context.temp_allocator)
+	vol_save_png(path_sub_a1, frame_t, width, height, 4)
+
+	// Capture Angle 2: 3/4 Left (-45 deg yaw offset)
+	s.camera.position = mt.Vec3{-4.0, 1.5, 14.0}
+	s.camera.yaw = -75.0
+	s.camera.pitch = -2.0
+	cam.update_vectors(&s.camera)
+	for _ in 0..<8 { render_frame(&s, &rt) }
+	frame_a2 := vol_capture_fbo_rgba(rt.fbo, width, height)
+	path_a2 := strings.concatenate({VOLUMETRIC_REPORT_DIR, "01_angle2_left.png"}, context.temp_allocator)
+	vol_save_png(path_a2, frame_a2, width, height, 4)
+	path_sub_a2 := strings.concatenate({sub_dir, "01_angle2_left.png"}, context.temp_allocator)
+	vol_save_png(path_sub_a2, frame_a2, width, height, 4)
+	delete(frame_a2)
+
+	// Capture Angle 3: 3/4 Right (+45 deg yaw offset)
+	s.camera.position = mt.Vec3{4.0, 1.5, 14.0}
+	s.camera.yaw = -105.0
+	s.camera.pitch = -2.0
+	cam.update_vectors(&s.camera)
+	for _ in 0..<8 { render_frame(&s, &rt) }
+	frame_a3 := vol_capture_fbo_rgba(rt.fbo, width, height)
+	path_a3 := strings.concatenate({VOLUMETRIC_REPORT_DIR, "01_angle3_right.png"}, context.temp_allocator)
+	vol_save_png(path_a3, frame_a3, width, height, 4)
+	path_sub_a3 := strings.concatenate({sub_dir, "01_angle3_right.png"}, context.temp_allocator)
+	vol_save_png(path_sub_a3, frame_a3, width, height, 4)
+	delete(frame_a3)
+
+	// Restore Center camera
+	s.camera.position = mt.Vec3{0.0, 1.0, 16.0}
+	s.camera.yaw = -90.0
+	s.camera.pitch = -3.0
+	cam.update_vectors(&s.camera)
+	for _ in 0..<8 { render_frame(&s, &rt) }
 
 	// Calculate Temporal Variance (Global TVar, Max Local Tile TVar, and Max Pixel Delta)
 	total_diff: f64 = 0.0
@@ -383,6 +433,8 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 
 	path_strip := strings.concatenate({VOLUMETRIC_REPORT_DIR, "06_camera_sweep_strip_4panels.png"}, context.temp_allocator)
 	vol_save_png(path_strip, strip_pixels, strip_w, strip_h, 4)
+	path_sub_strip := strings.concatenate({sub_dir, "06_camera_sweep_strip_4panels.png"}, context.temp_allocator)
+	vol_save_png(path_sub_strip, strip_pixels, strip_w, strip_h, 4)
 
 	// =========================================================================
 	// PHASE 3: Silhouette & Joint Bilateral Upsample (JBU) Edge Crop (4x Zoom)
@@ -416,6 +468,8 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 
 	path_crop := strings.concatenate({VOLUMETRIC_REPORT_DIR, "07_crop_silhouette_jbu_4x.png"}, context.temp_allocator)
 	vol_save_png(path_crop, crop_pixels, crop_w, crop_h, 4)
+	path_sub_crop := strings.concatenate({sub_dir, "07_crop_silhouette_jbu_4x.png"}, context.temp_allocator)
+	vol_save_png(path_sub_crop, crop_pixels, crop_w, crop_h, 4)
 
 	// Collect GPU sub-pass timer metrics
 	vol_total_avg, _, _ := rendering.volumetric_timer_get_total_metrics(&s.volumetric.timers)
