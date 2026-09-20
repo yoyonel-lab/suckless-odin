@@ -18,6 +18,7 @@ EXCLUDED_GUI_FIELDS = {
     "live_compute_tuning",  # Temporary runtime tuning parameters
     "point_light",  # Handled via volumetric/light settings subsystem
     "shadow_cubemap",  # Transient GPU framebuffer resource
+    "sun_shadow",  # Transient GPU directional shadow map resource
     "depth_downsample",  # Transient GPU depth downsampler resource
     "volumetric",  # Transient GPU volumetric lighting resource
     "spheres",  # Transient GPU instanced mesh buffer

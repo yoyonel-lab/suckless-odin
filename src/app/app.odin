@@ -419,6 +419,7 @@ run :: proc(application: ^App) {
 				perf                = &application.perf,
 				point_light         = &application.scene.point_light,
 				shadow_cubemap      = &application.scene.shadow_cubemap,
+				sun_shadow          = &application.scene.sun_shadow,
 				depth_downsample    = &application.scene.depth_downsample,
 				volumetric          = &application.scene.volumetric,
 				ao_baker            = &application.scene.ao_baker,

@@ -76,6 +76,48 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 		imgui.Checkbox("Isolate Volumetric (No IBL)", &vr.params.isolate_in_scene)
 
 		if vr.params.enabled {
+			light_mode_idx := i32(vr.params.light_mode)
+			if imgui.Combo("Light Mode", &light_mode_idx, "Omni Point (Legacy)\x00Sun (Directional)\x00\x00") {
+				rendering.volumetric_set_light_mode(vr, rendering.Volumetric_Light_Mode(light_mode_idx))
+			}
+
+			if vr.params.light_mode == .Sun_Directional {
+				imgui.Spacing()
+				imgui.TextColored({1.0, 0.85, 0.2, 1.0}, "Sun Directional Atmospheric Lighting:")
+				if state.sun_shadow != nil {
+					ss := state.sun_shadow
+					det := &ss.detection
+					status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback Direction (Manual / Fixed)"
+					status_col := imgui.Vec4{0.2, 1.0, 0.3, 1.0} if det.sun_detected else imgui.Vec4{0.9, 0.7, 0.3, 1.0}
+					imgui.TextColored(status_col, "Status: %s", status_str)
+					imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
+						det.azimuth, det.elevation, det.confidence, det.peak_intensity)
+
+					imgui.SliderFloat("Sun Volumetric Intensity", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
+					imgui.SliderFloat("Max Ray Distance", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
+
+					if !det.sun_detected {
+						imgui.Spacing()
+						imgui.TextColored({0.9, 0.6, 0.2, 1.0}, "Manual Direction Override (Sun Not Detected):")
+						dir_changed := false
+						if imgui.SliderFloat("Sun Azimuth", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+							dir_changed = true
+						}
+						if imgui.SliderFloat("Sun Elevation", &det.elevation, 0.0, 90.0, "%.1f deg") {
+							dir_changed = true
+						}
+						if dir_changed {
+							det.direction = rendering.sun_angles_to_dir(det.azimuth, det.elevation)
+							ss.is_dirty = true
+							ss.preview_dirty = true
+							vr.history_valid = false
+						}
+					}
+				}
+				imgui.Spacing()
+				imgui.Separator()
+			}
+
 			imgui.Text("Volumetric Buffer Resolution:")
 			if imgui.RadioButton("1/1 (Full)", vr.params.resolution_divider == 1) {
 				vr.params.resolution_divider = 1
@@ -96,6 +138,11 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 				rendering.volumetric_set_anisotropy(vr, light, g_val)
 			}
 			imgui.SliderFloat("Intensity Multiplier", &vr.params.intensity_mult, 0.0, 10.0, "%.2f")
+			imgui.SameLine()
+			def_int := rendering.volumetric_get_default_intensity(vr.params.light_mode)
+			if imgui.Button("Reset##intensity") {
+				vr.params.intensity_mult = def_int
+			}
 			imgui.Checkbox("Volumetric Shadows (God Rays)", &vr.params.shadows_enabled)
 			imgui.SameLine()
 			imgui.Checkbox("Spatial Ray Jittering (IGN)", &vr.params.jitter_enabled)
@@ -449,12 +496,48 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		imgui.Checkbox("Enable Volumetric Raymarching##filt", &vr.params.enabled)
 		match_count += 1
 	}
+	if fuzzy_match(filter, "Volumetric Light Mode", "volumetric light mode omni point sun directional god rays source") {
+		mode_idx := i32(vr.params.light_mode)
+		if imgui.Combo("Light Mode##filt", &mode_idx, "Omni Point (Legacy)\x00Sun (Directional)\x00\x00") {
+			vr.params.light_mode = rendering.Volumetric_Light_Mode(mode_idx)
+			vr.history_valid = false
+		}
+		match_count += 1
+	}
+	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override") {
+		ss := state.sun_shadow
+		det := &ss.detection
+		imgui.SliderFloat("Sun Volumetric Intensity##filt", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
+		imgui.SliderFloat("Max Ray Distance##filt", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
+		if !det.sun_detected {
+			dir_changed := false
+			if imgui.SliderFloat("Sun Azimuth##filt", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+				dir_changed = true
+			}
+			if imgui.SliderFloat("Sun Elevation##filt", &det.elevation, 0.0, 90.0, "%.1f deg") {
+				dir_changed = true
+			}
+			if dir_changed {
+				det.direction = rendering.sun_angles_to_dir(det.azimuth, det.elevation)
+				ss.is_dirty = true
+				ss.preview_dirty = true
+				vr.history_valid = false
+			}
+		}
+		match_count += 1
+	}
 	if fuzzy_match(filter, "Volumetric Composite in Scene", "volumetric composite scene add blend direct") {
 		imgui.Checkbox("Composite into Viewport##filt", &vr.params.composite_in_scene)
 		match_count += 1
 	}
+
 	if fuzzy_match(filter, "Volumetric Intensity Multiplier", "volumetric intensity mult master brightness power") {
 		imgui.SliderFloat("Master Intensity##filt", &vr.params.intensity_mult, 0.0, 10.0, "%.2fx")
+		imgui.SameLine()
+		def_int := rendering.volumetric_get_default_intensity(vr.params.light_mode)
+		if imgui.Button("Reset##filt_intensity") {
+			vr.params.intensity_mult = def_int
+		}
 		match_count += 1
 	}
 	if fuzzy_match(filter, "Volumetric Shadow Shafts", "volumetric shadows shafts god rays cubemap occlusion") {

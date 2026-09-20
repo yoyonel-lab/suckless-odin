@@ -1,0 +1,141 @@
+// +build test
+package tests
+
+import "core:c/libc"
+import "core:fmt"
+import "core:math"
+import "core:math/linalg/glsl"
+import "core:os"
+import "core:testing"
+
+import mt "../src/core/math_types"
+import rendering "../src/rendering"
+import simd "../src/core/simd_utils"
+
+@(test)
+test_sun_uv_dir_roundtrip :: proc(t: ^testing.T) {
+	// Test various UV points covering the equirectangular sphere
+	test_uvs := [?][2]f32{
+		{0.5, 0.5},   // Front horizon (X=1, Y=0, Z=0)
+		{0.75, 0.5},  // Right horizon (X=0, Y=0, Z=1)
+		{0.25, 0.5},  // Left horizon  (X=0, Y=0, Z=-1)
+		{0.0, 0.5},   // Back horizon  (X=-1, Y=0, Z=0)
+		{0.5, 0.75},  // 45 deg elevation
+		{0.5, 1.0},   // Zenith (+Y)
+		{0.5, 0.0},   // Nadir  (-Y)
+	}
+
+	for uv in test_uvs {
+		dir := rendering.sun_uv_to_dir(uv)
+		testing.expect(t, math.abs(mt.vec3_length(dir) - 1.0) < 1e-4, "Direction must be unit length")
+
+		// For poles, phi is degenerate, so skip azimuth check
+		if uv.y > 0.01 && uv.y < 0.99 {
+			uv_rt := rendering.sun_dir_to_uv(dir)
+			diff_u := math.abs(uv_rt[0] - uv[0])
+			if diff_u > 0.5 do diff_u = math.abs(diff_u - 1.0)
+			testing.expect(t, diff_u < 1e-3, fmt.tprintf("U roundtrip error for %v -> %v", uv, uv_rt))
+			testing.expect(t, math.abs(uv_rt[1] - uv[1]) < 1e-3, fmt.tprintf("V roundtrip error for %v -> %v", uv, uv_rt))
+		}
+	}
+}
+
+@(test)
+test_sun_ortho_projection_mapping :: proc(t: ^testing.T) {
+	left: f32 = -15.0
+	right: f32 = 15.0
+	bottom: f32 = -15.0
+	top: f32 = 15.0
+	near: f32 = 1.0
+	far: f32 = 60.0
+
+	proj := glsl.mat4Ortho3d(left, right, bottom, top, near, far)
+
+	// In OpenGL view space: camera looks down -Z
+	// Near plane is at z = -near = -1.0
+	// Far plane is at z = -far = -60.0
+	p_near := mt.Vec4{0.0, 0.0, -near, 1.0}
+	clip_near := proj * p_near
+	testing.expect(t, math.abs(clip_near.z - (-1.0)) < 1e-4, "Near plane must map to -1.0 in OpenGL NDC")
+
+	p_far := mt.Vec4{0.0, 0.0, -far, 1.0}
+	clip_far := proj * p_far
+	testing.expect(t, math.abs(clip_far.z - 1.0) < 1e-4, "Far plane must map to +1.0 in OpenGL NDC")
+}
+
+@(test)
+test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
+	Env_Test_Expectation :: struct {
+		path:           string,
+		expected_sun:   bool,
+		min_elevation:  f32,
+		max_elevation:  f32,
+		min_azimuth:    f32,
+		max_azimuth:    f32,
+	}
+
+	expectations := [?]Env_Test_Expectation{
+		{
+			path          = "assets/textures/hdr/abandoned_garage_4k.hdr",
+			expected_sun  = false, // Indoor garage -> Fallback fixed direction
+			min_elevation = 44.9, max_elevation = 45.1,
+			min_azimuth   = 89.9, max_azimuth   = 90.1,
+		},
+		{
+			path          = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
+			expected_sun  = true,  // Outdoor sun detected
+			min_elevation = 45.0, max_elevation = 65.0,
+			min_azimuth   = 25.0, max_azimuth   = 45.0,
+		},
+		{
+			path          = "assets/textures/hdr/neon_photostudio_4k.hdr",
+			expected_sun  = false, // Indoor studio -> Fallback fixed direction
+			min_elevation = 44.9, max_elevation = 45.1,
+			min_azimuth   = 89.9, max_azimuth   = 90.1,
+		},
+		{
+			path          = "assets/textures/hdr/river_alcove_4k.hdr",
+			expected_sun  = true,  // Outdoor sun detected
+			min_elevation = 35.0, max_elevation = 55.0,
+			min_azimuth   = 25.0, max_azimuth   = 45.0,
+		},
+		{
+			path          = "assets/textures/hdr/small_cathedral_02_4k.hdr",
+			expected_sun  = true,  // Direct sun through cathedral window
+			min_elevation = 5.0,  max_elevation = 20.0,
+			min_azimuth   = 25.0, max_azimuth   = 45.0,
+		},
+	}
+
+	for exp in expectations {
+		actual_path := exp.path
+		data, err := os.read_entire_file_from_path(actual_path, context.allocator)
+		if err != nil {
+			actual_path = fmt.tprintf("../%s", exp.path)
+			data, err = os.read_entire_file_from_path(actual_path, context.allocator)
+		}
+		testing.expect(t, err == nil, fmt.tprintf("Failed to read HDR: %s", exp.path))
+		defer delete(data)
+
+		w, h: i32
+		simd.fast_hdr_get_dimensions(raw_data(data), uint(len(data)), &w, &h)
+		pixel_count := uint(w) * uint(h) * 4
+		bytes_fp16 := (pixel_count * size_of(u16) + 63) & ~uint(63)
+		half_data := cast([^]u16)libc.aligned_alloc(64, bytes_fp16)
+		defer libc.free(half_data)
+
+		simd.fast_hdr_decode_fp16(raw_data(data), uint(len(data)), &w, &h, half_data, pixel_count, 1)
+
+		det := rendering.sun_detect_from_fp16(half_data, w, h)
+
+		testing.expect_value(t, det.sun_detected, exp.expected_sun)
+		testing.expect(t, det.elevation >= exp.min_elevation && det.elevation <= exp.max_elevation,
+			fmt.tprintf("%s: elevation %.2f not in [%.2f, %.2f]", exp.path, det.elevation, exp.min_elevation, exp.max_elevation))
+		testing.expect(t, det.azimuth >= exp.min_azimuth && det.azimuth <= exp.max_azimuth,
+			fmt.tprintf("%s: azimuth %.2f not in [%.2f, %.2f]", exp.path, det.azimuth, exp.min_azimuth, exp.max_azimuth))
+
+		// Check normalized direction
+		dir_len := mt.vec3_length(det.direction)
+		testing.expect(t, math.abs(dir_len - 1.0) < 1e-4, "Sun direction must be unit vector")
+	}
+}

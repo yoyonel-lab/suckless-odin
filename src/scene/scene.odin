@@ -46,6 +46,9 @@ Scene :: struct {
 	shadow_cubemap: rendering.Shadow_Cubemap,
 	shadow_taa:     rendering.Shadow_TAA,
 
+	// Directional Sun Shadow Map (Phase 1)
+	sun_shadow:     rendering.Sun_Shadow,
+
 	// Volumetric Lighting Depth Downsampling (Phase 2)
 	depth_downsample: rendering.Depth_Downsample,
 	volumetric:       rendering.Volumetric_Renderer,
@@ -345,6 +348,12 @@ scene_create :: proc(s: ^Scene, width, height: i32, compute_tuning := settings.D
 		return false
 	}
 
+	// Initialize Directional Sun Shadow Map renderer
+	if !rendering.sun_shadow_create(&s.sun_shadow, rendering.DEFAULT_SUN_SHADOW_RES) {
+		log.log_error("scene", "Failed to create sun shadow renderer")
+		return false
+	}
+
 	// Initialize shadow TAA renderer (Screen-Space Temporal Reprojection)
 	if !rendering.shadow_taa_create(&s.shadow_taa, width, height) {
 		log.log_error("scene", "Failed to create shadow TAA renderer")
@@ -384,6 +393,11 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 		rendering.volumetric_timer_begin(&s.volumetric.timers, .Shadow_Pass)
 		rendering.shadow_cubemap_render_spheres(&s.shadow_cubemap, &s.point_light, &s.spheres, &s.billboard, s.total_time)
 		rendering.volumetric_timer_end(&s.volumetric.timers, .Shadow_Pass)
+	}
+
+	// Directional Sun Shadow Map pass (Orthographic)
+	if s.sun_shadow.enabled {
+		rendering.sun_shadow_render(&s.sun_shadow, &s.spheres, &s.billboard)
 	}
 
 	gl.Viewport(0, 0, width, height)
@@ -558,12 +572,17 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	// 2.6 Volumetric Lighting: Raymarching & TAA Reprojection passes (Phase 3 & 4)
 	vp := proj * view
 	inv_vp := mt.mat4_inverse(vp)
-	if s.point_light.enabled && s.volumetric.params.enabled {
+	vol_active := s.volumetric.params.enabled && (
+		(s.volumetric.params.light_mode == .Omni_Point && s.point_light.enabled) ||
+		(s.volumetric.params.light_mode == .Sun_Directional)
+	)
+	if vol_active {
 		rendering.volumetric_render(
 			&s.volumetric,
 			rendering.depth_downsample_get_current_depth(&s.depth_downsample),
 			rendering.depth_downsample_get_previous_depth(&s.depth_downsample),
 			s.shadow_cubemap.linear_depth_cubemap,
+			&s.sun_shadow,
 			&inv_vp,
 			&vp,
 			s.camera.position,
@@ -573,6 +592,7 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 			i32(s.frame_count),
 			s.total_time,
 		)
+
 
 		// Direct additive composite into 3D scene viewport HDR buffer
 		if s.volumetric.params.isolate_in_scene {
@@ -790,6 +810,7 @@ scene_destroy :: proc(s: ^Scene) {
 	env_manager_destroy(&s.env_mgr)
 	rendering.shadow_taa_destroy(&s.shadow_taa)
 	rendering.shadow_cubemap_destroy(&s.shadow_cubemap)
+	rendering.sun_shadow_destroy(&s.sun_shadow)
 	rendering.depth_downsample_destroy(&s.depth_downsample)
 	rendering.volumetric_destroy(&s.volumetric)
 	rendering.ao_baker_destroy(&s.ao_baker)
