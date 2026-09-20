@@ -523,6 +523,8 @@ shadow_cubemap_update_preview_atlas :: proc(sc: ^Shadow_Cubemap) {
 	prev_viewport: [4]i32
 	gl.GetIntegerv(gl.FRAMEBUFFER_BINDING, &prev_fbo)
 	gl.GetIntegerv(gl.VIEWPORT, &prev_viewport[0])
+	prev_depth := gl.IsEnabled(gl.DEPTH_TEST)
+	prev_blend := gl.IsEnabled(gl.BLEND)
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, sc.preview_fbo)
 	gl.Viewport(0, 0, sc.preview_w, sc.preview_h)
@@ -539,6 +541,8 @@ shadow_cubemap_update_preview_atlas :: proc(sc: ^Shadow_Cubemap) {
 	gl.UseProgram(0)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
 	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
+	if prev_depth do gl.Enable(gl.DEPTH_TEST)
+	if prev_blend do gl.Enable(gl.BLEND)
 	gl_state.reset()
 	dbg.pop_group()
 

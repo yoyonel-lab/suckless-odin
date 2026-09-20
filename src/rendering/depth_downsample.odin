@@ -270,6 +270,8 @@ depth_downsample_update_preview :: proc(dd: ^Depth_Downsample) {
 	prev_viewport: [4]i32
 	gl.GetIntegerv(gl.FRAMEBUFFER_BINDING, &prev_fbo)
 	gl.GetIntegerv(gl.VIEWPORT, &prev_viewport[0])
+	prev_depth := gl.IsEnabled(gl.DEPTH_TEST)
+	prev_blend := gl.IsEnabled(gl.BLEND)
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, dd.preview_fbo)
 	gl.Viewport(0, 0, dd.width, dd.height)
@@ -296,6 +298,8 @@ depth_downsample_update_preview :: proc(dd: ^Depth_Downsample) {
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, u32(prev_fbo))
 	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
+	if prev_depth do gl.Enable(gl.DEPTH_TEST)
+	if prev_blend do gl.Enable(gl.BLEND)
 	gl_state.reset()
 	dbg.pop_group()
 
