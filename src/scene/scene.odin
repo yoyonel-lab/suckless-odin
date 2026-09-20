@@ -408,6 +408,11 @@ scene_render :: proc(s: ^Scene, width, height: i32) {
 	s.postfx_pipeline.needs_sync_barrier = (s.env_mgr.ibl_state != .Idle)
 	postfx.pipeline_begin(&s.postfx_pipeline)
 
+	gl.Enable(gl.DEPTH_TEST)
+	gl.DepthFunc(gl.LESS)
+	gl.DepthMask(true)
+	gl.Disable(gl.BLEND)
+
 	aspect := f32(width) / f32(max(height, 1))
 	fov_rad := mt.radians(s.camera.zoom)
 
