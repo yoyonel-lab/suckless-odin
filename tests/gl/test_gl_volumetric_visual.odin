@@ -104,15 +104,23 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	cam.update_vectors(&s.camera)
 
 	// Wait for async IBL pipeline to stabilize
-	for _ in 0..<5000 {
+	for iter in 0..<5000 {
 		sc.scene_update(&s, 0.016)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, rt.fbo)
 		gl.Viewport(0, 0, rt.width, rt.height)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		sc.scene_render(&s, rt.width, rt.height)
 		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		if !s.env_mgr.is_first_load && s.env_mgr.transition_state == .Idle && s.env_mgr.ibl_state == .Idle { break }
-		time.sleep(1 * time.Millisecond)
+		if !s.env_mgr.is_first_load && s.env_mgr.transition_state == .Idle && s.env_mgr.ibl_state == .Idle {
+			fmt.printfln("IBL stabilized at iter %d", iter)
+			break
+		}
+		time.sleep(2 * time.Millisecond)
+	}
+
+	// Extra settling frames to guarantee 100% converged environment after Fade_In
+	for _ in 0..<20 {
+		render_frame(&s, &rt)
 	}
 
 	// -------------------------------------------------------------------------
@@ -158,42 +166,120 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 		render_frame(&s, &rt)
 	}
 
+	low_w := s.volumetric.width
+	low_h := s.volumetric.height
+
 	// Capture frame 14 (converged t-1)
 	render_frame(&s, &rt)
 	frame_tminus1 := vol_capture_fbo_rgba(rt.fbo, width, height)
+	vol_tex_prev := rendering.volumetric_get_active_texture(&s.volumetric)
+	vol_tminus1 := vol_capture_texture_rgba(vol_tex_prev, low_w, low_h)
 	defer delete(frame_tminus1)
+	defer delete(vol_tminus1)
 
 	// Capture frame 15 (converged t)
 	render_frame(&s, &rt)
 	frame_t := vol_capture_fbo_rgba(rt.fbo, width, height)
+	vol_tex_curr := rendering.volumetric_get_active_texture(&s.volumetric)
+	vol_t := vol_capture_texture_rgba(vol_tex_curr, low_w, low_h)
 	defer delete(frame_t)
+	defer delete(vol_t)
 
 	// Save composite final scene
 	path_comp := strings.concatenate({VOLUMETRIC_REPORT_DIR, "01_static_scene_composite.png"}, context.temp_allocator)
 	vol_save_png(path_comp, frame_t, width, height, 4)
 
-	// Calculate Temporal Variance (TVar = mean |frame_t - frame_tminus1| across all pixels)
+	// Calculate Temporal Variance (Global TVar, Max Local Tile TVar, and Max Pixel Delta)
 	total_diff: f64 = 0.0
 	pixel_count := int(width * height)
 	flicker_map := make([]u8, pixel_count * 4)
 	defer delete(flicker_map)
 
-	for i in 0 ..< pixel_count {
-		idx := i * 4
-		dr := math.abs(f32(frame_t[idx + 0]) - f32(frame_tminus1[idx + 0]))
-		dg := math.abs(f32(frame_t[idx + 1]) - f32(frame_tminus1[idx + 1]))
-		db := math.abs(f32(frame_t[idx + 2]) - f32(frame_tminus1[idx + 2]))
-		avg_d := (dr + dg + db) / 3.0
-		total_diff += f64(avg_d)
+	max_pixel_diff: f32 = 0.0
+	flicker_count: int = 0
+	TILE_SIZE :: 16
+	tiles_x := int((width + TILE_SIZE - 1) / TILE_SIZE)
+	tiles_y := int((height + TILE_SIZE - 1) / TILE_SIZE)
+	tile_diffs := make([]f64, tiles_x * tiles_y)
+	tile_counts := make([]int, tiles_x * tiles_y)
+	defer delete(tile_diffs)
+	defer delete(tile_counts)
 
-		// Amplify difference by 20x for human visual perception
-		amp_diff := u8(clamp(avg_d * 20.0, 0.0, 255.0))
-		flicker_map[idx + 0] = amp_diff // Red = flicker
-		flicker_map[idx + 1] = amp_diff / 4
-		flicker_map[idx + 2] = 0
-		flicker_map[idx + 3] = 255
+	max_pixel_x := 0
+	max_pixel_y := 0
+	for y in 0 ..< int(height) {
+		ty := y / TILE_SIZE
+		for x in 0 ..< int(width) {
+			i := y * int(width) + x
+			idx := i * 4
+			dr := math.abs(f32(frame_t[idx + 0]) - f32(frame_tminus1[idx + 0]))
+			dg := math.abs(f32(frame_t[idx + 1]) - f32(frame_tminus1[idx + 1]))
+			db := math.abs(f32(frame_t[idx + 2]) - f32(frame_tminus1[idx + 2]))
+			avg_d := (dr + dg + db) / 3.0
+			total_diff += f64(avg_d)
+
+			if avg_d > max_pixel_diff {
+				max_pixel_diff = avg_d
+				max_pixel_x = x
+				max_pixel_y = y
+			}
+			if avg_d >= 4.0 {
+				flicker_count += 1
+			}
+
+			tx := x / TILE_SIZE
+			t_idx := ty * tiles_x + tx
+			tile_diffs[t_idx] += f64(avg_d)
+			tile_counts[t_idx] += 1
+
+			// Amplify difference by 20x for human visual perception
+			amp_diff := u8(clamp(avg_d * 20.0, 0.0, 255.0))
+			flicker_map[idx + 0] = amp_diff // Red = flicker
+			flicker_map[idx + 1] = amp_diff / 4
+			flicker_map[idx + 2] = 0
+			flicker_map[idx + 3] = 255
+		}
 	}
 	tvar := f32(total_diff / f64(pixel_count))
+
+	max_tile_tvar: f32 = 0.0
+	max_tile_tx := 0
+	max_tile_ty := 0
+	for ty in 0 ..< tiles_y {
+		for tx in 0 ..< tiles_x {
+			t_idx := ty * tiles_x + tx
+			if tile_counts[t_idx] > 0 {
+				t_avg := f32(tile_diffs[t_idx] / f64(tile_counts[t_idx]))
+				if t_avg > max_tile_tvar {
+					max_tile_tvar = t_avg
+					max_tile_tx = tx
+					max_tile_ty = ty
+				}
+			}
+		}
+	}
+
+	// Calculate Pure Volumetric Temporal Variance
+	vol_pixel_count := int(low_w * low_h)
+	vol_total_diff: f64 = 0.0
+	vol_max_diff: f32 = 0.0
+	vol_flicker_count := 0
+
+	for i in 0 ..< vol_pixel_count {
+		idx := i * 4
+		dr := math.abs(f32(vol_t[idx + 0]) - f32(vol_tminus1[idx + 0]))
+		dg := math.abs(f32(vol_t[idx + 1]) - f32(vol_tminus1[idx + 1]))
+		db := math.abs(f32(vol_t[idx + 2]) - f32(vol_tminus1[idx + 2]))
+		avg_d := (dr + dg + db) / 3.0
+		vol_total_diff += f64(avg_d)
+		if avg_d > vol_max_diff {
+			vol_max_diff = avg_d
+		}
+		if avg_d >= 4.0 {
+			vol_flicker_count += 1
+		}
+	}
+	vol_tvar := f32(vol_total_diff / f64(vol_pixel_count))
 
 	// Save flicker heatmap
 	path_flicker := strings.concatenate({VOLUMETRIC_REPORT_DIR, "02_static_flicker_map_20x.png"}, context.temp_allocator)
@@ -210,8 +296,6 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	vol_save_png(path_isolated, frame_isolated, width, height, 4)
 
 	// Capture static TAA Acceptance Map
-	low_w := s.volumetric.width
-	low_h := s.volumetric.height
 	acceptance_static := vol_capture_texture_rgba(s.volumetric.acceptance_tex, low_w, low_h)
 	defer delete(acceptance_static)
 
@@ -356,7 +440,11 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 
 | Métrique Évaluée | Valeur Mesurée | Seuil Nominal | Verdict | Interprétation pour l'Opérateur |
 | :--- | :---: | :---: | :---: | :--- |
-| **Temporal Variance (TVar)** | **%.4f / 255** | $< 0.80$ | %s | Stabilité inter-trames à l'arrêt. Mesure l'absence de scintillement (*flicker*). |
+| **Global TVar (Composite)** | **%.4f / 255** | $< 0.80$ | %s | Stabilité inter-trames scène composite complète. |
+| **Max Local Tile TVar (16x16)** | **%.4f / 255** | $< 3.00$ | %s | Variance temporelle pire bloc local (détection flicker arêtes/damier). |
+| **Max Pixel Delta** | **%.2f / 255** | $< 15.0$ | %s | Delta maximal sub-pixel (détection trame oscillante). |
+| **Pure Volumetric TVar (W/2)** | **%.4f / 255** | $< 2.00$ | %s | Variance temporelle pure du buffer volumétrique (sans géométrie opaque). |
+| **Pure Volumetric Max Delta** | **%.2f / 255** | $< 50.0$ | %s | Delta sub-pixel max du buffer volumétrique (stabilité sous jitter). |
 | **God Rays RMS Contrast** | **%.2f** | $> 12.00$ | %s | Contraste des faisceaux lumineux à travers les sphères occluantes. |
 | **Résolution Raymarching** | **%dx%d** | Demi-résolution | ✅ PASS | Facteur d'upsampling $2\times$ guidé par profondeur pleine résolution (JBU). |
 
@@ -401,12 +489,21 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 ## 🎯 3. Guide de Décision pour l'Opérateur
 
 1. **Si TVar < 0.80 et Flicker Map noire** : Le TAA et le filtrage bilatéral convergent parfaitement sans bruit résiduel.
-2. **Si le Crop 4x Silhouette est net** : Le JBU $2\times 2$ isole proprement la géométrie opaque sans bavure.
-3. **Si le Strip Dynamique ne présente pas de traînée baveuse** : Le shader de reprojection TAA est stable en mouvement.
+2. **Si Pure Volumetric Max Delta < 50.0** : Zéro scintillement structurel sur les arêtes et silhouettes.
+3. **Si le Crop 4x Silhouette est net** : Le JBU $2\times 2$ isole proprement la géométrie opaque sans bavure.
+4. **Si le Strip Dynamique ne présente pas de traînée baveuse** : Le shader de reprojection TAA est stable en mouvement.
 `,
 		width, height, low_w, low_h,
 		tvar,
 		(tvar < 0.80 ? "✅ PASS" : "⚠️ WARN"),
+		max_tile_tvar,
+		(max_tile_tvar < 3.00 ? "✅ PASS" : "⚠️ WARN"),
+		max_pixel_diff,
+		(max_pixel_diff < 15.0 ? "✅ PASS" : "⚠️ WARN"),
+		vol_tvar,
+		(vol_tvar < 2.00 ? "✅ PASS" : "⚠️ WARN"),
+		vol_max_diff,
+		(vol_max_diff < 50.0 ? "✅ PASS" : "⚠️ FAIL"),
 		rms_contrast,
 		(rms_contrast > 12.0 ? "✅ PASS" : "⚠️ WARN"),
 		low_w, low_h,
@@ -423,13 +520,24 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 
 	fmt.printfln("==========================================================================")
 	fmt.printfln("✅ VOLUMETRIC VISUAL SAFETY AUDIT COMPLETE")
-	fmt.printfln("  TVar (Temporal Variance)  : %.4f / 255 (target < 0.80) -> %s", tvar, (tvar < 0.80 ? "PASS" : "WARN"))
-	fmt.printfln("  God Rays RMS Contrast     : %.2f (target > 12.00)     -> %s", rms_contrast, (rms_contrast > 12.0 ? "PASS" : "WARN"))
-	fmt.printfln("  GPU Raymarching Pass      : %.3f ms (%.1f%%)", rm_avg, (rm_avg / max(0.001, vol_total_avg)) * 100.0)
-	fmt.printfln("  GPU Total Volumetric      : %.3f ms", vol_total_avg)
-	fmt.printfln("  Report & Artifacts saved  : %s", VOLUMETRIC_REPORT_DIR)
+	fmt.printfln("  Global TVar (Composite)     : %.4f / 255 (target < 0.80) -> %s", tvar, (tvar < 0.80 ? "PASS" : "WARN"))
+	fmt.printfln("  Max Local Tile TVar (16x16) : %.4f / 255 at tile [%d,%d] (target < 3.00) -> %s", max_tile_tvar, max_tile_tx, max_tile_ty, (max_tile_tvar < 3.00 ? "PASS" : "WARN"))
+	fmt.printfln("  Max Pixel Delta             : %.2f / 255 at (%d,%d) (target < 15.0) -> %s", max_pixel_diff, max_pixel_x, max_pixel_y, (max_pixel_diff < 15.0 ? "PASS" : "WARN"))
+	fmt.printfln("  Flickering Pixels (delta>=4): %d (%.2f%%)", flicker_count, (f32(flicker_count) / f32(pixel_count)) * 100.0)
+	fmt.printfln("  Pure Volumetric TVar (W/2)  : %.4f / 255 (target < 2.00) -> %s", vol_tvar, (vol_tvar < 2.00 ? "PASS" : "WARN"))
+	fmt.printfln("  Pure Volumetric Max Delta   : %.2f / 255 (target < 50.0) -> %s", vol_max_diff, (vol_max_diff < 50.0 ? "PASS" : "FAIL"))
+	fmt.printfln("  Pure Vol Flicker Pixels     : %d (%.2f%%)", vol_flicker_count, (f32(vol_flicker_count) / f32(vol_pixel_count)) * 100.0)
+	fmt.printfln("  God Rays RMS Contrast       : %.2f (target > 12.00)     -> %s", rms_contrast, (rms_contrast > 12.0 ? "PASS" : "WARN"))
+	fmt.printfln("  GPU Raymarching Pass        : %.3f ms (%.1f%%)", rm_avg, (rm_avg / max(0.001, vol_total_avg)) * 100.0)
+	fmt.printfln("  GPU Total Volumetric        : %.3f ms", vol_total_avg)
+	fmt.printfln("  Report & Artifacts saved    : %s", VOLUMETRIC_REPORT_DIR)
 	fmt.printfln("==========================================================================")
 
-	testing.expect(t, tvar < 1.0, fmt.tprintf("Temporal variance too high (flickering detected): %.4f", tvar))
+	// Calibrated production assertions:
+	// - tvar < 1.0 (calibrated at ~0.86 with IBL noise margin)
+	// - rms_contrast > 10.0 (calibrated at ~70.98 on godray shaft)
+	// - vol_max_diff < 50.0 (calibrated at ~46.33; checkerboard failure caused > 52.0)
+	testing.expect(t, tvar < 1.0, fmt.tprintf("Global temporal variance too high: %.4f", tvar))
 	testing.expect(t, rms_contrast > 10.0, fmt.tprintf("God rays contrast too low: %.2f", rms_contrast))
+	testing.expect(t, vol_max_diff < 50.0, fmt.tprintf("Pure volumetric sub-pixel max delta too high (flicker artifact): %.2f", vol_max_diff))
 }
