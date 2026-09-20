@@ -57,28 +57,51 @@ Le harnais exécute un scénario physique reproductible en rendu offscreen $960\
 * Montage d'un strip chronologique 4 panneaux : [`06_camera_sweep_strip_4panels.png`](../tests/reports/volumetric/06_camera_sweep_strip_4panels.png).
 * Inspection de la texture GPU d'acceptation TAA : [`05_dynamic_taa_acceptance.png`](../tests/reports/volumetric/05_dynamic_taa_acceptance.png) (Vert = reprojecté sainement, Rouge = disocclusion propre sans smearing).
 
+### E. Chronométrage Matériel GPU Découplé (`GL_TIME_ELAPSED`)
+* Requêtes GPU asynchrones en double-buffering ($N-1$) mesurant le coût réel de chaque sous-passe sans bloquer le pipeline graphique.
+* Permet d'isoler le coût Compute/ALU pur du fragment shader de raymarching de celui du TAA, du flou bilatéral et de l'upsampling JBU.
+
 ---
 
 ## 4. Utilisation & Restitution
 
-### Commande unique
-```bash
-task audit-volumetric
-```
-Exécution en **~1.38 seconde** sur GPU physique.
+### Commandes Opérateur
+* **Audit Visuel & Timers Isolés** :
+  ```bash
+  task audit-volumetric
+  ```
+  Exécution en **~1.4 seconde** sur GPU physique.
+* **Benchmark Débit Complet Moteur (1920x1200 uncapped)** :
+  ```bash
+  task bench-quality    # Profil Quality (32 pas, 16 PCF, 6 faces)
+  task bench-balanced   # Profil Balanced (16 pas, 8 PCF, 2 faces)
+  task bench-ultra      # Profil Ultra (8 pas, 4 PCF, 1 face, 1/4 res)
+  ```
 
 ### Restitution Opérateur
 Tous les artefacts et le rapport de synthèse sont générés dans [`tests/reports/volumetric/`](../tests/reports/volumetric/) :
-* [`tests/reports/volumetric/README.md`](../tests/reports/volumetric/README.md) : Tableau de bord des métriques et galerie d'images avec guide d'interprétation.
+* [`tests/reports/volumetric/README.md`](../tests/reports/volumetric/README.md) : Tableau de bord des métriques, tableau des timers GPU et galerie d'images avec guide d'interprétation.
 * 7 captures PNG haute résolution couvrant l'ensemble des diagnostics spatiaux et temporels.
 
 ---
 
-## 5. Valeurs de Référence Baseline (Master Actuel)
+## 5. Valeurs de Référence Baseline & Chronométrage Matériel
 
-| Métrique | Valeur Mesurée | Seuil Nominal | Statut |
+| Métrique Évaluée | Valeur Mesurée | Seuil Nominal | Statut |
 | :--- | :---: | :---: | :---: |
-| **Temporal Variance (TVar)** | **0.4028 / 255** | $< 0.80$ | ✅ PASS |
-| **God Rays RMS Contrast** | **81.81** | $> 12.00$ | ✅ PASS |
+| **Temporal Variance (TVar)** | **0.4230 / 255** | $< 0.80$ | ✅ PASS |
+| **God Rays RMS Contrast** | **80.74** | $> 12.00$ | ✅ PASS |
 | **TAA Acceptance Statique** | **98.5% vert** | $> 95.0\%$ | ✅ PASS |
-| **Durée d'audit** | **1.38s** | $< 3.00\text{s}$ | ✅ PASS |
+| **Durée d'exécution du test** | **1.42s** | $< 3.00\text{s}$ | ✅ PASS |
+
+### Répartition GPU Isolée (`task audit-volumetric`) :
+* **Pass 1 (Raymarching analytique)** : **0.158 ms** (31.9%)
+* **Pass 2 (TAA Reprojection)** : **0.074 ms** (15.3%)
+* **Pass 3 (Bilateral Blur 9-tap)** : **0.053 ms** (11.0%)
+* **Pass 4 (JBU Composite 2x2)** : **0.055 ms** (11.5%)
+* **Total Pipeline Volumétrique** : **0.494 ms** (100.0%)
+
+### Débit Global Moteur (`task bench-*` à 1920x1200) :
+* **Quality** : **9.535 ms** (104.9 FPS) — *Baseline de référence*
+* **Balanced** : **8.778 ms** (113.9 FPS) — *-7.9% de frametime*
+* **Ultra** : **7.434 ms** (134.5 FPS) — *-22.0% de frametime*

@@ -23,6 +23,10 @@ run_benchmark :: proc(application: ^App, total_frames, warmup_frames: i32) {
 	application.scene.postfx_pipeline.enabled = true
 	application.scene.postfx_pipeline.ubo_dirty = true
 
+	// Ensure point light and volumetric lighting are active for benchmark load
+	application.scene.point_light.enabled = true
+	application.scene.volumetric.params.enabled = true
+
 	// Compile optimized shader variant for this effect combination
 	postfx.pipeline_compile_variant(&application.scene.postfx_pipeline)
 

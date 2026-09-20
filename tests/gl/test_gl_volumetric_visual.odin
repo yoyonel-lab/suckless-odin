@@ -154,7 +154,7 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	// =========================================================================
 	// PHASE 1: Static Convergence & Temporal Flicker Audit (16 frames)
 	// =========================================================================
-	for _ in 0..<14 {
+	for _ in 0..<18 {
 		render_frame(&s, &rt)
 	}
 
@@ -333,6 +333,13 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	path_crop := strings.concatenate({VOLUMETRIC_REPORT_DIR, "07_crop_silhouette_jbu_4x.png"}, context.temp_allocator)
 	vol_save_png(path_crop, crop_pixels, crop_w, crop_h, 4)
 
+	// Collect GPU sub-pass timer metrics
+	vol_total_avg, _, _ := rendering.volumetric_timer_get_total_metrics(&s.volumetric.timers)
+	rm_avg, _, _ := rendering.volumetric_timer_get_metrics(&s.volumetric.timers, .Raymarching)
+	taa_avg, _, _ := rendering.volumetric_timer_get_metrics(&s.volumetric.timers, .TAA_Blend)
+	blur_avg, _, _ := rendering.volumetric_timer_get_metrics(&s.volumetric.timers, .Bilateral_Blur)
+	jbu_avg, _, _ := rendering.volumetric_timer_get_metrics(&s.volumetric.timers, .Composite_Upsample)
+
 	// =========================================================================
 	// PHASE 4: Human-in-the-Loop Markdown Audit Report Generation
 	// =========================================================================
@@ -352,6 +359,16 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 | **Temporal Variance (TVar)** | **%.4f / 255** | $< 0.80$ | %s | Stabilité inter-trames à l'arrêt. Mesure l'absence de scintillement (*flicker*). |
 | **God Rays RMS Contrast** | **%.2f** | $> 12.00$ | %s | Contraste des faisceaux lumineux à travers les sphères occluantes. |
 | **Résolution Raymarching** | **%dx%d** | Demi-résolution | ✅ PASS | Facteur d'upsampling $2\times$ guidé par profondeur pleine résolution (JBU). |
+
+### ⏱️ Répartition des Passes GPU Volumétriques (Chronométrage Matériel)
+
+| Sous-Passe Volumétrique | Temps GPU Mesuré | Part Relative | Description Technique |
+| :--- | :---: | :---: | :--- |
+| **1. Raymarching Analytique (Pass 1)** | **%.3f ms** | **%.1f%%** | 32 pas, Beer-Lambert, Phase Henyey-Greenstein, Shadow Cubemap. |
+| **2. TAA Reprojection & Blending (Pass 2)** | **%.3f ms** | **%.1f%%** | Reprojection temporelle, détection disocclusion, accumulation EMA. |
+| **3. Joint Bilateral Blur (Pass 3)** | **%.3f ms** | **%.1f%%** | Filtrage bilatéral séparable 9-tap guidé par profondeur. |
+| **4. JBU Composite (Pass 4)** | **%.3f ms** | **%.1f%%** | Joint Bilateral Upsampling $2\times 2$ pleine résolution dans le HDR. |
+| **TOTAL Pipeline Volumétrique** | **%.3f ms** | **100.0%%** | Coût GPU global du brouillard volumétrique. |
 
 ---
 
@@ -393,6 +410,11 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 		rms_contrast,
 		(rms_contrast > 12.0 ? "✅ PASS" : "⚠️ WARN"),
 		low_w, low_h,
+		rm_avg, (rm_avg / max(0.001, vol_total_avg)) * 100.0,
+		taa_avg, (taa_avg / max(0.001, vol_total_avg)) * 100.0,
+		blur_avg, (blur_avg / max(0.001, vol_total_avg)) * 100.0,
+		jbu_avg, (jbu_avg / max(0.001, vol_total_avg)) * 100.0,
+		vol_total_avg,
 		98.5,
 	)
 
@@ -403,6 +425,8 @@ test_volumetric_visual_audit :: proc(t: ^testing.T) {
 	fmt.printfln("✅ VOLUMETRIC VISUAL SAFETY AUDIT COMPLETE")
 	fmt.printfln("  TVar (Temporal Variance)  : %.4f / 255 (target < 0.80) -> %s", tvar, (tvar < 0.80 ? "PASS" : "WARN"))
 	fmt.printfln("  God Rays RMS Contrast     : %.2f (target > 12.00)     -> %s", rms_contrast, (rms_contrast > 12.0 ? "PASS" : "WARN"))
+	fmt.printfln("  GPU Raymarching Pass      : %.3f ms (%.1f%%)", rm_avg, (rm_avg / max(0.001, vol_total_avg)) * 100.0)
+	fmt.printfln("  GPU Total Volumetric      : %.3f ms", vol_total_avg)
 	fmt.printfln("  Report & Artifacts saved  : %s", VOLUMETRIC_REPORT_DIR)
 	fmt.printfln("==========================================================================")
 

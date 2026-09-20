@@ -122,8 +122,6 @@ void main()
     float two_g = 2.0 * g;
     bool has_anisotropy = abs(g) >= 0.001;
 
-    float step_transmittance = exp(-max(u_extinction_coeff, 0.0) * step_size);
-    float accum_transmittance = 1.0;
     float scattered_amount = 0.0;
     vec3 light_color_intensity = u_light_color * (u_light_intensity * u_intensity_mult);
 
@@ -138,33 +136,39 @@ void main()
         if (dist_sq < light_radius_sq && dist_sq > 0.0001) {
             float inv_dist   = inversesqrt(dist_sq);
             float dist_light = dist_sq * inv_dist;
-            float linear_attenuation = clamp(1.0 - dist_light * inv_light_radius, 0.0, 1.0);
-
-            // Phase function evaluated with fast hardware inversesqrt
-            float cos_theta = dot(light_dir * inv_dist, ray_dir);
-            float phase = 1.0;
-            if (has_anisotropy) {
-                float denom = max(1.0 + g2 - two_g * cos_theta, 0.0001);
-                float inv_denom = inversesqrt(denom);
-                phase = one_minus_g2 * (inv_denom * inv_denom * inv_denom);
-            }
 
             // Shadow test from light to sample point
             float shadow_factor = 1.0;
             if (u_shadows_enabled) {
                 vec3 light_to_sample = -light_dir;
-                float shadow_depth_norm = texture(u_shadow_cubemap, light_to_sample).r;
+                float shadow_depth_norm = textureLod(u_shadow_cubemap, light_to_sample, 0.0).r;
                 if (dist_light - u_shadow_bias > shadow_depth_norm * u_light_radius) {
                     shadow_factor = 0.0;
                 }
             }
 
-            // Beer-Lambert light attenuation to sample point & camera transmittance
-            float light_atten = exp(-u_extinction_coeff * dist_light);
-            scattered_amount += linear_attenuation * light_atten * base_step_energy * (shadow_factor * phase) * transmittance;
+            if (shadow_factor > 0.0) {
+                float linear_attenuation = clamp(1.0 - dist_light * inv_light_radius, 0.0, 1.0);
+
+                // Phase function evaluated with fast hardware inversesqrt
+                float cos_theta = dot(light_dir * inv_dist, ray_dir);
+                float phase = 1.0;
+                if (has_anisotropy) {
+                    float denom = max(1.0 + g2 - two_g * cos_theta, 0.0001);
+                    float inv_denom = inversesqrt(denom);
+                    phase = one_minus_g2 * (inv_denom * inv_denom * inv_denom);
+                }
+
+                // Beer-Lambert light attenuation to sample point & camera transmittance
+                float light_atten = exp(-u_extinction_coeff * dist_light);
+                scattered_amount += linear_attenuation * light_atten * base_step_energy * phase * transmittance;
+            }
         }
 
         transmittance *= step_extinction;
+        if (transmittance < 0.005) {
+            break;
+        }
         sample_pos += step_dir;
     }
 
