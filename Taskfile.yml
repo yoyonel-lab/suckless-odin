@@ -292,6 +292,12 @@ tasks:
     cmds:
       - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-record-shadow -debug -thread-count:1 -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_shadow_debug_offscreen_e2e -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
 
+  audit-volumetric:
+    desc: Run volumetric lighting visual safety audit & generate operator visual report
+    cmds:
+      - mkdir -p tests/reports/volumetric
+      - "{{.ODIN}} test tests/gl/ -out:/tmp/odin-audit-volumetric -debug -thread-count:1 -define:ODIN_TEST_THREADS=1 -define:ODIN_TEST_NAMES=test_gl.test_volumetric_visual_audit -extra-linker-flags:\"{{.EXTRA_LINKER_FLAGS}}\""
+
   test-chaos:
     desc: Run temporal chaos fuzzer on active display (5 seconds)
     cmds:
