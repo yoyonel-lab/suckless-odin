@@ -114,41 +114,46 @@ test_volumetric_auto_sun_e2e :: proc(t: ^testing.T) {
 	s.volumetric.params.resolution_divider = 2
 
 	Env_Test_Case :: struct {
-		name:          string,
-		path:          string,
-		expected_auto: f32,
-		expect_sun:    bool,
+		name:           string,
+		path:           string,
+		expected_auto:  f32,
+		expected_color: mt.Vec3,
+		expect_sun:     bool,
 	}
 
 	cases := [4]Env_Test_Case{
 		{
-			name          = "cedar_bridge",
-			path          = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
-			expected_auto = 16107.0 / 64428.3, // ~0.250
-			expect_sun    = true,
+			name           = "cedar_bridge",
+			path           = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
+			expected_auto  = 16107.0 / 64428.3, // ~0.250
+			expected_color = mt.Vec3{1.145, 0.960, 0.970},
+			expect_sun     = true,
 		},
 		{
-			name          = "river_alcove",
-			path          = "assets/textures/hdr/river_alcove_4k.hdr",
-			expected_auto = 16107.0 / 65504.0, // ~0.2458
-			expect_sun    = true,
+			name           = "river_alcove",
+			path           = "assets/textures/hdr/river_alcove_4k.hdr",
+			expected_auto  = 16107.0 / 65504.0, // ~0.2458
+			expected_color = mt.Vec3{0.991, 0.999, 1.032},
+			expect_sun     = true,
 		},
 		{
-			name          = "small_cathedral",
-			path          = "assets/textures/hdr/small_cathedral_02_4k.hdr",
-			expected_auto = 16107.0 / 51697.3, // ~0.3116
-			expect_sun    = true,
+			name           = "small_cathedral",
+			path           = "assets/textures/hdr/small_cathedral_02_4k.hdr",
+			expected_auto  = 16107.0 / 51697.3, // ~0.3116
+			expected_color = mt.Vec3{1.514, 0.911, 0.371},
+			expect_sun     = true,
 		},
 		{
-			name          = "neon_photostudio",
-			path          = "assets/textures/hdr/neon_photostudio_4k.hdr",
-			expected_auto = rendering.VOLUMETRIC_DEFAULT_INTENSITY_SUN, // 0.25 fallback!
-			expect_sun    = false,
+			name           = "neon_photostudio",
+			path           = "assets/textures/hdr/neon_photostudio_4k.hdr",
+			expected_auto  = rendering.VOLUMETRIC_DEFAULT_INTENSITY_SUN, // 0.25 fallback!
+			expected_color = rendering.SUN_FALLBACK_COLOR,
+			expect_sun     = false,
 		},
 	}
 
 	fmt.printfln("==========================================================================")
-	fmt.printfln("🧪 MISSION F1: AUTOMATIC SUN VOLUMETRIC INTENSITY VALIDATION")
+	fmt.printfln("🧪 MISSION F2: AUTOMATIC SUN COLOR & INTENSITY VALIDATION")
 	fmt.printfln("==========================================================================")
 
 	for tc, idx in cases {
@@ -160,11 +165,19 @@ test_volumetric_auto_sun_e2e :: proc(t: ^testing.T) {
 		det := s.sun_shadow.detection
 		auto_scale := s.volumetric.params.sun_auto_scale
 		eff_int := rendering.volumetric_get_effective_intensity(&s.volumetric)
+		eff_color := rendering.volumetric_get_effective_sun_color(&s.volumetric, det)
 
 		testing.expect_value(t, det.sun_detected, tc.expect_sun)
 		testing.expect(t, math.abs(auto_scale - tc.expected_auto) < 0.005,
 			fmt.tprintf("auto_scale mismatch for %s: got %.4f, expected %.4f", tc.name, auto_scale, tc.expected_auto))
 		testing.expect_value(t, eff_int, auto_scale)
+
+		testing.expect(t, math.abs(eff_color.x - tc.expected_color.x) < 0.05,
+			fmt.tprintf("color.r mismatch for %s: got %.3f, expected %.3f", tc.name, eff_color.x, tc.expected_color.x))
+		testing.expect(t, math.abs(eff_color.y - tc.expected_color.y) < 0.05,
+			fmt.tprintf("color.g mismatch for %s: got %.3f, expected %.3f", tc.name, eff_color.y, tc.expected_color.y))
+		testing.expect(t, math.abs(eff_color.z - tc.expected_color.z) < 0.05,
+			fmt.tprintf("color.b mismatch for %s: got %.3f, expected %.3f", tc.name, eff_color.z, tc.expected_color.z))
 
 		// Extra frames to converge TAA
 		for _ in 0..<16 {
@@ -178,16 +191,18 @@ test_volumetric_auto_sun_e2e :: proc(t: ^testing.T) {
 		out_path := fmt.tprintf("tests/reports/volumetric/auto_sun_%s.png", tc.name)
 		vol_save_png(out_path, pixels, width, height, 4)
 
-		fmt.printfln("  [Envmap %d/4] %-18s: Peak=%8.1f | Detected=%-5v | AutoScale=%.3f | Saturation=%.2f%% | Saved: %s",
-			idx + 1, tc.name, det.peak_intensity, det.sun_detected, auto_scale, sat_pct, out_path)
+		out_color_path := fmt.tprintf("tests/reports/volumetric/auto_sun_color_%s.png", tc.name)
+		vol_save_png(out_color_path, pixels, width, height, 4)
 
-		// Validation check: composite saturation must remain bounded (< 20.0%, background architectural white buildings like cathedral pillars have natural high luminance)
+		fmt.printfln("  [Envmap %d/4] %-18s: Peak=%8.1f | Detected=%-5v | AutoColor=(%.2f, %.2f, %.2f) | AutoScale=%.3f | Sat=%.2f%%",
+			idx + 1, tc.name, det.peak_intensity, det.sun_detected, eff_color.x, eff_color.y, eff_color.z, auto_scale, sat_pct)
+
 		max_sat: f32 = 20.0
 		testing.expect(t, sat_pct < max_sat, fmt.tprintf("Saturation too high on %s: %.2f%%", tc.name, sat_pct))
 	}
 
 	// -------------------------------------------------------------------------
-	// 2. Override manual test on cedar_bridge
+	// 2. Override manual test on cedar_bridge (intensity + color)
 	// -------------------------------------------------------------------------
 	fmt.printfln("--------------------------------------------------------------------------")
 	fmt.printfln("🧪 TESTING MANUAL OVERRIDE & AUTO RE-ACTIVATION (cedar_bridge)")
@@ -200,19 +215,32 @@ test_volumetric_auto_sun_e2e :: proc(t: ^testing.T) {
 	eff_override := rendering.volumetric_get_effective_intensity(&s.volumetric)
 	testing.expect_value(t, eff_override, f32(0.80))
 
+	// Simulate manual color override (warm sunset orange)
+	s.volumetric.params.sun_color = mt.Vec3{2.0, 0.7, 0.2}
+	s.volumetric.params.sun_color_auto = false
+	eff_col_override := rendering.volumetric_get_effective_sun_color(&s.volumetric, s.sun_shadow.detection)
+	testing.expect_value(t, eff_col_override, mt.Vec3{2.0, 0.7, 0.2})
+
 	for _ in 0..<16 { render_frame(&s, &rt) }
 	px_override := vol_capture_fbo_rgba(rt.fbo, width, height)
 	defer delete(px_override)
 	sat_override := calc_saturation(px_override, width, height)
 	path_override := "tests/reports/volumetric/override_manual_0.80.png"
 	vol_save_png(path_override, px_override, width, height, 4)
-	fmt.printfln("  [Override Manual] Slider=0.80: Effective=%.2f | Auto=false | Saturation=%.2f%% | Saved: %s",
-		eff_override, sat_override, path_override)
+
+	path_col_override := "tests/reports/volumetric/override_manual_sun_color.png"
+	vol_save_png(path_col_override, px_override, width, height, 4)
+	fmt.printfln("  [Override Manual] Slider=0.80 Color=(2.0,0.7,0.2): Effective=%.2f | Auto=false | Saturation=%.2f%%",
+		eff_override, sat_override)
 
 	// Simulate Re-activating Auto
 	s.volumetric.params.sun_intensity_auto = true
+	s.volumetric.params.sun_color_auto = true
+	rendering.volumetric_update_sun_detection(&s.volumetric, s.sun_shadow.detection)
 	eff_reactivate := rendering.volumetric_get_effective_intensity(&s.volumetric)
+	eff_col_reactivate := rendering.volumetric_get_effective_sun_color(&s.volumetric, s.sun_shadow.detection)
 	testing.expect(t, math.abs(eff_reactivate - 0.250) < 0.005, "Reactivated auto must produce ~0.250")
+	testing.expect(t, math.abs(eff_col_reactivate.x - 1.145) < 0.05, "Reactivated auto color must match cedar_bridge")
 
 	for _ in 0..<16 { render_frame(&s, &rt) }
 	px_reactivate := vol_capture_fbo_rgba(rt.fbo, width, height)
@@ -220,8 +248,8 @@ test_volumetric_auto_sun_e2e :: proc(t: ^testing.T) {
 	sat_reactivate := calc_saturation(px_reactivate, width, height)
 	path_reactivate := "tests/reports/volumetric/override_reactivate_auto.png"
 	vol_save_png(path_reactivate, px_reactivate, width, height, 4)
-	fmt.printfln("  [Reactivate Auto] Toggle ON: Effective=%.3f | Auto=true | Saturation=%.2f%% | Saved: %s",
-		eff_reactivate, sat_reactivate, path_reactivate)
+	fmt.printfln("  [Reactivate Auto] Toggle ON: Effective=%.3f Color=(%.2f,%.2f,%.2f) | Auto=true",
+		eff_reactivate, eff_col_reactivate.x, eff_col_reactivate.y, eff_col_reactivate.z)
 
 	// -------------------------------------------------------------------------
 	// 3. Omni Point Baseline Non-Regression Capture

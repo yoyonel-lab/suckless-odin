@@ -66,44 +66,56 @@ test_sun_ortho_projection_mapping :: proc(t: ^testing.T) {
 @(test)
 test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 	Env_Test_Expectation :: struct {
-		path:           string,
-		expected_sun:   bool,
-		min_elevation:  f32,
-		max_elevation:  f32,
-		min_azimuth:    f32,
-		max_azimuth:    f32,
+		path:            string,
+		expected_sun:    bool,
+		min_elevation:   f32,
+		max_elevation:   f32,
+		min_azimuth:     f32,
+		max_azimuth:     f32,
+		expected_color:  mt.Vec3,
+		color_tolerance: f32,
 	}
 
 	expectations := [?]Env_Test_Expectation{
 		{
-			path          = "assets/textures/hdr/abandoned_garage_4k.hdr",
-			expected_sun  = false, // Indoor garage -> Fallback fixed direction
-			min_elevation = 44.9, max_elevation = 45.1,
-			min_azimuth   = 89.9, max_azimuth   = 90.1,
+			path            = "assets/textures/hdr/abandoned_garage_4k.hdr",
+			expected_sun    = false, // Indoor garage -> Fallback fixed direction & color
+			min_elevation   = 44.9, max_elevation = 45.1,
+			min_azimuth     = 89.9, max_azimuth   = 90.1,
+			expected_color  = rendering.SUN_FALLBACK_COLOR,
+			color_tolerance = 0.01,
 		},
 		{
-			path          = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
-			expected_sun  = true,  // Outdoor sun detected
-			min_elevation = 45.0, max_elevation = 65.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path            = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
+			expected_sun    = true,  // Outdoor sun detected (slightly warm daylight)
+			min_elevation   = 45.0, max_elevation = 65.0,
+			min_azimuth     = 25.0, max_azimuth   = 45.0,
+			expected_color  = mt.Vec3{1.145, 0.960, 0.970},
+			color_tolerance = 0.05,
 		},
 		{
-			path          = "assets/textures/hdr/neon_photostudio_4k.hdr",
-			expected_sun  = false, // Indoor studio -> Fallback fixed direction
-			min_elevation = 44.9, max_elevation = 45.1,
-			min_azimuth   = 89.9, max_azimuth   = 90.1,
+			path            = "assets/textures/hdr/neon_photostudio_4k.hdr",
+			expected_sun    = false, // Indoor studio -> Fallback fixed direction & color
+			min_elevation   = 44.9, max_elevation = 45.1,
+			min_azimuth     = 89.9, max_azimuth   = 90.1,
+			expected_color  = rendering.SUN_FALLBACK_COLOR,
+			color_tolerance = 0.01,
 		},
 		{
-			path          = "assets/textures/hdr/river_alcove_4k.hdr",
-			expected_sun  = true,  // Outdoor sun detected
-			min_elevation = 35.0, max_elevation = 55.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path            = "assets/textures/hdr/river_alcove_4k.hdr",
+			expected_sun    = true,  // Outdoor sun detected (neutral crisp daylight)
+			min_elevation   = 35.0, max_elevation = 55.0,
+			min_azimuth     = 25.0, max_azimuth   = 45.0,
+			expected_color  = mt.Vec3{0.991, 0.999, 1.032},
+			color_tolerance = 0.05,
 		},
 		{
-			path          = "assets/textures/hdr/small_cathedral_02_4k.hdr",
-			expected_sun  = true,  // Direct sun through cathedral window
-			min_elevation = 5.0,  max_elevation = 20.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path            = "assets/textures/hdr/small_cathedral_02_4k.hdr",
+			expected_sun    = true,  // Direct sun through window (warm golden amber)
+			min_elevation   = 5.0,  max_elevation = 20.0,
+			min_azimuth     = 25.0, max_azimuth   = 45.0,
+			expected_color  = mt.Vec3{1.514, 0.911, 0.371},
+			color_tolerance = 0.05,
 		},
 	}
 
@@ -137,5 +149,70 @@ test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 		// Check normalized direction
 		dir_len := mt.vec3_length(det.direction)
 		testing.expect(t, math.abs(dir_len - 1.0) < 1e-4, "Sun direction must be unit vector")
+
+		// Check halo chromatic tint
+		testing.expect(t, math.abs(det.sun_color.x - exp.expected_color.x) <= exp.color_tolerance,
+			fmt.tprintf("%s: sun_color.r %.3f != expected %.3f", exp.path, det.sun_color.x, exp.expected_color.x))
+		testing.expect(t, math.abs(det.sun_color.y - exp.expected_color.y) <= exp.color_tolerance,
+			fmt.tprintf("%s: sun_color.g %.3f != expected %.3f", exp.path, det.sun_color.y, exp.expected_color.y))
+		testing.expect(t, math.abs(det.sun_color.z - exp.expected_color.z) <= exp.color_tolerance,
+			fmt.tprintf("%s: sun_color.b %.3f != expected %.3f", exp.path, det.sun_color.z, exp.expected_color.z))
 	}
+}
+
+@(test)
+test_sun_halo_synthetic_color :: proc(t: ^testing.T) {
+	w: i32 = 256
+	h: i32 = 128
+	total_pixels := int(w) * int(h)
+	half_data := make([]u16, total_pixels * 4)
+	defer delete(half_data)
+
+	// Sun positioned at azimuth 0, elevation 30
+	sun_dir := rendering.sun_angles_to_dir(0.0, 30.0)
+
+	// Planted tint: Sunset orange
+	planted_raw_rgb := mt.Vec3{2500.0, 750.0, 150.0}
+	planted_lum := 0.2126 * planted_raw_rgb.x + 0.7152 * planted_raw_rgb.y + 0.0722 * planted_raw_rgb.z
+	planted_tint := planted_raw_rgb / planted_lum
+
+	cos_core := math.cos(math.to_radians(f32(2.5)))
+	cos_halo := math.cos(math.to_radians(f32(12.0)))
+
+	for y in 0 ..< int(h) {
+		for x in 0 ..< int(w) {
+			idx := (y * int(w) + x) * 4
+			u := (f32(x) + 0.5) / f32(w)
+			v := (f32(y) + 0.5) / f32(h)
+			dir := rendering.sun_uv_to_dir([2]f32{u, v})
+			d := glsl.dot(dir, sun_dir)
+
+			r, g, b: f32 = 0.5, 0.5, 0.6 // Ambient sky
+			if d >= cos_core {
+				// Clipped white solar disc
+				r, g, b = 65500.0, 65500.0, 65500.0
+			} else if d >= cos_halo {
+				// Planted colored halo
+				r = planted_raw_rgb.x
+				g = planted_raw_rgb.y
+				b = planted_raw_rgb.z
+			}
+
+			half_data[idx + 0] = transmute(u16)f16(r)
+			half_data[idx + 1] = transmute(u16)f16(g)
+			half_data[idx + 2] = transmute(u16)f16(b)
+			half_data[idx + 3] = transmute(u16)f16(1.0)
+		}
+	}
+
+	det := rendering.sun_detect_from_fp16(raw_data(half_data), w, h)
+	testing.expect(t, det.sun_detected, "Synthetic sun must be detected")
+
+	// Verify that detected sun_color extracted the planted halo tint, NOT clipped white (1,1,1)
+	testing.expect(t, math.abs(det.sun_color.x - planted_tint.x) < 0.05,
+		fmt.tprintf("Planted R tint error: got %f, expected %f", det.sun_color.x, planted_tint.x))
+	testing.expect(t, math.abs(det.sun_color.y - planted_tint.y) < 0.05,
+		fmt.tprintf("Planted G tint error: got %f, expected %f", det.sun_color.y, planted_tint.y))
+	testing.expect(t, math.abs(det.sun_color.z - planted_tint.z) < 0.05,
+		fmt.tprintf("Planted B tint error: got %f, expected %f", det.sun_color.z, planted_tint.z))
 }

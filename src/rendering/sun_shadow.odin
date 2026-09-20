@@ -29,12 +29,20 @@ Sun_Detection :: struct {
 	peak_intensity: f32,
 	confidence:     i32,
 	sun_detected:   bool,
+	sun_color:      mt.Vec3, // Detected or fallback normalized sun halo tint (luminance = 1.0)
 }
 
 // Fallback fixed direction: 45 deg elevation, south (+Z)
 SUN_FALLBACK_DIRECTION :: mt.Vec3{0.0, 0.70710678, 0.70710678}
 SUN_FALLBACK_AZIMUTH   :: 90.0
 SUN_FALLBACK_ELEVATION :: 45.0
+// Fallback fixed neutral-warm sun color (legacy baseline default)
+SUN_FALLBACK_COLOR     :: mt.Vec3{1.0, 0.95, 0.85}
+
+// Sun halo sampling parameters for chromatic tint extraction
+SUN_HALO_RADIUS_DEG     :: 18.0
+SUN_HALO_SATURATION_MAX :: 20000.0
+SUN_HALO_CHANNEL_MAX    :: 65000.0
 
 // Convert UV to equirectangular world direction (equivalent to shader uvToDir)
 sun_uv_to_dir :: proc(uv: [2]f32) -> mt.Vec3 {
@@ -91,6 +99,7 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	result.peak_intensity = 0.0
 	result.confidence = 0
 	result.sun_detected = false
+	result.sun_color = SUN_FALLBACK_COLOR
 
 	if half_data == nil || width <= 0 || height <= 0 {
 		return result
@@ -210,12 +219,63 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		result.azimuth = raw_azimuth
 		result.elevation = raw_elevation
 		result.sun_detected = true
+
+		// Halo sampling: sample non-saturated pixels within angular cone of sun direction
+		// to extract genuine chromatic tint of the sun halo.
+		cos_halo_radius := math.cos(math.to_radians(f32(SUN_HALO_RADIUS_DEG)))
+		halo_acc_rgb := mt.Vec3{0, 0, 0}
+		halo_sum_weight: f64 = 0.0
+
+		cand_uv := sun_dir_to_uv(cand_dir)
+		delta_v := f32(SUN_HALO_RADIUS_DEG) / 180.0
+		y_min := clamp(int((cand_uv.y - delta_v) * f32(height)) - 1, 0, int(height) - 1)
+		y_max := clamp(int((cand_uv.y + delta_v) * f32(height)) + 1, 0, int(height) - 1)
+
+		min_halo_lum := max(f32(10.0), max_lum * 0.0005)
+
+		for y in y_min ..= y_max {
+			for x in 0 ..< int(width) {
+				idx := (y * int(width) + x) * 4
+				r := get_fp16_val(half_data[idx + 0])
+				g := get_fp16_val(half_data[idx + 1])
+				b := get_fp16_val(half_data[idx + 2])
+				lum := 0.2126 * r + 0.7152 * g + 0.0722 * b
+				if lum >= min_halo_lum && lum <= SUN_HALO_SATURATION_MAX &&
+				   r < SUN_HALO_CHANNEL_MAX && g < SUN_HALO_CHANNEL_MAX && b < SUN_HALO_CHANNEL_MAX {
+					u := (f32(x) + 0.5) / f32(width)
+					v := (f32(y) + 0.5) / f32(height)
+					dir := sun_uv_to_dir([2]f32{u, v})
+					if glsl.dot(dir, cand_dir) >= cos_halo_radius {
+						halo_acc_rgb += mt.Vec3{r, g, b} * lum
+						halo_sum_weight += f64(lum)
+					}
+				}
+			}
+		}
+
+		if halo_sum_weight > 0.0 {
+			avg_rgb := halo_acc_rgb / f32(halo_sum_weight)
+			avg_lum := 0.2126 * avg_rgb.x + 0.7152 * avg_rgb.y + 0.0722 * avg_rgb.z
+			if avg_lum > 1e-4 {
+				pure_tint := avg_rgb / avg_lum
+				result.sun_color = mt.Vec3{
+					clamp(pure_tint.x, 0.0, 3.0),
+					clamp(pure_tint.y, 0.0, 3.0),
+					clamp(pure_tint.z, 0.0, 3.0),
+				}
+			} else {
+				result.sun_color = SUN_FALLBACK_COLOR
+			}
+		} else {
+			result.sun_color = SUN_FALLBACK_COLOR
+		}
 	} else {
 		// Indoor/diffuse envmap fallback
 		result.direction = SUN_FALLBACK_DIRECTION
 		result.azimuth = SUN_FALLBACK_AZIMUTH
 		result.elevation = SUN_FALLBACK_ELEVATION
 		result.sun_detected = false
+		result.sun_color = SUN_FALLBACK_COLOR
 	}
 
 	return result

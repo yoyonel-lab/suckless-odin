@@ -333,3 +333,37 @@ test_volumetric_effective_intensity_override :: proc(t: ^testing.T) {
 	eff_omni := rendering.volumetric_get_effective_intensity(&vr)
 	testing.expect_value(t, eff_omni, f32(1.8))
 }
+
+// Verifies volumetric effective sun color resolution with auto mode & manual override
+@(test)
+test_volumetric_effective_sun_color_override :: proc(t: ^testing.T) {
+	vr: rendering.Volumetric_Renderer
+	vr.params.light_mode = .Sun_Directional
+	vr.params.sun_color_auto = true
+	vr.params.sun_color = mt.Vec3{0.5, 0.5, 0.5}
+
+	det_detected := rendering.Sun_Detection{
+		sun_detected = true,
+		sun_color    = mt.Vec3{1.514, 0.911, 0.371},
+	}
+
+	// Auto mode enabled -> effective color must be det.sun_color
+	col_auto := rendering.volumetric_get_effective_sun_color(&vr, det_detected)
+	testing.expect_value(t, col_auto, mt.Vec3{1.514, 0.911, 0.371})
+
+	// Manual override -> effective color must be vr.params.sun_color
+	vr.params.sun_color_auto = false
+	vr.params.sun_color = mt.Vec3{0.2, 0.7, 0.9}
+	col_manual := rendering.volumetric_get_effective_sun_color(&vr, det_detected)
+	testing.expect_value(t, col_manual, mt.Vec3{0.2, 0.7, 0.9})
+
+	// Det fallback (when sun not detected) -> SUN_FALLBACK_COLOR
+	det_fallback := rendering.Sun_Detection{
+		sun_detected = false,
+		sun_color    = rendering.SUN_FALLBACK_COLOR,
+	}
+	vr.params.sun_color_auto = true
+	col_fallback := rendering.volumetric_get_effective_sun_color(&vr, det_fallback)
+	testing.expect_value(t, col_fallback, rendering.SUN_FALLBACK_COLOR)
+}
+
