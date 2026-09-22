@@ -295,3 +295,68 @@ test_sun_detection_cross_resolution :: proc(t: ^testing.T) {
 	cross_dev := math.to_degrees(math.acos(clamp(glsl.dot(det_high.direction, det_base.direction), -1.0, 1.0)))
 	testing.expect(t, cross_dev < 2.0, fmt.tprintf("Cross-resolution deviation %.2f deg must be < 2.0 deg", cross_dev))
 }
+
+@(test)
+test_sun_detection_cache_contract :: proc(t: ^testing.T) {
+	rendering.sun_cache_clear()
+
+	fake_fp16 := [4]u16{0, 0, 0, 0}
+	env_a := "assets/textures/hdr/abandoned_garage_4k.hdr"
+	env_b := "assets/textures/hdr/cedar_bridge_2_4k.hdr"
+	env_c := "assets/textures/hdr/river_alcove_4k.hdr"
+
+	// 1. Initial lookups -> must be cache misses
+	_, ok_a := rendering.sun_cache_get(env_a)
+	testing.expect(t, !ok_a, "env_a must initially not be in cache")
+
+	// Calculate and store for env_a
+	det_a := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_a, det_a, 1000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 1)
+
+	// 2. Load env_b -> miss, calculate and store
+	det_b := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_b, det_b, 2000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 2)
+
+	// 3. Load env_c -> miss, calculate and store
+	det_c := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_c, det_c, 3000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 3)
+
+	// Revisit envmaps in cycle (3 switches: env_a, env_b, env_c):
+	// All must be CACHE HITS, exactly ZERO additional detections!
+	_, hit_a := rendering.sun_cache_get(env_a, 1000)
+	testing.expect(t, hit_a, "env_a must hit cache on revisit")
+	if !hit_a {
+		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	}
+
+	_, hit_b := rendering.sun_cache_get(env_b, 2000)
+	testing.expect(t, hit_b, "env_b must hit cache on revisit")
+	if !hit_b {
+		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	}
+
+	_, hit_c := rendering.sun_cache_get(env_c, 3000)
+	testing.expect(t, hit_c, "env_c must hit cache on revisit")
+	if !hit_c {
+		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	}
+
+	// Assert: total detection count remains strictly 3 across all 6 envmap loads!
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 3)
+
+	// 4. Test explicit invalidation ("Re-detect Sun" button in UI)
+	rendering.sun_cache_invalidate(env_b)
+	_, hit_b_after_inval := rendering.sun_cache_get(env_b, 2000)
+	testing.expect(t, !hit_b_after_inval, "env_b must miss cache after explicit invalidation")
+
+	det_b2 := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_b, det_b2, 2000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 4)
+
+	// 5. Test file size change (re-detection on modified file)
+	_, hit_c_modified := rendering.sun_cache_get(env_c, 9999) // different file size
+	testing.expect(t, !hit_c_modified, "env_c must miss cache if file size changed")
+}

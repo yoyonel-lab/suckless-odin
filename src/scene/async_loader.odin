@@ -330,7 +330,25 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			tracy.message_c(fmt.tprintf("Direct Decoded HDR->FP16: %dx%d (%d KB)",
 				w, h, pixel_count * 2 / 1024), tracy.COLOR_IO_CONVERT)
 
-			sun_detection = rendering.sun_detect_from_fp16(half_data, w, h)
+			cached_det, has_cached := rendering.sun_cache_get(path_str, i64(mf.size))
+			if has_cached {
+				sun_detection = cached_det
+				sun_detection.from_cache = true
+				sun_detection.t_detect_ms = 0.0
+				sun_detection.t_halo_ms = 0.0
+				log.log_debug("render.shadow", "Sun detection CACHE HIT for '%s' (call count: %d)",
+					path_str, rendering.sun_cache_get_call_count())
+			} else {
+				gen0 := rendering.sun_cache_generation()
+				sun_detection = rendering.sun_detect_from_fp16(half_data, w, h)
+				if rendering.sun_cache_generation() == gen0 {
+					rendering.sun_cache_put(path_str, sun_detection, i64(mf.size))
+					log.log_debug("render.shadow", "Sun detection CACHE MISS for '%s' — calculated (call count: %d)",
+						path_str, rendering.sun_cache_get_call_count())
+				} else {
+					log.log_debug("render.shadow", "Sun detection discarded (invalidated during compute)")
+				}
+			}
 		}
 
 		// Re-acquire mutex to update state

@@ -4,7 +4,23 @@ import "core:fmt"
 import "core:math"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
+import log "../core/log"
 import mt "../core/math_types"
+
+@(private)
+gui_redetect_sun :: proc(state: Scene_State) {
+	if state.current_hdr_index == nil || len(state.hdr_files) == 0 do return
+	idx := state.current_hdr_index^
+	if idx < 0 || idx >= i32(len(state.hdr_files)) do return
+	path := state.hdr_files[idx]
+	rendering.sun_cache_invalidate(path)
+	if state.change_env != nil && state.scene_ptr != nil {
+		ok := state.change_env(state.scene_ptr, path)
+		if !ok {
+			log.log_warning("render.volumetric", "Re-detect Sun ignored: transition in progress")
+		}
+	}
+}
 
 // Dedicated Dear ImGui panel for Volumetric Lighting (Phases 2 to 7)
 draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
@@ -90,6 +106,10 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback Direction (Manual / Fixed)"
 					status_col := imgui.Vec4{0.2, 1.0, 0.3, 1.0} if det.sun_detected else imgui.Vec4{0.9, 0.7, 0.3, 1.0}
 					imgui.TextColored(status_col, "Status: %s", status_str)
+					imgui.SameLine()
+					if imgui.SmallButton("Re-detect Sun##redetect_sun") {
+						gui_redetect_sun(state)
+					}
 					imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
 						det.azimuth, det.elevation, det.confidence, det.peak_intensity)
 
@@ -561,9 +581,12 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		}
 		match_count += 1
 	}
-	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override") {
+	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override redetect re-detect") {
 		ss := state.sun_shadow
 		det := &ss.detection
+		if imgui.SmallButton("Re-detect Sun##filt_redetect_sun") {
+			gui_redetect_sun(state)
+		}
 		imgui.SliderFloat("Sun Volumetric Intensity##filt", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
 		imgui.SliderFloat("Max Ray Distance##filt", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
 		if !det.sun_detected {

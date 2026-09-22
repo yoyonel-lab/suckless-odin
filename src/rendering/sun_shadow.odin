@@ -2,6 +2,7 @@ package rendering
 
 import "core:math"
 import "core:math/linalg/glsl"
+import "core:sync"
 import "core:time"
 import gl "vendor:OpenGL"
 
@@ -34,6 +35,118 @@ Sun_Detection :: struct {
 	t_detect_ms:    f64,     // Percentile + centroid detection elapsed ms
 	t_halo_ms:      f64,     // Halo sampling elapsed ms
 	from_cache:     bool,    // True if retrieved from cache (zero detect time)
+}
+
+// ─── Sun Detection In-Memory Cache (Contract: Exactly Once per Envmap) ─────
+
+Sun_Cache_Entry :: struct {
+	path:        [256]u8,
+	path_len:    int,
+	file_size:   i64,
+	detection:   Sun_Detection,
+	valid:       bool,
+}
+
+MAX_SUN_CACHE_ENTRIES :: 64
+
+Sun_Detection_Cache :: struct {
+	mu:                 sync.Mutex,
+	entries:            [MAX_SUN_CACHE_ENTRIES]Sun_Cache_Entry,
+	count:              int,
+	generation:         u64,          // Increment on every invalidate
+	total_detect_calls: int,
+}
+
+sun_cache: Sun_Detection_Cache
+
+sun_cache_get :: proc(path: string, file_size: i64 = 0) -> (Sun_Detection, bool) {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	for i in 0 ..< sun_cache.count {
+		entry := &sun_cache.entries[i]
+		if entry.valid && string(entry.path[:entry.path_len]) == path {
+			if file_size > 0 && entry.file_size > 0 && entry.file_size != file_size {
+				return {}, false
+			}
+			return entry.detection, true
+		}
+	}
+	return {}, false
+}
+
+sun_cache_put :: proc(path: string, detection: Sun_Detection, file_size: i64 = 0) {
+	if len(path) > 255 {
+		log.log_warning("render.shadow", "Sun cache key exceeds maximum length (255): %s", path)
+		return
+	}
+
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	for i in 0 ..< sun_cache.count {
+		entry := &sun_cache.entries[i]
+		if entry.valid && string(entry.path[:entry.path_len]) == path {
+			entry.detection = detection
+			entry.file_size = file_size
+			return
+		}
+	}
+
+	if sun_cache.count >= MAX_SUN_CACHE_ENTRIES {
+		log.log_warning("render.shadow", "Sun detection cache is full (%d entries), ignoring insertion for '%s'",
+			MAX_SUN_CACHE_ENTRIES, path)
+		return
+	}
+
+	idx := sun_cache.count
+	entry := &sun_cache.entries[idx]
+	copy(entry.path[:len(path)], path)
+	entry.path[len(path)] = 0
+	entry.path_len = len(path)
+	entry.file_size = file_size
+	entry.detection = detection
+	entry.valid = true
+	sun_cache.count += 1
+}
+
+sun_cache_invalidate :: proc(path: string) {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	sun_cache.generation += 1
+	for i in 0 ..< sun_cache.count {
+		entry := &sun_cache.entries[i]
+		if entry.valid && string(entry.path[:entry.path_len]) == path {
+			entry.valid = false
+			log.log_info("render.shadow", "Sun detection cache invalidated for '%s'", path)
+			return
+		}
+	}
+}
+
+sun_cache_clear :: proc() {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	sun_cache.count = 0
+	sun_cache.generation += 1
+	sun_cache.total_detect_calls = 0
+	for i in 0 ..< MAX_SUN_CACHE_ENTRIES {
+		sun_cache.entries[i].valid = false
+	}
+}
+
+sun_cache_get_call_count :: proc() -> int {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+	return sun_cache.total_detect_calls
+}
+
+sun_cache_generation :: proc() -> u64 {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+	return sun_cache.generation
 }
 
 // Fallback fixed direction: 45 deg elevation, south (+Z)
@@ -115,6 +228,11 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	}
 
 	t_detect_start := time.tick_now()
+
+	sync.lock(&sun_cache.mu)
+	sun_cache.total_detect_calls += 1
+	call_idx := sun_cache.total_detect_calls
+	sync.unlock(&sun_cache.mu)
 
 	stride := max(1, int(width) / 1024)
 	max_lum: f32 = 0.0
@@ -286,8 +404,8 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		result.t_halo_ms = 0.0
 	}
 
-	log.log_debug("render.shadow", "Sun detection complete: percentile+centroid=%.2f ms, halo=%.2f ms (total=%.2f ms)",
-		result.t_detect_ms, result.t_halo_ms, result.t_detect_ms + result.t_halo_ms)
+	log.log_debug("render.shadow", "Sun detection complete (#%d): percentile+centroid=%.2f ms, halo=%.2f ms (total=%.2f ms)",
+		call_idx, result.t_detect_ms, result.t_halo_ms, result.t_detect_ms + result.t_halo_ms)
 
 	return result
 }
