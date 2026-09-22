@@ -86,11 +86,16 @@ sun_angles_to_dir :: proc(azimuth_deg, elevation_deg: f32) -> mt.Vec3 {
 }
 
 
+FP16_EXPONENT_MASK :: 0x7C00
+FP16_MANTISSA_MASK :: 0x03FF
+
 @(private)
-get_fp16_val :: proc(val_u16: u16) -> f32 {
+get_fp16_val :: #force_inline proc "contextless" (val_u16: u16) -> f32 {
+	if (val_u16 & FP16_EXPONENT_MASK) == FP16_EXPONENT_MASK {
+		if (val_u16 & FP16_MANTISSA_MASK) != 0 do return 0.0
+		return 65504.0
+	}
 	f := f32(transmute(f16)val_u16)
-	if math.is_nan(f) do return 0.0
-	if math.is_inf(f) do return 65504.0
 	return max(0.0, f)
 }
 
@@ -111,13 +116,19 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 
 	t_detect_start := time.tick_now()
 
-	total_pixels := int(width) * int(height)
+	stride := max(1, int(width) / 1024)
 	max_lum: f32 = 0.0
 	sum_lum: f64 = 0.0
+	sampled_pixels := 0
 
-	// Step 1: Scan max luminance and mean luminance
-	for y in 0 ..< int(height) {
-		for x in 0 ..< int(width) {
+	HIST_BINS :: 1024
+	LOG_MIN :: -14.0 // 2^-14 ~= 0.00006
+	LOG_MAX :: 17.0  // 2^17  = 131072
+	hist: [HIST_BINS]int
+
+	// Step 1: Scan max luminance, mean luminance, and log2 histogram in a single downsampled pass
+	for y := 0; y < int(height); y += stride {
+		for x := 0; x < int(width); x += stride {
 			idx := (y * int(width) + x) * 4
 			r := get_fp16_val(half_data[idx + 0])
 			g := get_fp16_val(half_data[idx + 1])
@@ -127,29 +138,6 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 				max_lum = lum
 			}
 			sum_lum += f64(lum)
-		}
-	}
-
-	result.peak_intensity = max_lum
-	if max_lum <= 0.001 {
-		return result
-	}
-
-	mean_lum := f32(sum_lum / f64(total_pixels))
-
-	// Step 2: Build log2 histogram for 99.99th percentile
-	HIST_BINS :: 1024
-	LOG_MIN :: -14.0 // 2^-14 ~= 0.00006
-	LOG_MAX :: 17.0  // 2^17  = 131072
-	hist: [HIST_BINS]int
-
-	for y in 0 ..< int(height) {
-		for x in 0 ..< int(width) {
-			idx := (y * int(width) + x) * 4
-			r := get_fp16_val(half_data[idx + 0])
-			g := get_fp16_val(half_data[idx + 1])
-			b := get_fp16_val(half_data[idx + 2])
-			lum := 0.2126 * r + 0.7152 * g + 0.0722 * b
 			if lum > 0.0001 {
 				log_val := math.log2(lum)
 				norm_val := (log_val - LOG_MIN) / (LOG_MAX - LOG_MIN)
@@ -158,11 +146,20 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 			} else {
 				hist[0] += 1
 			}
+			sampled_pixels += 1
 		}
 	}
 
+	result.peak_intensity = max_lum
+	if max_lum <= 0.001 || sampled_pixels == 0 {
+		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+		return result
+	}
+
+	mean_lum := f32(sum_lum / f64(sampled_pixels))
+
 	// 99.99th percentile corresponds to top 0.01% brightest pixels
-	target_top_count := max(1, int(f64(total_pixels) * 0.0001))
+	target_top_count := max(1, int(f64(sampled_pixels) * 0.0001))
 	cum_count := 0
 	threshold_bin := HIST_BINS - 1
 	for b := HIST_BINS - 1; b >= 0; b -= 1 {
@@ -179,12 +176,12 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	// Adaptative threshold: isolate high-intensity hotspot if direct sun exists
 	threshold_lum := max(threshold_p9999, max_lum * 0.10)
 
-	// Step 3: Compute luminance-weighted direction centroid
+	// Step 2: Compute luminance-weighted direction centroid
 	acc_dir := mt.Vec3{0, 0, 0}
 	conf_count: i32 = 0
 
-	for y in 0 ..< int(height) {
-		for x in 0 ..< int(width) {
+	for y := 0; y < int(height); y += stride {
+		for x := 0; x < int(width); x += stride {
 			idx := (y * int(width) + x) * 4
 			r := get_fp16_val(half_data[idx + 0])
 			g := get_fp16_val(half_data[idx + 1])

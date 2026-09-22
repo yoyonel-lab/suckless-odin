@@ -216,3 +216,82 @@ test_sun_halo_synthetic_color :: proc(t: ^testing.T) {
 	testing.expect(t, math.abs(det.sun_color.z - planted_tint.z) < 0.05,
 		fmt.tprintf("Planted B tint error: got %f, expected %f", det.sun_color.z, planted_tint.z))
 }
+
+@(test)
+test_sun_detection_cross_resolution :: proc(t: ^testing.T) {
+	// Tests sun detection consistency across resolutions:
+	// High-res: 2048x1024 (stride = 2)
+	// Base-res: 1024x512 (stride = 1)
+	// Planted sun at known azimuth=45.0 deg, elevation=35.0 deg, ~3x3 pixel disc with value 60000.0
+	// Halo around the sun.
+
+	make_synthetic_scene :: proc(w, h: i32, target_azimuth, target_elevation: f32) -> []u16 {
+		total_pixels := int(w) * int(h)
+		buffer := make([]u16, total_pixels * 4)
+
+		sun_dir := rendering.sun_angles_to_dir(target_azimuth, target_elevation)
+		sun_uv := rendering.sun_dir_to_uv(sun_dir)
+
+		center_x := int(sun_uv.x * f32(w))
+		center_y := int(sun_uv.y * f32(h))
+
+		cos_halo := math.cos(math.to_radians(f32(10.0)))
+
+		for y in 0 ..< int(h) {
+			for x in 0 ..< int(w) {
+				idx := (y * int(w) + x) * 4
+				u := (f32(x) + 0.5) / f32(w)
+				v := (f32(y) + 0.5) / f32(h)
+				dir := rendering.sun_uv_to_dir([2]f32{u, v})
+				d := glsl.dot(dir, sun_dir)
+
+				r, g, b: f32 = 0.1, 0.1, 0.1 // ambient
+				if math.abs(x - center_x) <= 1 && math.abs(y - center_y) <= 1 {
+					// 3x3 solar core
+					r, g, b = 60000.0, 60000.0, 60000.0
+				} else if d >= cos_halo {
+					// Halo
+					r, g, b = 500.0, 450.0, 350.0
+				}
+
+				buffer[idx + 0] = transmute(u16)f16(r)
+				buffer[idx + 1] = transmute(u16)f16(g)
+				buffer[idx + 2] = transmute(u16)f16(b)
+				buffer[idx + 3] = transmute(u16)f16(1.0)
+			}
+		}
+		return buffer
+	}
+
+	target_az := f32(45.0)
+	target_el := f32(35.0)
+	expected_dir := rendering.sun_angles_to_dir(target_az, target_el)
+
+	// High-res (2048x1024 -> stride=2)
+	w_high, h_high := i32(2048), i32(1024)
+	buf_high := make_synthetic_scene(w_high, h_high, target_az, target_el)
+	defer delete(buf_high)
+	det_high := rendering.sun_detect_from_fp16(raw_data(buf_high), w_high, h_high)
+
+	testing.expect(t, det_high.sun_detected, "High-res sun must be detected")
+	testing.expect(t, det_high.peak_intensity > 50000.0, "High-res peak intensity must be > 50000")
+
+	angle_err_high := math.to_degrees(math.acos(clamp(glsl.dot(det_high.direction, expected_dir), -1.0, 1.0)))
+	testing.expect(t, angle_err_high < 2.0, fmt.tprintf("High-res direction error %.2f deg must be < 2.0 deg", angle_err_high))
+
+	// Base-res (1024x512 -> stride=1)
+	w_base, h_base := i32(1024), i32(512)
+	buf_base := make_synthetic_scene(w_base, h_base, target_az, target_el)
+	defer delete(buf_base)
+	det_base := rendering.sun_detect_from_fp16(raw_data(buf_base), w_base, h_base)
+
+	testing.expect(t, det_base.sun_detected, "Base-res sun must be detected")
+	testing.expect(t, det_base.peak_intensity > 50000.0, "Base-res peak intensity must be > 50000")
+
+	angle_err_base := math.to_degrees(math.acos(clamp(glsl.dot(det_base.direction, expected_dir), -1.0, 1.0)))
+	testing.expect(t, angle_err_base < 2.0, fmt.tprintf("Base-res direction error %.2f deg must be < 2.0 deg", angle_err_base))
+
+	// Cross-resolution consistency: deviation between both must be < 2.0 deg
+	cross_dev := math.to_degrees(math.acos(clamp(glsl.dot(det_high.direction, det_base.direction), -1.0, 1.0)))
+	testing.expect(t, cross_dev < 2.0, fmt.tprintf("Cross-resolution deviation %.2f deg must be < 2.0 deg", cross_dev))
+}
