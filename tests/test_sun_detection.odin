@@ -66,44 +66,56 @@ test_sun_ortho_projection_mapping :: proc(t: ^testing.T) {
 @(test)
 test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 	Env_Test_Expectation :: struct {
-		path:           string,
-		expected_sun:   bool,
-		min_elevation:  f32,
-		max_elevation:  f32,
-		min_azimuth:    f32,
-		max_azimuth:    f32,
+		path:            string,
+		expected_sun:    bool,
+		min_elevation:   f32,
+		max_elevation:   f32,
+		min_azimuth:     f32,
+		max_azimuth:     f32,
+		expected_color:  mt.Vec3,
+		color_tolerance: f32,
 	}
 
 	expectations := [?]Env_Test_Expectation{
 		{
-			path          = "assets/textures/hdr/abandoned_garage_4k.hdr",
-			expected_sun  = false, // Indoor garage -> Fallback fixed direction
-			min_elevation = 44.9, max_elevation = 45.1,
-			min_azimuth   = 89.9, max_azimuth   = 90.1,
+			path            = "assets/textures/hdr/abandoned_garage_4k.hdr",
+			expected_sun    = false, // Indoor garage -> Fallback fixed direction & color
+			min_elevation   = 44.9, max_elevation = 45.1,
+			min_azimuth     = 89.9, max_azimuth   = 90.1,
+			expected_color  = rendering.SUN_FALLBACK_COLOR,
+			color_tolerance = 0.01,
 		},
 		{
-			path          = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
-			expected_sun  = true,  // Outdoor sun detected
-			min_elevation = 45.0, max_elevation = 65.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path            = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
+			expected_sun    = true,  // Outdoor sun detected (slightly warm daylight)
+			min_elevation   = 45.0, max_elevation = 65.0,
+			min_azimuth     = 25.0, max_azimuth   = 45.0,
+			expected_color  = mt.Vec3{1.145, 0.960, 0.970},
+			color_tolerance = 0.05,
 		},
 		{
-			path          = "assets/textures/hdr/neon_photostudio_4k.hdr",
-			expected_sun  = false, // Indoor studio -> Fallback fixed direction
-			min_elevation = 44.9, max_elevation = 45.1,
-			min_azimuth   = 89.9, max_azimuth   = 90.1,
+			path            = "assets/textures/hdr/neon_photostudio_4k.hdr",
+			expected_sun    = false, // Indoor studio -> Fallback fixed direction & color
+			min_elevation   = 44.9, max_elevation = 45.1,
+			min_azimuth     = 89.9, max_azimuth   = 90.1,
+			expected_color  = rendering.SUN_FALLBACK_COLOR,
+			color_tolerance = 0.01,
 		},
 		{
-			path          = "assets/textures/hdr/river_alcove_4k.hdr",
-			expected_sun  = true,  // Outdoor sun detected
-			min_elevation = 35.0, max_elevation = 55.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path            = "assets/textures/hdr/river_alcove_4k.hdr",
+			expected_sun    = true,  // Outdoor sun detected (neutral crisp daylight)
+			min_elevation   = 35.0, max_elevation = 55.0,
+			min_azimuth     = 25.0, max_azimuth   = 45.0,
+			expected_color  = mt.Vec3{0.991, 0.999, 1.032},
+			color_tolerance = 0.05,
 		},
 		{
-			path          = "assets/textures/hdr/small_cathedral_02_4k.hdr",
-			expected_sun  = true,  // Direct sun through cathedral window
-			min_elevation = 5.0,  max_elevation = 20.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path            = "assets/textures/hdr/small_cathedral_02_4k.hdr",
+			expected_sun    = true,  // Direct sun through window (warm golden amber)
+			min_elevation   = 5.0,  max_elevation = 20.0,
+			min_azimuth     = 25.0, max_azimuth   = 45.0,
+			expected_color  = mt.Vec3{1.514, 0.911, 0.371},
+			color_tolerance = 0.05,
 		},
 	}
 
@@ -137,5 +149,214 @@ test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 		// Check normalized direction
 		dir_len := mt.vec3_length(det.direction)
 		testing.expect(t, math.abs(dir_len - 1.0) < 1e-4, "Sun direction must be unit vector")
+
+		// Check halo chromatic tint
+		testing.expect(t, math.abs(det.sun_color.x - exp.expected_color.x) <= exp.color_tolerance,
+			fmt.tprintf("%s: sun_color.r %.3f != expected %.3f", exp.path, det.sun_color.x, exp.expected_color.x))
+		testing.expect(t, math.abs(det.sun_color.y - exp.expected_color.y) <= exp.color_tolerance,
+			fmt.tprintf("%s: sun_color.g %.3f != expected %.3f", exp.path, det.sun_color.y, exp.expected_color.y))
+		testing.expect(t, math.abs(det.sun_color.z - exp.expected_color.z) <= exp.color_tolerance,
+			fmt.tprintf("%s: sun_color.b %.3f != expected %.3f", exp.path, det.sun_color.z, exp.expected_color.z))
 	}
+}
+
+@(test)
+test_sun_halo_synthetic_color :: proc(t: ^testing.T) {
+	w: i32 = 256
+	h: i32 = 128
+	total_pixels := int(w) * int(h)
+	half_data := make([]u16, total_pixels * 4)
+	defer delete(half_data)
+
+	// Sun positioned at azimuth 0, elevation 30
+	sun_dir := rendering.sun_angles_to_dir(0.0, 30.0)
+
+	// Planted tint: Sunset orange
+	planted_raw_rgb := mt.Vec3{2500.0, 750.0, 150.0}
+	planted_lum := 0.2126 * planted_raw_rgb.x + 0.7152 * planted_raw_rgb.y + 0.0722 * planted_raw_rgb.z
+	planted_tint := planted_raw_rgb / planted_lum
+
+	cos_core := math.cos(math.to_radians(f32(2.5)))
+	cos_halo := math.cos(math.to_radians(f32(12.0)))
+
+	for y in 0 ..< int(h) {
+		for x in 0 ..< int(w) {
+			idx := (y * int(w) + x) * 4
+			u := (f32(x) + 0.5) / f32(w)
+			v := (f32(y) + 0.5) / f32(h)
+			dir := rendering.sun_uv_to_dir([2]f32{u, v})
+			d := glsl.dot(dir, sun_dir)
+
+			r, g, b: f32 = 0.5, 0.5, 0.6 // Ambient sky
+			if d >= cos_core {
+				// Clipped white solar disc
+				r, g, b = 65500.0, 65500.0, 65500.0
+			} else if d >= cos_halo {
+				// Planted colored halo
+				r = planted_raw_rgb.x
+				g = planted_raw_rgb.y
+				b = planted_raw_rgb.z
+			}
+
+			half_data[idx + 0] = transmute(u16)f16(r)
+			half_data[idx + 1] = transmute(u16)f16(g)
+			half_data[idx + 2] = transmute(u16)f16(b)
+			half_data[idx + 3] = transmute(u16)f16(1.0)
+		}
+	}
+
+	det := rendering.sun_detect_from_fp16(raw_data(half_data), w, h)
+	testing.expect(t, det.sun_detected, "Synthetic sun must be detected")
+
+	// Verify that detected sun_color extracted the planted halo tint, NOT clipped white (1,1,1)
+	testing.expect(t, math.abs(det.sun_color.x - planted_tint.x) < 0.05,
+		fmt.tprintf("Planted R tint error: got %f, expected %f", det.sun_color.x, planted_tint.x))
+	testing.expect(t, math.abs(det.sun_color.y - planted_tint.y) < 0.05,
+		fmt.tprintf("Planted G tint error: got %f, expected %f", det.sun_color.y, planted_tint.y))
+	testing.expect(t, math.abs(det.sun_color.z - planted_tint.z) < 0.05,
+		fmt.tprintf("Planted B tint error: got %f, expected %f", det.sun_color.z, planted_tint.z))
+}
+
+@(test)
+test_sun_detection_cross_resolution :: proc(t: ^testing.T) {
+	// Tests sun detection consistency across resolutions:
+	// High-res: 2048x1024 (stride = 2)
+	// Base-res: 1024x512 (stride = 1)
+	// Planted sun at known azimuth=45.0 deg, elevation=35.0 deg, ~3x3 pixel disc with value 60000.0
+	// Halo around the sun.
+
+	make_synthetic_scene :: proc(w, h: i32, target_azimuth, target_elevation: f32) -> []u16 {
+		total_pixels := int(w) * int(h)
+		buffer := make([]u16, total_pixels * 4)
+
+		sun_dir := rendering.sun_angles_to_dir(target_azimuth, target_elevation)
+		sun_uv := rendering.sun_dir_to_uv(sun_dir)
+
+		center_x := int(sun_uv.x * f32(w))
+		center_y := int(sun_uv.y * f32(h))
+
+		cos_halo := math.cos(math.to_radians(f32(10.0)))
+
+		for y in 0 ..< int(h) {
+			for x in 0 ..< int(w) {
+				idx := (y * int(w) + x) * 4
+				u := (f32(x) + 0.5) / f32(w)
+				v := (f32(y) + 0.5) / f32(h)
+				dir := rendering.sun_uv_to_dir([2]f32{u, v})
+				d := glsl.dot(dir, sun_dir)
+
+				r, g, b: f32 = 0.1, 0.1, 0.1 // ambient
+				if math.abs(x - center_x) <= 1 && math.abs(y - center_y) <= 1 {
+					// 3x3 solar core
+					r, g, b = 60000.0, 60000.0, 60000.0
+				} else if d >= cos_halo {
+					// Halo
+					r, g, b = 500.0, 450.0, 350.0
+				}
+
+				buffer[idx + 0] = transmute(u16)f16(r)
+				buffer[idx + 1] = transmute(u16)f16(g)
+				buffer[idx + 2] = transmute(u16)f16(b)
+				buffer[idx + 3] = transmute(u16)f16(1.0)
+			}
+		}
+		return buffer
+	}
+
+	target_az := f32(45.0)
+	target_el := f32(35.0)
+	expected_dir := rendering.sun_angles_to_dir(target_az, target_el)
+
+	// High-res (2048x1024 -> stride=2)
+	w_high, h_high := i32(2048), i32(1024)
+	buf_high := make_synthetic_scene(w_high, h_high, target_az, target_el)
+	defer delete(buf_high)
+	det_high := rendering.sun_detect_from_fp16(raw_data(buf_high), w_high, h_high)
+
+	testing.expect(t, det_high.sun_detected, "High-res sun must be detected")
+	testing.expect(t, det_high.peak_intensity > 50000.0, "High-res peak intensity must be > 50000")
+
+	angle_err_high := math.to_degrees(math.acos(clamp(glsl.dot(det_high.direction, expected_dir), -1.0, 1.0)))
+	testing.expect(t, angle_err_high < 2.0, fmt.tprintf("High-res direction error %.2f deg must be < 2.0 deg", angle_err_high))
+
+	// Base-res (1024x512 -> stride=1)
+	w_base, h_base := i32(1024), i32(512)
+	buf_base := make_synthetic_scene(w_base, h_base, target_az, target_el)
+	defer delete(buf_base)
+	det_base := rendering.sun_detect_from_fp16(raw_data(buf_base), w_base, h_base)
+
+	testing.expect(t, det_base.sun_detected, "Base-res sun must be detected")
+	testing.expect(t, det_base.peak_intensity > 50000.0, "Base-res peak intensity must be > 50000")
+
+	angle_err_base := math.to_degrees(math.acos(clamp(glsl.dot(det_base.direction, expected_dir), -1.0, 1.0)))
+	testing.expect(t, angle_err_base < 2.0, fmt.tprintf("Base-res direction error %.2f deg must be < 2.0 deg", angle_err_base))
+
+	// Cross-resolution consistency: deviation between both must be < 2.0 deg
+	cross_dev := math.to_degrees(math.acos(clamp(glsl.dot(det_high.direction, det_base.direction), -1.0, 1.0)))
+	testing.expect(t, cross_dev < 2.0, fmt.tprintf("Cross-resolution deviation %.2f deg must be < 2.0 deg", cross_dev))
+}
+
+@(test)
+test_sun_detection_cache_contract :: proc(t: ^testing.T) {
+	rendering.sun_cache_clear()
+
+	fake_fp16 := [4]u16{0, 0, 0, 0}
+	env_a := "assets/textures/hdr/abandoned_garage_4k.hdr"
+	env_b := "assets/textures/hdr/cedar_bridge_2_4k.hdr"
+	env_c := "assets/textures/hdr/river_alcove_4k.hdr"
+
+	// 1. Initial lookups -> must be cache misses
+	_, ok_a := rendering.sun_cache_get(env_a)
+	testing.expect(t, !ok_a, "env_a must initially not be in cache")
+
+	// Calculate and store for env_a
+	det_a := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_a, det_a, 1000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 1)
+
+	// 2. Load env_b -> miss, calculate and store
+	det_b := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_b, det_b, 2000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 2)
+
+	// 3. Load env_c -> miss, calculate and store
+	det_c := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_c, det_c, 3000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 3)
+
+	// Revisit envmaps in cycle (3 switches: env_a, env_b, env_c):
+	// All must be CACHE HITS, exactly ZERO additional detections!
+	_, hit_a := rendering.sun_cache_get(env_a, 1000)
+	testing.expect(t, hit_a, "env_a must hit cache on revisit")
+	if !hit_a {
+		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	}
+
+	_, hit_b := rendering.sun_cache_get(env_b, 2000)
+	testing.expect(t, hit_b, "env_b must hit cache on revisit")
+	if !hit_b {
+		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	}
+
+	_, hit_c := rendering.sun_cache_get(env_c, 3000)
+	testing.expect(t, hit_c, "env_c must hit cache on revisit")
+	if !hit_c {
+		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	}
+
+	// Assert: total detection count remains strictly 3 across all 6 envmap loads!
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 3)
+
+	// 4. Test explicit invalidation ("Re-detect Sun" button in UI)
+	rendering.sun_cache_invalidate(env_b)
+	_, hit_b_after_inval := rendering.sun_cache_get(env_b, 2000)
+	testing.expect(t, !hit_b_after_inval, "env_b must miss cache after explicit invalidation")
+
+	det_b2 := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	rendering.sun_cache_put(env_b, det_b2, 2000)
+	testing.expect_value(t, rendering.sun_cache_get_call_count(), 4)
+
+	// 5. Test file size change (re-detection on modified file)
+	_, hit_c_modified := rendering.sun_cache_get(env_c, 9999) // different file size
+	testing.expect(t, !hit_c_modified, "env_c must miss cache if file size changed")
 }

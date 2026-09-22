@@ -2,6 +2,8 @@ package rendering
 
 import "core:math"
 import "core:math/linalg/glsl"
+import "core:sync"
+import "core:time"
 import gl "vendor:OpenGL"
 
 import dbg "../core/gl_debug"
@@ -29,12 +31,135 @@ Sun_Detection :: struct {
 	peak_intensity: f32,
 	confidence:     i32,
 	sun_detected:   bool,
+	sun_color:      mt.Vec3, // Detected or fallback normalized sun halo tint (luminance = 1.0)
+	t_detect_ms:    f64,     // Percentile + centroid detection elapsed ms
+	t_halo_ms:      f64,     // Halo sampling elapsed ms
+	from_cache:     bool,    // True if retrieved from cache (zero detect time)
+}
+
+// ─── Sun Detection In-Memory Cache (Contract: Exactly Once per Envmap) ─────
+
+Sun_Cache_Entry :: struct {
+	path:        [256]u8,
+	path_len:    int,
+	file_size:   i64,
+	detection:   Sun_Detection,
+	valid:       bool,
+}
+
+MAX_SUN_CACHE_ENTRIES :: 64
+
+Sun_Detection_Cache :: struct {
+	mu:                 sync.Mutex,
+	entries:            [MAX_SUN_CACHE_ENTRIES]Sun_Cache_Entry,
+	count:              int,
+	generation:         u64,          // Increment on every invalidate
+	total_detect_calls: int,
+}
+
+sun_cache: Sun_Detection_Cache
+
+sun_cache_get :: proc(path: string, file_size: i64 = 0) -> (Sun_Detection, bool) {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	for i in 0 ..< sun_cache.count {
+		entry := &sun_cache.entries[i]
+		if entry.valid && string(entry.path[:entry.path_len]) == path {
+			if file_size > 0 && entry.file_size > 0 && entry.file_size != file_size {
+				return {}, false
+			}
+			return entry.detection, true
+		}
+	}
+	return {}, false
+}
+
+sun_cache_put :: proc(path: string, detection: Sun_Detection, file_size: i64 = 0) {
+	if len(path) > 255 {
+		log.log_warning("render.shadow", "Sun cache key exceeds maximum length (255): %s", path)
+		return
+	}
+
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	for i in 0 ..< sun_cache.count {
+		entry := &sun_cache.entries[i]
+		if entry.valid && string(entry.path[:entry.path_len]) == path {
+			entry.detection = detection
+			entry.file_size = file_size
+			return
+		}
+	}
+
+	if sun_cache.count >= MAX_SUN_CACHE_ENTRIES {
+		log.log_warning("render.shadow", "Sun detection cache is full (%d entries), ignoring insertion for '%s'",
+			MAX_SUN_CACHE_ENTRIES, path)
+		return
+	}
+
+	idx := sun_cache.count
+	entry := &sun_cache.entries[idx]
+	copy(entry.path[:len(path)], path)
+	entry.path[len(path)] = 0
+	entry.path_len = len(path)
+	entry.file_size = file_size
+	entry.detection = detection
+	entry.valid = true
+	sun_cache.count += 1
+}
+
+sun_cache_invalidate :: proc(path: string) {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	sun_cache.generation += 1
+	for i in 0 ..< sun_cache.count {
+		entry := &sun_cache.entries[i]
+		if entry.valid && string(entry.path[:entry.path_len]) == path {
+			entry.valid = false
+			log.log_info("render.shadow", "Sun detection cache invalidated for '%s'", path)
+			return
+		}
+	}
+}
+
+sun_cache_clear :: proc() {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+
+	sun_cache.count = 0
+	sun_cache.generation += 1
+	sun_cache.total_detect_calls = 0
+	for i in 0 ..< MAX_SUN_CACHE_ENTRIES {
+		sun_cache.entries[i].valid = false
+	}
+}
+
+sun_cache_get_call_count :: proc() -> int {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+	return sun_cache.total_detect_calls
+}
+
+sun_cache_generation :: proc() -> u64 {
+	sync.lock(&sun_cache.mu)
+	defer sync.unlock(&sun_cache.mu)
+	return sun_cache.generation
 }
 
 // Fallback fixed direction: 45 deg elevation, south (+Z)
 SUN_FALLBACK_DIRECTION :: mt.Vec3{0.0, 0.70710678, 0.70710678}
 SUN_FALLBACK_AZIMUTH   :: 90.0
 SUN_FALLBACK_ELEVATION :: 45.0
+// Fallback fixed neutral-warm sun color (legacy baseline default)
+SUN_FALLBACK_COLOR     :: mt.Vec3{1.0, 0.95, 0.85}
+
+// Sun halo sampling parameters for chromatic tint extraction
+SUN_HALO_RADIUS_DEG     :: 18.0
+SUN_HALO_SATURATION_MAX :: 20000.0
+SUN_HALO_CHANNEL_MAX    :: 65000.0
 
 // Convert UV to equirectangular world direction (equivalent to shader uvToDir)
 sun_uv_to_dir :: proc(uv: [2]f32) -> mt.Vec3 {
@@ -74,11 +199,16 @@ sun_angles_to_dir :: proc(azimuth_deg, elevation_deg: f32) -> mt.Vec3 {
 }
 
 
+FP16_EXPONENT_MASK :: 0x7C00
+FP16_MANTISSA_MASK :: 0x03FF
+
 @(private)
-get_fp16_val :: proc(val_u16: u16) -> f32 {
+get_fp16_val :: #force_inline proc "contextless" (val_u16: u16) -> f32 {
+	if (val_u16 & FP16_EXPONENT_MASK) == FP16_EXPONENT_MASK {
+		if (val_u16 & FP16_MANTISSA_MASK) != 0 do return 0.0
+		return 65504.0
+	}
 	f := f32(transmute(f16)val_u16)
-	if math.is_nan(f) do return 0.0
-	if math.is_inf(f) do return 65504.0
 	return max(0.0, f)
 }
 
@@ -91,18 +221,32 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	result.peak_intensity = 0.0
 	result.confidence = 0
 	result.sun_detected = false
+	result.sun_color = SUN_FALLBACK_COLOR
 
 	if half_data == nil || width <= 0 || height <= 0 {
 		return result
 	}
 
-	total_pixels := int(width) * int(height)
+	t_detect_start := time.tick_now()
+
+	sync.lock(&sun_cache.mu)
+	sun_cache.total_detect_calls += 1
+	call_idx := sun_cache.total_detect_calls
+	sync.unlock(&sun_cache.mu)
+
+	stride := 1 // full-res: strided sampling écarté (déviation e2e cedar_bridge)
 	max_lum: f32 = 0.0
 	sum_lum: f64 = 0.0
+	sampled_pixels := 0
 
-	// Step 1: Scan max luminance and mean luminance
-	for y in 0 ..< int(height) {
-		for x in 0 ..< int(width) {
+	HIST_BINS :: 1024
+	LOG_MIN :: -14.0 // 2^-14 ~= 0.00006
+	LOG_MAX :: 17.0  // 2^17  = 131072
+	hist: [HIST_BINS]int
+
+	// Step 1: Scan max luminance, mean luminance, and log2 histogram in a single downsampled pass
+	for y := 0; y < int(height); y += stride {
+		for x := 0; x < int(width); x += stride {
 			idx := (y * int(width) + x) * 4
 			r := get_fp16_val(half_data[idx + 0])
 			g := get_fp16_val(half_data[idx + 1])
@@ -112,29 +256,6 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 				max_lum = lum
 			}
 			sum_lum += f64(lum)
-		}
-	}
-
-	result.peak_intensity = max_lum
-	if max_lum <= 0.001 {
-		return result
-	}
-
-	mean_lum := f32(sum_lum / f64(total_pixels))
-
-	// Step 2: Build log2 histogram for 99.99th percentile
-	HIST_BINS :: 1024
-	LOG_MIN :: -14.0 // 2^-14 ~= 0.00006
-	LOG_MAX :: 17.0  // 2^17  = 131072
-	hist: [HIST_BINS]int
-
-	for y in 0 ..< int(height) {
-		for x in 0 ..< int(width) {
-			idx := (y * int(width) + x) * 4
-			r := get_fp16_val(half_data[idx + 0])
-			g := get_fp16_val(half_data[idx + 1])
-			b := get_fp16_val(half_data[idx + 2])
-			lum := 0.2126 * r + 0.7152 * g + 0.0722 * b
 			if lum > 0.0001 {
 				log_val := math.log2(lum)
 				norm_val := (log_val - LOG_MIN) / (LOG_MAX - LOG_MIN)
@@ -143,11 +264,20 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 			} else {
 				hist[0] += 1
 			}
+			sampled_pixels += 1
 		}
 	}
 
+	result.peak_intensity = max_lum
+	if max_lum <= 0.001 || sampled_pixels == 0 {
+		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+		return result
+	}
+
+	mean_lum := f32(sum_lum / f64(sampled_pixels))
+
 	// 99.99th percentile corresponds to top 0.01% brightest pixels
-	target_top_count := max(1, int(f64(total_pixels) * 0.0001))
+	target_top_count := max(1, int(f64(sampled_pixels) * 0.0001))
 	cum_count := 0
 	threshold_bin := HIST_BINS - 1
 	for b := HIST_BINS - 1; b >= 0; b -= 1 {
@@ -164,12 +294,12 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	// Adaptative threshold: isolate high-intensity hotspot if direct sun exists
 	threshold_lum := max(threshold_p9999, max_lum * 0.10)
 
-	// Step 3: Compute luminance-weighted direction centroid
+	// Step 2: Compute luminance-weighted direction centroid
 	acc_dir := mt.Vec3{0, 0, 0}
 	conf_count: i32 = 0
 
-	for y in 0 ..< int(height) {
-		for x in 0 ..< int(width) {
+	for y := 0; y < int(height); y += stride {
+		for x := 0; x < int(width); x += stride {
 			idx := (y * int(width) + x) * 4
 			r := get_fp16_val(half_data[idx + 0])
 			g := get_fp16_val(half_data[idx + 1])
@@ -210,13 +340,72 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		result.azimuth = raw_azimuth
 		result.elevation = raw_elevation
 		result.sun_detected = true
+		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+
+		// Halo sampling: sample non-saturated pixels within angular cone of sun direction
+		// to extract genuine chromatic tint of the sun halo.
+		t_halo_start := time.tick_now()
+		cos_halo_radius := math.cos(math.to_radians(f32(SUN_HALO_RADIUS_DEG)))
+		halo_acc_rgb := mt.Vec3{0, 0, 0}
+		halo_sum_weight: f64 = 0.0
+
+		cand_uv := sun_dir_to_uv(cand_dir)
+		delta_v := f32(SUN_HALO_RADIUS_DEG) / 180.0
+		y_min := clamp(int((cand_uv.y - delta_v) * f32(height)) - 1, 0, int(height) - 1)
+		y_max := clamp(int((cand_uv.y + delta_v) * f32(height)) + 1, 0, int(height) - 1)
+
+		min_halo_lum := max(f32(10.0), max_lum * 0.0005)
+
+		for y in y_min ..= y_max {
+			for x in 0 ..< int(width) {
+				idx := (y * int(width) + x) * 4
+				r := get_fp16_val(half_data[idx + 0])
+				g := get_fp16_val(half_data[idx + 1])
+				b := get_fp16_val(half_data[idx + 2])
+				lum := 0.2126 * r + 0.7152 * g + 0.0722 * b
+				if lum >= min_halo_lum && lum <= SUN_HALO_SATURATION_MAX &&
+				   r < SUN_HALO_CHANNEL_MAX && g < SUN_HALO_CHANNEL_MAX && b < SUN_HALO_CHANNEL_MAX {
+					u := (f32(x) + 0.5) / f32(width)
+					v := (f32(y) + 0.5) / f32(height)
+					dir := sun_uv_to_dir([2]f32{u, v})
+					if glsl.dot(dir, cand_dir) >= cos_halo_radius {
+						halo_acc_rgb += mt.Vec3{r, g, b} * lum
+						halo_sum_weight += f64(lum)
+					}
+				}
+			}
+		}
+
+		if halo_sum_weight > 0.0 {
+			avg_rgb := halo_acc_rgb / f32(halo_sum_weight)
+			avg_lum := 0.2126 * avg_rgb.x + 0.7152 * avg_rgb.y + 0.0722 * avg_rgb.z
+			if avg_lum > 1e-4 {
+				pure_tint := avg_rgb / avg_lum
+				result.sun_color = mt.Vec3{
+					clamp(pure_tint.x, 0.0, 3.0),
+					clamp(pure_tint.y, 0.0, 3.0),
+					clamp(pure_tint.z, 0.0, 3.0),
+				}
+			} else {
+				result.sun_color = SUN_FALLBACK_COLOR
+			}
+		} else {
+			result.sun_color = SUN_FALLBACK_COLOR
+		}
+		result.t_halo_ms = time.duration_milliseconds(time.tick_since(t_halo_start))
 	} else {
 		// Indoor/diffuse envmap fallback
 		result.direction = SUN_FALLBACK_DIRECTION
 		result.azimuth = SUN_FALLBACK_AZIMUTH
 		result.elevation = SUN_FALLBACK_ELEVATION
 		result.sun_detected = false
+		result.sun_color = SUN_FALLBACK_COLOR
+		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+		result.t_halo_ms = 0.0
 	}
+
+	log.log_debug("render.shadow", "Sun detection complete (#%d): percentile+centroid=%.2f ms, halo=%.2f ms (total=%.2f ms)",
+		call_idx, result.t_detect_ms, result.t_halo_ms, result.t_detect_ms + result.t_halo_ms)
 
 	return result
 }

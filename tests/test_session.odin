@@ -84,6 +84,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 		light_mode             = 1,
 		sun_intensity          = 1.8,
 		sun_intensity_auto     = true,
+		sun_color              = mt.Vec3{1.2, 0.9, 0.6},
+		sun_color_auto         = true,
 		max_ray_distance       = 80.0,
 		sun_azimuth            = 120.0,
 		sun_elevation          = 35.0,
@@ -233,6 +235,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.light_mode, 1)
 	testing.expect_value(t, loaded_state.volumetric.sun_intensity, f32(1.8))
 	testing.expect_value(t, loaded_state.volumetric.sun_intensity_auto, true)
+	testing.expect_value(t, loaded_state.volumetric.sun_color, mt.Vec3{1.2, 0.9, 0.6})
+	testing.expect_value(t, loaded_state.volumetric.sun_color_auto, true)
 	testing.expect_value(t, loaded_state.volumetric.max_ray_distance, f32(80.0))
 	testing.expect_value(t, loaded_state.volumetric.sun_azimuth, f32(120.0))
 	testing.expect_value(t, loaded_state.volumetric.sun_elevation, f32(35.0))
