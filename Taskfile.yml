@@ -287,6 +287,18 @@ tasks:
       - chmod +x scripts/test_smoke_ui_ibl.sh
       - ./scripts/test_smoke_ui_ibl.sh ./{{.BUILD_BASE}}/release/suckless-odin
 
+  check-ibl-perf:
+    desc: Regression guard on IBL initialization latency (fails if init > baseline + 20%)
+    deps: [build-release]
+    cmds:
+      - python3 scripts/check_ibl_init_perf.py {{.CLI_ARGS}}
+
+  check-win-ibl-perf:
+    desc: Regression guard on Windows IBL initialization latency under Wine (fails if init > baseline + 20%)
+    deps: [build-win-release]
+    cmds:
+      - python3 scripts/check_ibl_init_perf.py --win {{.CLI_ARGS}}
+
   record-shadow-debug:
     desc: Generate HD screen recordings and comparison captures for Shadow Debug modes
     cmds:
