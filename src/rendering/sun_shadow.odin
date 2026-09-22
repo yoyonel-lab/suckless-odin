@@ -2,6 +2,7 @@ package rendering
 
 import "core:math"
 import "core:math/linalg/glsl"
+import "core:time"
 import gl "vendor:OpenGL"
 
 import dbg "../core/gl_debug"
@@ -30,6 +31,9 @@ Sun_Detection :: struct {
 	confidence:     i32,
 	sun_detected:   bool,
 	sun_color:      mt.Vec3, // Detected or fallback normalized sun halo tint (luminance = 1.0)
+	t_detect_ms:    f64,     // Percentile + centroid detection elapsed ms
+	t_halo_ms:      f64,     // Halo sampling elapsed ms
+	from_cache:     bool,    // True if retrieved from cache (zero detect time)
 }
 
 // Fallback fixed direction: 45 deg elevation, south (+Z)
@@ -104,6 +108,8 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	if half_data == nil || width <= 0 || height <= 0 {
 		return result
 	}
+
+	t_detect_start := time.tick_now()
 
 	total_pixels := int(width) * int(height)
 	max_lum: f32 = 0.0
@@ -219,9 +225,11 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		result.azimuth = raw_azimuth
 		result.elevation = raw_elevation
 		result.sun_detected = true
+		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
 
 		// Halo sampling: sample non-saturated pixels within angular cone of sun direction
 		// to extract genuine chromatic tint of the sun halo.
+		t_halo_start := time.tick_now()
 		cos_halo_radius := math.cos(math.to_radians(f32(SUN_HALO_RADIUS_DEG)))
 		halo_acc_rgb := mt.Vec3{0, 0, 0}
 		halo_sum_weight: f64 = 0.0
@@ -269,6 +277,7 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		} else {
 			result.sun_color = SUN_FALLBACK_COLOR
 		}
+		result.t_halo_ms = time.duration_milliseconds(time.tick_since(t_halo_start))
 	} else {
 		// Indoor/diffuse envmap fallback
 		result.direction = SUN_FALLBACK_DIRECTION
@@ -276,7 +285,12 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		result.elevation = SUN_FALLBACK_ELEVATION
 		result.sun_detected = false
 		result.sun_color = SUN_FALLBACK_COLOR
+		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+		result.t_halo_ms = 0.0
 	}
+
+	log.log_debug("render.shadow", "Sun detection complete: percentile+centroid=%.2f ms, halo=%.2f ms (total=%.2f ms)",
+		result.t_detect_ms, result.t_halo_ms, result.t_detect_ms + result.t_halo_ms)
 
 	return result
 }

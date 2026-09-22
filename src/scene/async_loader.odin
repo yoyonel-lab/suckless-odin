@@ -15,6 +15,7 @@ import "core:c/libc"
 import "core:fmt"
 import "core:sync"
 import "core:thread"
+import "core:time"
 
 import stbi "vendor:stb/image"
 
@@ -50,6 +51,7 @@ Async_Request :: struct {
 	height:        i32,
 	channels:      i32,
 	sun_detection: rendering.Sun_Detection,
+	t_decode_ms:   f64,                // HDR read + decode elapsed ms
 	state:         Async_State,
 }
 
@@ -262,6 +264,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 		tracy.message_c(fmt.tprintf("Loading HDR: %s", path_cstr), tracy.COLOR_IO_DECODE)
 
 		path_str := string(path_cstr)
+		t_decode_start := time.tick_now()
 		mf, map_ok := map_or_read_file(path_str, path_cstr)
 
 		w, h: i32
@@ -315,6 +318,8 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 		}
 
 		tracy.zone_end(zone)
+		t_decode_ms := time.duration_milliseconds(time.tick_since(t_decode_start))
+		log.log_debug("scene.async", "HDR decode complete: %.2f ms (%dx%d)", t_decode_ms, w, h)
 
 		sun_detection: rendering.Sun_Detection
 		if half_data != nil {
@@ -342,6 +347,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			loader.request.height = i32(h)
 			loader.request.channels = 4
 			loader.request.sun_detection = sun_detection
+			loader.request.t_decode_ms = t_decode_ms
 			loader.request.state = .Ready
 			tracy.async_status_transition(.Ready)
 			tracy.message_c(fmt.tprintf("Loaded: %s (%dx%d, FP16)", path_cstr, w, h), tracy.COLOR_IO_READY)
