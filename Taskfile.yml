@@ -435,7 +435,7 @@ tasks:
   serve-docs:
     desc: Launch local MkDocs documentation server with Material theme, GLightbox, and hot-reload
     vars:
-      DOCS_PORT: '{{.DOCS_PORT | default 8080}}'
+      DOCS_PORT: '{{.DOCS_PORT | default 8085}}'
     cmds:
       - echo "==> Launching MkDocs Material server on http://localhost:{{.DOCS_PORT}} ..."
       - uvx --with mkdocs-material --with mkdocs-glightbox mkdocs serve -a 0.0.0.0:{{.DOCS_PORT}}
