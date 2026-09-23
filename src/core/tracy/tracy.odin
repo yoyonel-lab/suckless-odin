@@ -71,6 +71,16 @@ when TRACY_ENABLE {
 		tracy_gpu_screenshot :: proc(data: rawptr, w, h: u16) ---
 		tracy_gpu_zone_begin :: proc(name, function, file: cstring, line, color: u32) -> rawptr ---
 		tracy_gpu_zone_end :: proc(ctx: rawptr) ---
+
+		___tracy_connected :: proc() -> i32 ---
+	}
+}
+
+is_connected :: #force_inline proc() -> bool {
+	when TRACY_ENABLE {
+		return ___tracy_connected() != 0
+	} else {
+		return false
 	}
 }
 

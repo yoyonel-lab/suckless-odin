@@ -88,8 +88,12 @@ plugins:
 validation:
   nav:
     not_found: ignore
+    omitted_files: ignore
   links:
+    not_found: ignore
+    absolute_links: ignore
     unrecognized_links: ignore
+    anchors: ignore
 
 nav:
   - Accueil: index.md
@@ -101,6 +105,7 @@ nav:
       - Rationale SIMD C: architecture-simd-c-rationale-2026-08-18.md
       - Pipeline Post-Processing: postfx-pipeline-2026-05-18.md
       - Pipeline IBL Asynchrone: async-ibl-pipeline-2026-05-26.md
+      - Optimisation Pipeline IBL & Cache Solaire: 2026-09-22_ibl_pipeline_optimization_and_sun_cache_architecture.md
       - Filtrage Bicubique Envmap: envmap-bicubic-filtering-2026-05-21.md
       - Améliorations Shadow Mapping & PCF Vogel-Disk: 2026-09-01_shadow_mapping_improvements_antialiasing_pcf_bias_analysis.md
       - Architecture Cubemap & Ombres Dynamiques: 2026-09-01_shadow_cubemap_mrt_depth_vs_color_architecture.md

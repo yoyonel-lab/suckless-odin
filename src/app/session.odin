@@ -102,6 +102,9 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			shadows_enabled        = s.volumetric.params.shadows_enabled,
 			light_mode             = i32(s.volumetric.params.light_mode),
 			sun_intensity          = s.volumetric.params.sun_intensity,
+			sun_intensity_auto     = s.volumetric.params.sun_intensity_auto,
+			sun_color              = s.volumetric.params.sun_color,
+			sun_color_auto         = s.volumetric.params.sun_color_auto,
 			max_ray_distance       = s.volumetric.params.max_ray_distance,
 			sun_azimuth            = s.sun_shadow.detection.azimuth,
 			sun_elevation          = s.sun_shadow.detection.elevation,
@@ -297,10 +300,16 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.volumetric.params.isolate_in_scene       = state.volumetric.isolate_in_scene
 		s.volumetric.params.shadows_enabled        = state.volumetric.shadows_enabled
 		s.volumetric.params.light_mode             = rendering.Volumetric_Light_Mode(state.volumetric.light_mode)
-		if state.volumetric.sun_intensity > 0 {
-			s.volumetric.params.sun_intensity      = state.volumetric.sun_intensity
+		if state.volumetric.sun_intensity > 0.0 {
+			s.volumetric.params.sun_intensity = state.volumetric.sun_intensity
 		}
-		if state.volumetric.max_ray_distance > 0 {
+		s.volumetric.params.sun_intensity_auto     = state.volumetric.sun_intensity_auto
+		if state.volumetric.sun_color != {} {
+			s.volumetric.params.sun_color          = state.volumetric.sun_color
+		}
+		s.volumetric.params.sun_color_auto         = state.volumetric.sun_color_auto
+		rendering.volumetric_update_sun_detection(&s.volumetric, s.sun_shadow.detection)
+		if state.volumetric.max_ray_distance > 0.0 {
 			s.volumetric.params.max_ray_distance   = state.volumetric.max_ray_distance
 		}
 		if !s.sun_shadow.detection.sun_detected {

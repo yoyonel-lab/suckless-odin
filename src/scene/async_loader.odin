@@ -15,6 +15,7 @@ import "core:c/libc"
 import "core:fmt"
 import "core:sync"
 import "core:thread"
+import "core:time"
 
 import stbi "vendor:stb/image"
 
@@ -50,6 +51,8 @@ Async_Request :: struct {
 	height:        i32,
 	channels:      i32,
 	sun_detection: rendering.Sun_Detection,
+	sun_timing:    rendering.Sun_Detect_Timing,
+	t_decode_ms:   f64,                // HDR read + decode elapsed ms
 	state:         Async_State,
 }
 
@@ -262,6 +265,7 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 		tracy.message_c(fmt.tprintf("Loading HDR: %s", path_cstr), tracy.COLOR_IO_DECODE)
 
 		path_str := string(path_cstr)
+		t_decode_start := time.tick_now()
 		mf, map_ok := map_or_read_file(path_str, path_cstr)
 
 		w, h: i32
@@ -315,8 +319,11 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 		}
 
 		tracy.zone_end(zone)
+		t_decode_ms := time.duration_milliseconds(time.tick_since(t_decode_start))
+		log.log_debug("scene.async", "HDR decode complete: %.2f ms (%dx%d)", t_decode_ms, w, h)
 
 		sun_detection: rendering.Sun_Detection
+		sun_timing: rendering.Sun_Detect_Timing
 		if half_data != nil {
 			tracy.async_status_transition(.Convert)
 			conv_zone := tracy.zone_begin(&float_half_convert_loc)
@@ -325,7 +332,25 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			tracy.message_c(fmt.tprintf("Direct Decoded HDR->FP16: %dx%d (%d KB)",
 				w, h, pixel_count * 2 / 1024), tracy.COLOR_IO_CONVERT)
 
-			sun_detection = rendering.sun_detect_from_fp16(half_data, w, h)
+			cached_det, has_cached := rendering.sun_cache_get(path_str, i64(mf.size))
+			if has_cached {
+				sun_detection = cached_det
+				sun_detection.from_cache = true
+				sun_timing.t_detect_ms = 0.0
+				sun_timing.t_halo_ms = 0.0
+				log.log_debug("render.shadow", "Sun detection CACHE HIT for '%s' (call count: %d)",
+					path_str, rendering.sun_cache_get_call_count())
+			} else {
+				gen0 := rendering.sun_cache_generation()
+				sun_detection, sun_timing = rendering.sun_detect_from_fp16(half_data, w, h)
+				if rendering.sun_cache_generation() == gen0 {
+					rendering.sun_cache_put(path_str, sun_detection, i64(mf.size))
+					log.log_debug("render.shadow", "Sun detection CACHE MISS for '%s' — calculated (call count: %d)",
+						path_str, rendering.sun_cache_get_call_count())
+				} else {
+					log.log_debug("render.shadow", "Sun detection discarded (invalidated during compute)")
+				}
+			}
 		}
 
 		// Re-acquire mutex to update state
@@ -342,6 +367,8 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			loader.request.height = i32(h)
 			loader.request.channels = 4
 			loader.request.sun_detection = sun_detection
+			loader.request.sun_timing = sun_timing
+			loader.request.t_decode_ms = t_decode_ms
 			loader.request.state = .Ready
 			tracy.async_status_transition(.Ready)
 			tracy.message_c(fmt.tprintf("Loaded: %s (%dx%d, FP16)", path_cstr, w, h), tracy.COLOR_IO_READY)

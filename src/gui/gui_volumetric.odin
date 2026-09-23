@@ -4,7 +4,23 @@ import "core:fmt"
 import "core:math"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
+import log "../core/log"
 import mt "../core/math_types"
+
+@(private)
+gui_redetect_sun :: proc(state: Scene_State) {
+	if state.current_hdr_index == nil || len(state.hdr_files) == 0 do return
+	idx := state.current_hdr_index^
+	if idx < 0 || idx >= i32(len(state.hdr_files)) do return
+	path := state.hdr_files[idx]
+	rendering.sun_cache_invalidate(path)
+	if state.change_env != nil && state.scene_ptr != nil {
+		ok := state.change_env(state.scene_ptr, path)
+		if !ok {
+			log.log_warning("render.volumetric", "Re-detect Sun ignored: transition in progress")
+		}
+	}
+}
 
 // Dedicated Dear ImGui panel for Volumetric Lighting (Phases 2 to 7)
 draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
@@ -90,10 +106,57 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback Direction (Manual / Fixed)"
 					status_col := imgui.Vec4{0.2, 1.0, 0.3, 1.0} if det.sun_detected else imgui.Vec4{0.9, 0.7, 0.3, 1.0}
 					imgui.TextColored(status_col, "Status: %s", status_str)
+					imgui.SameLine()
+					if imgui.SmallButton("Re-detect Sun##redetect_sun") {
+						gui_redetect_sun(state)
+					}
 					imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
 						det.azimuth, det.elevation, det.confidence, det.peak_intensity)
 
+					if vr.params.sun_intensity_auto {
+						if det.sun_detected {
+							imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Auto-Scale: %.3fx (L_ref %.0f / Peak %.1f)",
+								vr.params.sun_auto_scale, rendering.VOLUMETRIC_SUN_L_REF, det.peak_intensity)
+						} else {
+							imgui.TextColored({0.9, 0.7, 0.3, 1.0}, "Auto-Scale: %.2fx (Fallback fixed — direct sun not detected)",
+								vr.params.sun_auto_scale)
+						}
+					}
+
 					imgui.SliderFloat("Sun Volumetric Intensity", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
+
+					// Sun Halo Tint & Manual Override
+					imgui.Spacing()
+					imgui.Text("Sun Light Tint:")
+					imgui.SameLine()
+					max_c := max(det.sun_color.x, det.sun_color.y, det.sun_color.z, 1.0)
+					swatch := imgui.Vec4{det.sun_color.x / max_c, det.sun_color.y / max_c, det.sun_color.z / max_c, 1.0}
+					imgui.ColorButton("##detected_sun_swatch", swatch, {.NoTooltip}, imgui.Vec2{20, 20})
+					imgui.SameLine()
+					if vr.params.sun_color_auto {
+						imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Auto (R=%.2f G=%.2f B=%.2f)",
+							det.sun_color.x, det.sun_color.y, det.sun_color.z)
+					} else {
+						imgui.TextColored({0.9, 0.7, 0.3, 1.0}, "Manual Override")
+					}
+
+					sun_col_arr := [3]f32{vr.params.sun_color.x, vr.params.sun_color.y, vr.params.sun_color.z}
+					if imgui.ColorEdit3("Sun Color##sun_color_picker", &sun_col_arr) {
+						vr.params.sun_color = mt.Vec3{sun_col_arr[0], sun_col_arr[1], sun_col_arr[2]}
+						vr.params.sun_color_auto = false
+					}
+					imgui.SameLine()
+					if imgui.Checkbox("Auto##sun_auto_color", &vr.params.sun_color_auto) {
+						if vr.params.sun_color_auto {
+							vr.params.sun_color = det.sun_color
+						}
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##sun_color_reset") {
+						vr.params.sun_color_auto = true
+						vr.params.sun_color = det.sun_color
+					}
+
 					imgui.SliderFloat("Max Ray Distance", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
 
 					if !det.sun_detected {
@@ -137,11 +200,25 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			if imgui.SliderFloat("Anisotropy (g)", &g_val, -0.90, 0.90, "%.2f") {
 				rendering.volumetric_set_anisotropy(vr, light, g_val)
 			}
-			imgui.SliderFloat("Intensity Multiplier", &vr.params.intensity_mult, 0.0, 10.0, "%.2f")
+			eff_int := rendering.volumetric_get_effective_intensity(vr)
+			slider_val := eff_int
+			if imgui.SliderFloat("Intensity Multiplier", &slider_val, 0.0, 10.0, "%.2f") {
+				vr.params.intensity_mult = slider_val
+				if vr.params.light_mode == .Sun_Directional {
+					vr.params.sun_intensity_auto = false
+				}
+			}
 			imgui.SameLine()
+			if vr.params.light_mode == .Sun_Directional {
+				imgui.Checkbox("Auto##sun_auto_intensity", &vr.params.sun_intensity_auto)
+				imgui.SameLine()
+			}
 			def_int := rendering.volumetric_get_default_intensity(vr.params.light_mode)
 			if imgui.Button("Reset##intensity") {
 				vr.params.intensity_mult = def_int
+				if vr.params.light_mode == .Sun_Directional {
+					vr.params.sun_intensity_auto = true
+				}
 			}
 			imgui.Checkbox("Volumetric Shadows (God Rays)", &vr.params.shadows_enabled)
 			imgui.SameLine()
@@ -504,9 +581,12 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		}
 		match_count += 1
 	}
-	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override") {
+	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override redetect re-detect") {
 		ss := state.sun_shadow
 		det := &ss.detection
+		if imgui.SmallButton("Re-detect Sun##filt_redetect_sun") {
+			gui_redetect_sun(state)
+		}
 		imgui.SliderFloat("Sun Volumetric Intensity##filt", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
 		imgui.SliderFloat("Max Ray Distance##filt", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
 		if !det.sun_detected {
@@ -526,17 +606,64 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		}
 		match_count += 1
 	}
+	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Light Tint Color", "sun color tint halo light chromaticity volumetric auto") {
+		det := &state.sun_shadow.detection
+		imgui.Text("Sun Light Tint:")
+		imgui.SameLine()
+		max_c := max(det.sun_color.x, det.sun_color.y, det.sun_color.z, 1.0)
+		swatch := imgui.Vec4{det.sun_color.x / max_c, det.sun_color.y / max_c, det.sun_color.z / max_c, 1.0}
+		imgui.ColorButton("##filt_detected_sun_swatch", swatch, {.NoTooltip}, imgui.Vec2{20, 20})
+		imgui.SameLine()
+		if vr.params.sun_color_auto {
+			imgui.TextColored({0.4, 0.8, 1.0, 1.0}, "Auto (R=%.2f G=%.2f B=%.2f)",
+				det.sun_color.x, det.sun_color.y, det.sun_color.z)
+		} else {
+			imgui.TextColored({0.9, 0.7, 0.3, 1.0}, "Manual")
+		}
+
+		sun_col_arr := [3]f32{vr.params.sun_color.x, vr.params.sun_color.y, vr.params.sun_color.z}
+		if imgui.ColorEdit3("Sun Color##filt_sun_color_picker", &sun_col_arr) {
+			vr.params.sun_color = mt.Vec3{sun_col_arr[0], sun_col_arr[1], sun_col_arr[2]}
+			vr.params.sun_color_auto = false
+		}
+		imgui.SameLine()
+		if imgui.Checkbox("Auto##filt_sun_auto_color", &vr.params.sun_color_auto) {
+			if vr.params.sun_color_auto {
+				vr.params.sun_color = det.sun_color
+			}
+		}
+		imgui.SameLine()
+		if imgui.Button("Reset##filt_sun_color_reset") {
+			vr.params.sun_color_auto = true
+			vr.params.sun_color = det.sun_color
+		}
+		match_count += 1
+	}
 	if fuzzy_match(filter, "Volumetric Composite in Scene", "volumetric composite scene add blend direct") {
 		imgui.Checkbox("Composite into Viewport##filt", &vr.params.composite_in_scene)
 		match_count += 1
 	}
 
-	if fuzzy_match(filter, "Volumetric Intensity Multiplier", "volumetric intensity mult master brightness power") {
-		imgui.SliderFloat("Master Intensity##filt", &vr.params.intensity_mult, 0.0, 10.0, "%.2fx")
+	if fuzzy_match(filter, "Volumetric Intensity Multiplier", "volumetric intensity mult master brightness power auto sun") {
+		eff_val := rendering.volumetric_get_effective_intensity(vr)
+		slider_val := eff_val
+		if imgui.SliderFloat("Master Intensity##filt", &slider_val, 0.0, 10.0, "%.2fx") {
+			vr.params.intensity_mult = slider_val
+			if vr.params.light_mode == .Sun_Directional {
+				vr.params.sun_intensity_auto = false
+			}
+		}
 		imgui.SameLine()
+		if vr.params.light_mode == .Sun_Directional {
+			imgui.Checkbox("Auto##filt_sun_auto", &vr.params.sun_intensity_auto)
+			imgui.SameLine()
+		}
 		def_int := rendering.volumetric_get_default_intensity(vr.params.light_mode)
 		if imgui.Button("Reset##filt_intensity") {
 			vr.params.intensity_mult = def_int
+			if vr.params.light_mode == .Sun_Directional {
+				vr.params.sun_intensity_auto = true
+			}
 		}
 		match_count += 1
 	}

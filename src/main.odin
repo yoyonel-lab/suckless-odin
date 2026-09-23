@@ -5,8 +5,14 @@ import "core:os"
 import log "core/log"
 import "app"
 import "core/settings"
+import "automation"
+import "core/tracy"
 
 main :: proc() {
+	when tracy.TRACY_ENABLE {
+		context.allocator = tracy.make_tracy_allocator(context.allocator)
+	}
+
 	// Handle CLI arguments
 	opts, action := cli_handle_args(os.args)
 	switch action {
@@ -33,6 +39,11 @@ main :: proc() {
 	// Apply CLI postfx options after init (pipeline is ready)
 	app.apply_postfx_options(application, opts.postfx_enabled, opts.postfx_preset)
 	app.apply_optimization_profile(application, opts.opt_profile)
+
+	if len(opts.automation_socket) > 0 {
+		automation.init(opts.automation_socket)
+	}
+	defer if len(opts.automation_socket) > 0 do automation.shutdown()
 
 	if opts.benchmark {
 		app.run_benchmark(application, opts.benchmark_frames, BENCHMARK_WARMUP_FRAMES)

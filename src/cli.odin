@@ -23,7 +23,8 @@ Cli_Options :: struct {
 	vsync:            bool,
 	compute_profile:  settings.Compute_Shader_Profile,
 	capture_ibl:      bool,
-	opt_profile:      Maybe(rendering.Optimization_Profile),
+	opt_profile:       Maybe(rendering.Optimization_Profile),
+	automation_socket: string,
 }
 
 BENCHMARK_DEFAULT_FRAMES :: 300
@@ -38,6 +39,7 @@ DEFAULT_CLI_OPTIONS :: Cli_Options{
 	compute_profile  = .Legacy,
 	capture_ibl      = false,
 	opt_profile      = nil,
+	automation_socket = "",
 }
 
 
@@ -63,6 +65,8 @@ cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
 			opts.vsync = true
 		case arg == "--capture-ibl":
 			opts.capture_ibl = true
+		case strings.has_prefix(arg, "--automation-socket="):
+			opts.automation_socket = arg[len("--automation-socket="):]
 		case arg == "--benchmark":
 			opts.benchmark = true
 		case strings.has_prefix(arg, "--benchmark-frames="):

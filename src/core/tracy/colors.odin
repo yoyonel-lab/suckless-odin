@@ -56,6 +56,7 @@ COLOR_POSTFX_COMPOSITE   :: 0x9C27B0 // Purple (Uber Composite Pass)
 // --- Sync & System ---
 COLOR_SYNC_WAIT          :: 0x607D8B // Slate Gray (Fences / GPU Sync / Wait Idle)
 COLOR_INIT_SHUTDOWN      :: 0x263238 // Midnight Blue (Init & Destroy)
+COLOR_MEMORY             :: 0xAB47BC // Purple / Orchid (RAM & Allocations)
 
 // --- Log Level Colors for Tracy Messages ---
 COLOR_LOG_DEBUG          :: 0x757575 // Medium Gray

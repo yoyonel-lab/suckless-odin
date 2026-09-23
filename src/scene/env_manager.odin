@@ -115,6 +115,10 @@ Env_Manager :: struct {
 	ibl_prev_state:          IBL_State,
 	ibl_elapsed:             f32,
 	load_start_tick:         time.Tick,
+	t_upload_start:          time.Tick,
+	t_upload_ms:             f64,
+	t_compute_start:         time.Tick,
+	t_compute_ms:            f64,
 
 	// Diagnostics & programmatic capture
 	capture_ibl:             bool,
@@ -396,6 +400,7 @@ env_manager_poll_loader :: proc(mgr: ^Env_Manager) {
 	case .Ready:
 		mgr.async_result = result
 		mgr.has_result = true
+		mgr.t_upload_start = time.tick_now()
 		env_manager_set_transition_state(mgr, .Wait_IBL)
 		env_manager_set_ibl_state(mgr, .Upload_Texture)
 		log.log_debug("scene.env", "Async load complete, starting IBL pipeline")
@@ -601,6 +606,10 @@ env_manager_ibl_upload_progressive :: proc(mgr: ^Env_Manager) {
 		libc.free(mgr.async_result.data)
 		mgr.async_result.data = nil
 		mgr.has_result = false
+
+		mgr.t_upload_ms = time.duration_milliseconds(time.tick_since(mgr.t_upload_start))
+		mgr.t_compute_start = time.tick_now()
+		log.log_info("scene.env", "IBL upload complete: %.2f ms", mgr.t_upload_ms)
 
 		env_manager_set_ibl_state(mgr, .Generate_Mipmaps)
 		mgr.ibl_current_slice = 0
@@ -1170,13 +1179,31 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	// Update Sun directional shadow map detection & mark dirty
 	scene.sun_shadow.detection = mgr.async_result.sun_detection
 	scene.sun_shadow.is_dirty = true
-	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, confidence=%d, detected=%v",
+	rendering.volumetric_update_sun_auto_scale(&scene.volumetric, scene.sun_shadow.detection)
+	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, confidence=%d, detected=%v, auto_scale=%.3f",
 		scene.sun_shadow.detection.azimuth,
 		scene.sun_shadow.detection.elevation,
 		scene.sun_shadow.detection.confidence,
-		scene.sun_shadow.detection.sun_detected)
+		scene.sun_shadow.detection.sun_detected,
+		scene.volumetric.params.sun_auto_scale)
 
 	log.log_debug("scene.env", "Environment textures swapped simultaneously (pool slot %d active)", mgr.pool_active_idx)
+	mgr.t_compute_ms = time.duration_milliseconds(time.tick_since(mgr.t_compute_start))
 	elapsed_ms := time.duration_milliseconds(time.tick_since(mgr.load_start_tick))
+	if mgr.async_result.sun_detection.from_cache {
+		log.log_info("render.ibl", "IBL pipeline stages breakdown: decode=%.2f ms, sun_detect=CACHED, halo=CACHED, upload=%.2f ms, compute_ibl=%.2f ms | TOTAL=%.2f ms",
+			mgr.async_result.t_decode_ms,
+			mgr.t_upload_ms,
+			mgr.t_compute_ms,
+			elapsed_ms)
+	} else {
+		log.log_info("render.ibl", "IBL pipeline stages breakdown: decode=%.2f ms, sun_detect=%.2f ms, halo=%.2f ms, upload=%.2f ms, compute_ibl=%.2f ms | TOTAL=%.2f ms",
+			mgr.async_result.t_decode_ms,
+			mgr.async_result.sun_timing.t_detect_ms,
+			mgr.async_result.sun_timing.t_halo_ms,
+			mgr.t_upload_ms,
+			mgr.t_compute_ms,
+			elapsed_ms)
+	}
 	log.log_info("render.ibl", "IBL environment ready in %.2f ms, descriptor set updated.", elapsed_ms)
 }

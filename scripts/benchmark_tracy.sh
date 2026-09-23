@@ -38,7 +38,7 @@ export TRACY_TRACE_FILE="$TRACE_FILE"
 
 # 1. Lancer la session interactive instrumentée (tracy-capture démarre de manière synchrone dès que l'app est prête)
 echo "[Tracy] Lancement de l'application instrumentée ($TARGET_NAME)..."
-TMP_DIR="$TMP_DIR" ./scripts/interactive_runner.sh "${APP_CMD[@]}"
+TMP_DIR="$TMP_DIR" ./scripts/automation_runner.sh "${APP_CMD[@]}"
 
 if [ ! -f "$TRACE_FILE" ]; then
 	echo "❌ Échec: Le fichier trace $TRACE_FILE n'a pas été généré."
