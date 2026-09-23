@@ -1199,8 +1199,8 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	} else {
 		log.log_info("render.ibl", "IBL pipeline stages breakdown: decode=%.2f ms, sun_detect=%.2f ms, halo=%.2f ms, upload=%.2f ms, compute_ibl=%.2f ms | TOTAL=%.2f ms",
 			mgr.async_result.t_decode_ms,
-			mgr.async_result.sun_detection.t_detect_ms,
-			mgr.async_result.sun_detection.t_halo_ms,
+			mgr.async_result.sun_timing.t_detect_ms,
+			mgr.async_result.sun_timing.t_halo_ms,
 			mgr.t_upload_ms,
 			mgr.t_compute_ms,
 			elapsed_ms)

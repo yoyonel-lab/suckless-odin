@@ -138,7 +138,7 @@ test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 
 		simd.fast_hdr_decode_fp16(raw_data(data), uint(len(data)), &w, &h, half_data, pixel_count, 1)
 
-		det := rendering.sun_detect_from_fp16(half_data, w, h)
+		det, _ := rendering.sun_detect_from_fp16(half_data, w, h)
 
 		testing.expect_value(t, det.sun_detected, exp.expected_sun)
 		testing.expect(t, det.elevation >= exp.min_elevation && det.elevation <= exp.max_elevation,
@@ -205,7 +205,7 @@ test_sun_halo_synthetic_color :: proc(t: ^testing.T) {
 		}
 	}
 
-	det := rendering.sun_detect_from_fp16(raw_data(half_data), w, h)
+	det, _ := rendering.sun_detect_from_fp16(raw_data(half_data), w, h)
 	testing.expect(t, det.sun_detected, "Synthetic sun must be detected")
 
 	// Verify that detected sun_color extracted the planted halo tint, NOT clipped white (1,1,1)
@@ -271,7 +271,7 @@ test_sun_detection_cross_resolution :: proc(t: ^testing.T) {
 	w_high, h_high := i32(2048), i32(1024)
 	buf_high := make_synthetic_scene(w_high, h_high, target_az, target_el)
 	defer delete(buf_high)
-	det_high := rendering.sun_detect_from_fp16(raw_data(buf_high), w_high, h_high)
+	det_high, _ := rendering.sun_detect_from_fp16(raw_data(buf_high), w_high, h_high)
 
 	testing.expect(t, det_high.sun_detected, "High-res sun must be detected")
 	testing.expect(t, det_high.peak_intensity > 50000.0, "High-res peak intensity must be > 50000")
@@ -283,7 +283,7 @@ test_sun_detection_cross_resolution :: proc(t: ^testing.T) {
 	w_base, h_base := i32(1024), i32(512)
 	buf_base := make_synthetic_scene(w_base, h_base, target_az, target_el)
 	defer delete(buf_base)
-	det_base := rendering.sun_detect_from_fp16(raw_data(buf_base), w_base, h_base)
+	det_base, _ := rendering.sun_detect_from_fp16(raw_data(buf_base), w_base, h_base)
 
 	testing.expect(t, det_base.sun_detected, "Base-res sun must be detected")
 	testing.expect(t, det_base.peak_intensity > 50000.0, "Base-res peak intensity must be > 50000")
@@ -310,17 +310,17 @@ test_sun_detection_cache_contract :: proc(t: ^testing.T) {
 	testing.expect(t, !ok_a, "env_a must initially not be in cache")
 
 	// Calculate and store for env_a
-	det_a := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	det_a, _ := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
 	rendering.sun_cache_put(env_a, det_a, 1000)
 	testing.expect_value(t, rendering.sun_cache_get_call_count(), 1)
 
 	// 2. Load env_b -> miss, calculate and store
-	det_b := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	det_b, _ := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
 	rendering.sun_cache_put(env_b, det_b, 2000)
 	testing.expect_value(t, rendering.sun_cache_get_call_count(), 2)
 
 	// 3. Load env_c -> miss, calculate and store
-	det_c := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	det_c, _ := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
 	rendering.sun_cache_put(env_c, det_c, 3000)
 	testing.expect_value(t, rendering.sun_cache_get_call_count(), 3)
 
@@ -329,19 +329,19 @@ test_sun_detection_cache_contract :: proc(t: ^testing.T) {
 	_, hit_a := rendering.sun_cache_get(env_a, 1000)
 	testing.expect(t, hit_a, "env_a must hit cache on revisit")
 	if !hit_a {
-		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+		_, _ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
 	}
 
 	_, hit_b := rendering.sun_cache_get(env_b, 2000)
 	testing.expect(t, hit_b, "env_b must hit cache on revisit")
 	if !hit_b {
-		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+		_, _ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
 	}
 
 	_, hit_c := rendering.sun_cache_get(env_c, 3000)
 	testing.expect(t, hit_c, "env_c must hit cache on revisit")
 	if !hit_c {
-		_ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+		_, _ = rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
 	}
 
 	// Assert: total detection count remains strictly 3 across all 6 envmap loads!
@@ -352,7 +352,7 @@ test_sun_detection_cache_contract :: proc(t: ^testing.T) {
 	_, hit_b_after_inval := rendering.sun_cache_get(env_b, 2000)
 	testing.expect(t, !hit_b_after_inval, "env_b must miss cache after explicit invalidation")
 
-	det_b2 := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
+	det_b2, _ := rendering.sun_detect_from_fp16(raw_data(fake_fp16[:]), 1, 1)
 	rendering.sun_cache_put(env_b, det_b2, 2000)
 	testing.expect_value(t, rendering.sun_cache_get_call_count(), 4)
 

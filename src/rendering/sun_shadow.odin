@@ -32,9 +32,13 @@ Sun_Detection :: struct {
 	confidence:     i32,
 	sun_detected:   bool,
 	sun_color:      mt.Vec3, // Detected or fallback normalized sun halo tint (luminance = 1.0)
-	t_detect_ms:    f64,     // Percentile + centroid detection elapsed ms
-	t_halo_ms:      f64,     // Halo sampling elapsed ms
 	from_cache:     bool,    // True if retrieved from cache (zero detect time)
+}
+
+// Timing diagnostics only (AGENTS.md: no metrics in production structs)
+Sun_Detect_Timing :: struct {
+	t_detect_ms: f64,
+	t_halo_ms:   f64,
 }
 
 // ─── Sun Detection In-Memory Cache (Contract: Exactly Once per Envmap) ─────
@@ -213,8 +217,9 @@ get_fp16_val :: #force_inline proc "contextless" (val_u16: u16) -> f32 {
 }
 
 // Analyzes decoded HDR pixels (in FP16 format) on CPU to detect the dominant sun direction.
-sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detection {
+sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> (Sun_Detection, Sun_Detect_Timing) {
 	result: Sun_Detection
+	timing: Sun_Detect_Timing
 	result.direction = SUN_FALLBACK_DIRECTION
 	result.azimuth = SUN_FALLBACK_AZIMUTH
 	result.elevation = SUN_FALLBACK_ELEVATION
@@ -224,7 +229,7 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	result.sun_color = SUN_FALLBACK_COLOR
 
 	if half_data == nil || width <= 0 || height <= 0 {
-		return result
+		return result, timing
 	}
 
 	t_detect_start := time.tick_now()
@@ -270,8 +275,8 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 
 	result.peak_intensity = max_lum
 	if max_lum <= 0.001 || sampled_pixels == 0 {
-		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
-		return result
+		timing.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+		return result, timing
 	}
 
 	mean_lum := f32(sum_lum / f64(sampled_pixels))
@@ -340,7 +345,7 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		result.azimuth = raw_azimuth
 		result.elevation = raw_elevation
 		result.sun_detected = true
-		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+		timing.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
 
 		// Halo sampling: sample non-saturated pixels within angular cone of sun direction
 		// to extract genuine chromatic tint of the sun halo.
@@ -392,7 +397,7 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		} else {
 			result.sun_color = SUN_FALLBACK_COLOR
 		}
-		result.t_halo_ms = time.duration_milliseconds(time.tick_since(t_halo_start))
+		timing.t_halo_ms = time.duration_milliseconds(time.tick_since(t_halo_start))
 	} else {
 		// Indoor/diffuse envmap fallback
 		result.direction = SUN_FALLBACK_DIRECTION
@@ -400,14 +405,14 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 		result.elevation = SUN_FALLBACK_ELEVATION
 		result.sun_detected = false
 		result.sun_color = SUN_FALLBACK_COLOR
-		result.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
-		result.t_halo_ms = 0.0
+		timing.t_detect_ms = time.duration_milliseconds(time.tick_since(t_detect_start))
+		timing.t_halo_ms = 0.0
 	}
 
 	log.log_debug("render.shadow", "Sun detection complete (#%d): percentile+centroid=%.2f ms, halo=%.2f ms (total=%.2f ms)",
-		call_idx, result.t_detect_ms, result.t_halo_ms, result.t_detect_ms + result.t_halo_ms)
+		call_idx, timing.t_detect_ms, timing.t_halo_ms, timing.t_detect_ms + timing.t_halo_ms)
 
-	return result
+	return result, timing
 }
 
 // ─── Orthographic Sun Shadow Map Subsystem ───────────────────────────────────
