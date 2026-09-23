@@ -526,9 +526,9 @@ tasks:
       - deps/tracy/profiler/build/tracy-profiler
 
   tracy-server:
-    desc: Launch Tracy profiler server
+    desc: Launch Tracy profiler server (auto-connects dynamically to engine)
     cmds:
-      - "{{.DBX}}deps/tracy/profiler/build/tracy-profiler"
+      - "{{.BASH}} scripts/run_tracy_server.sh {{.CLI_ARGS}}"
 
   build-tracy:
     desc: Full tracy setup (lib + server)

@@ -112,6 +112,7 @@ App :: struct {
 
 	// Tracy frame capture (PBO ring-buffer for async screenshots)
 	frame_image:     tracy.Frame_Image,
+	tracy_connected: bool,
 
 	// Performance mode (GameMode / SCHED_FIFO / Nice)
 	perf:            perf_mode.Perf_Mode,
@@ -275,6 +276,17 @@ run :: proc(application: ^App) {
 
 	for application.running && !glfw.WindowShouldClose(application.window) {
 		tracy.frame_mark()
+		when tracy.TRACY_ENABLE {
+			connected := tracy.is_connected()
+			if connected != application.tracy_connected {
+				application.tracy_connected = connected
+				if connected {
+					log.log_info("app", "Tracy Profiler server connected")
+				} else {
+					log.log_info("app", "Tracy Profiler server disconnected")
+				}
+			}
+		}
 		process_automation(application)
 		frame_zone := tracy.zone_begin(&frame_zone_loc)
 
