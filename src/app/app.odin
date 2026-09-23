@@ -269,6 +269,7 @@ run :: proc(application: ^App) {
 	tracy.plot_config("FPS", .Number, step = false, fill = true, color = tracy.COLOR_CPU_UPDATE)
 	tracy.plot_config("Frame Time (ms)", .Number, step = false, fill = true, color = tracy.COLOR_FRAME_TOTAL)
 	tracy.plot_config("IBL Slices Done", .Number, step = true, fill = false, color = tracy.COLOR_GPU_COMPUTE)
+	tracy.plot_config("RAM Process (RSS)", .Memory, step = false, fill = true, color = tracy.COLOR_MEMORY)
 
 	if application.frame_index == 0 {
 		application.init_time_ms = time.duration_milliseconds(time.tick_since(application.start_tick))
@@ -302,6 +303,9 @@ run :: proc(application: ^App) {
 		fps := f64(1.0 / application.delta_time) if application.delta_time > 0.00001 else 0.0
 		tracy.plot("FPS", fps)
 		tracy.plot("Frame Time (ms)", frame_time_ms)
+		when tracy.TRACY_ENABLE {
+			tracy.plot("RAM Process (RSS)", f64(tracy.get_process_rss()))
+		}
 
 		poll_start := time.tick_now()
 		// Input

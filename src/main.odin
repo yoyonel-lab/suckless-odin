@@ -6,7 +6,13 @@ import log "core/log"
 import "app"
 import "core/settings"
 import "automation"
+import "core/tracy"
+
 main :: proc() {
+	when tracy.TRACY_ENABLE {
+		context.allocator = tracy.make_tracy_allocator(context.allocator)
+	}
+
 	// Handle CLI arguments
 	opts, action := cli_handle_args(os.args)
 	switch action {
