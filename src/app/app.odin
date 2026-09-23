@@ -10,6 +10,7 @@ import tracy "../core/tracy"
 import log "../core/log"
 import settings "../core/settings"
 import perf_mode "../core/perf_mode"
+import automation "../automation"
 import scene "../scene"
 import gui "../gui"
 import postfx "../rendering/postfx"
@@ -103,6 +104,8 @@ App :: struct {
 
 	// Scene
 	scene:           scene.Scene,
+	automation_pending: bool,
+	automation_pending_type: automation.Command_Type,
 
 	// GUI (Dear ImGui)
 	imgui:           gui.Gui,
@@ -272,6 +275,7 @@ run :: proc(application: ^App) {
 
 	for application.running && !glfw.WindowShouldClose(application.window) {
 		tracy.frame_mark()
+		process_automation(application)
 		frame_zone := tracy.zone_begin(&frame_zone_loc)
 
 		frame_start := time.tick_now()
@@ -531,3 +535,50 @@ apply_optimization_profile :: proc(application: ^App, profile: Maybe(rendering.O
 }
 
 
+
+process_automation :: proc(application: ^App) {
+	if application.automation_pending {
+		if application.scene.env_mgr.transition_state == .Idle {
+			application.automation_pending = false
+			if application.automation_pending_type == .Await_Init {
+				automation.send_ack("Init completed")
+			} else if application.automation_pending_type == .Load_Env {
+				automation.send_ack("Env loaded")
+			}
+		}
+		return
+	}
+	
+	cmd, has_cmd := automation.poll_command()
+	if !has_cmd do return
+	
+	switch cmd.type {
+	case .Unknown:
+		// Ignore
+	case .Await_Init:
+		if application.scene.env_mgr.transition_state == .Idle {
+			automation.send_ack("Init completed")
+		} else {
+			application.automation_pending = true
+			application.automation_pending_type = .Await_Init
+		}
+	case .Load_Env:
+		if cmd.arg == "next" {
+			scene.scene_cycle_env(&application.scene, 1)
+		} else if cmd.arg == "prev" {
+			scene.scene_cycle_env(&application.scene, -1)
+		} else {
+			scene.scene_change_env(&application.scene, cmd.arg)
+		}
+		
+		if application.scene.env_mgr.transition_state != .Idle {
+			application.automation_pending = true
+			application.automation_pending_type = .Load_Env
+		} else {
+			automation.send_ack("Env load complete")
+		}
+	case .Quit:
+		application.running = false
+		automation.send_ack("Quitting")
+	}
+}
