@@ -105,7 +105,12 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			max_ray_distance       = s.volumetric.params.max_ray_distance,
 			sun_azimuth            = s.sun_shadow.detection.azimuth,
 			sun_elevation          = s.sun_shadow.detection.elevation,
+			sun_override_enabled   = s.sun_shadow.override_enabled,
+			sun_show_gizmo         = s.sun_shadow.show_gizmo,
+			sun_color              = s.sun_shadow.manual_color if s.sun_shadow.color_override_enabled else s.sun_shadow.detection.color,
+			sun_color_override     = s.sun_shadow.color_override_enabled,
 			step_count             = s.volumetric.params.step_count,
+
 			scattering_coeff       = s.volumetric.params.scattering_coeff,
 			extinction_coeff       = s.volumetric.params.extinction_coeff,
 			anisotropy_g           = s.volumetric.params.anisotropy_g,
@@ -303,15 +308,23 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		if state.volumetric.max_ray_distance > 0 {
 			s.volumetric.params.max_ray_distance   = state.volumetric.max_ray_distance
 		}
-		if !s.sun_shadow.detection.sun_detected {
-			if state.volumetric.sun_elevation > 0 || state.volumetric.sun_azimuth != 0 {
-				s.sun_shadow.detection.azimuth   = state.volumetric.sun_azimuth
-				s.sun_shadow.detection.elevation = state.volumetric.sun_elevation
-				s.sun_shadow.detection.direction = rendering.sun_angles_to_dir(state.volumetric.sun_azimuth, state.volumetric.sun_elevation)
-				s.sun_shadow.is_dirty = true
-				s.sun_shadow.preview_dirty = true
+		s.sun_shadow.override_enabled = state.volumetric.sun_override_enabled
+		s.sun_shadow.show_gizmo = state.volumetric.sun_show_gizmo
+		s.sun_shadow.color_override_enabled = state.volumetric.sun_color_override
+		if state.volumetric.sun_color.x > 0 || state.volumetric.sun_color.y > 0 || state.volumetric.sun_color.z > 0 {
+			s.sun_shadow.manual_color = state.volumetric.sun_color
+			if s.sun_shadow.color_override_enabled {
+				s.sun_shadow.detection.color = state.volumetric.sun_color
 			}
 		}
+		if s.sun_shadow.override_enabled {
+			s.sun_shadow.detection.azimuth   = state.volumetric.sun_azimuth
+			s.sun_shadow.detection.elevation = state.volumetric.sun_elevation
+			s.sun_shadow.detection.direction = rendering.sun_angles_to_dir(state.volumetric.sun_azimuth, state.volumetric.sun_elevation)
+			s.sun_shadow.is_dirty = true
+			s.sun_shadow.preview_dirty = true
+		}
+
 		s.volumetric.params.step_count             = state.volumetric.step_count
 		s.volumetric.params.scattering_coeff       = state.volumetric.scattering_coeff
 		s.volumetric.params.extinction_coeff       = state.volumetric.extinction_coeff

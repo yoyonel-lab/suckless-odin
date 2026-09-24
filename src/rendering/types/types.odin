@@ -56,7 +56,9 @@ Selection_Type :: enum {
 	None,
 	Light,
 	Sphere,
+	Sun,
 }
+
 
 Selection_State :: struct {
 	type:         Selection_Type,

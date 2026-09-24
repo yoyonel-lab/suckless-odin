@@ -1,0 +1,52 @@
+{
+  "abandoned_garage_4k.hdr": {
+    "direction": [0.7725, 0.5307, 0.3501],
+    "azimuth": 24.38,
+    "elevation": 32.05,
+    "color": [0.76, 0.87, 1.0],
+    "peak_intensity": 22.0,
+    "confidence": 12005,
+    "sun_detected": true,
+    "is_aperture": true
+  },
+  "cedar_bridge_2_4k.hdr": {
+    "direction": [0.4800, 0.8048, 0.3491],
+    "azimuth": 36.03,
+    "elevation": 53.59,
+    "color": [1.0, 0.89, 0.90],
+    "peak_intensity": 18520.0,
+    "confidence": 58,
+    "sun_detected": true,
+    "is_aperture": false
+  },
+  "neon_photostudio_4k.hdr": {
+    "direction": [-0.1697, 0.3423, 0.9242],
+    "azimuth": 100.39,
+    "elevation": 20.02,
+    "color": [1.0, 0.99, 0.95],
+    "peak_intensity": 101.2,
+    "confidence": 7429,
+    "sun_detected": true,
+    "is_aperture": true
+  },
+  "river_alcove_4k.hdr": {
+    "direction": [0.5898, 0.6844, 0.4287],
+    "azimuth": 36.10,
+    "elevation": 43.19,
+    "color": [1.0, 0.99, 0.98],
+    "peak_intensity": 14200.0,
+    "confidence": 52,
+    "sun_detected": true,
+    "is_aperture": false
+  },
+  "small_cathedral_02_4k.hdr": {
+    "direction": [0.7951, 0.2006, 0.5724],
+    "azimuth": 35.77,
+    "elevation": 11.57,
+    "color": [1.0, 0.69, 0.31],
+    "peak_intensity": 3200.0,
+    "confidence": 35,
+    "sun_detected": true,
+    "is_aperture": false
+  }
+}

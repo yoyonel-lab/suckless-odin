@@ -87,8 +87,18 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 				if state.sun_shadow != nil {
 					ss := state.sun_shadow
 					det := &ss.detection
-					status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback Direction (Manual / Fixed)"
-					status_col := imgui.Vec4{0.2, 1.0, 0.3, 1.0} if det.sun_detected else imgui.Vec4{0.9, 0.7, 0.3, 1.0}
+					status_str: string
+					status_col: imgui.Vec4
+					if det.is_aperture && det.sun_detected {
+						status_str = "Aperture Detected (Window / Skylight)"
+						status_col = imgui.Vec4{0.2, 0.85, 1.0, 1.0}
+					} else if det.sun_detected {
+						status_str = "Sun Detected (Direct Sunlight)"
+						status_col = imgui.Vec4{0.2, 1.0, 0.3, 1.0}
+					} else {
+						status_str = "Fallback Direction (Manual / Fixed)"
+						status_col = imgui.Vec4{0.9, 0.7, 0.3, 1.0}
+					}
 					imgui.TextColored(status_col, "Status: %s", status_str)
 					imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
 						det.azimuth, det.elevation, det.confidence, det.peak_intensity)
@@ -96,9 +106,51 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					imgui.SliderFloat("Sun Volumetric Intensity", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
 					imgui.SliderFloat("Max Ray Distance", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
 
-					if !det.sun_detected {
+					// Sun Color Swatch & Override
+					eff_col := rendering.sun_shadow_get_effective_color(ss)
+					imgui.ColorButton("Sun Color##vol_swatch", imgui.Vec4{eff_col.x, eff_col.y, eff_col.z, 1.0})
+					imgui.SameLine()
+					imgui.Text("Sun Color (RGB): %.2f, %.2f, %.2f (%s)", eff_col.x, eff_col.y, eff_col.z,
+						"Manual Override" if ss.color_override_enabled else ("Auto-detected (Aperture)" if det.is_aperture else ("Auto-detected" if det.sun_detected else "Fallback")))
+					imgui.SameLine()
+					imgui.Checkbox("Override Color##sun_vol", &ss.color_override_enabled)
+
+					if ss.color_override_enabled {
+						color_arr := [3]f32{ss.manual_color.x, ss.manual_color.y, ss.manual_color.z}
+						if imgui.ColorEdit3("Manual Sun Color##sun_vol", &color_arr) {
+							ss.manual_color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
+							vr.history_valid = false
+						}
+						imgui.SameLine()
+						if imgui.Button("Reset Color##sun_vol") {
+							ss.manual_color = det.color
+							ss.color_override_enabled = false
+							vr.history_valid = false
+						}
+					}
+
+					imgui.Spacing()
+					imgui.Checkbox("Manual Sun Direction Override", &ss.override_enabled)
+					imgui.SameLine()
+					imgui.Checkbox("Show Sun 3D Gizmo", &ss.show_gizmo)
+
+					if ss.override_enabled {
+						dir_changed := false
+						if imgui.SliderFloat("Sun Azimuth", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+							dir_changed = true
+						}
+						if imgui.SliderFloat("Sun Elevation", &det.elevation, 0.0, 90.0, "%.1f deg") {
+							dir_changed = true
+						}
+						if dir_changed {
+							det.direction = rendering.sun_angles_to_dir(det.azimuth, det.elevation)
+							ss.is_dirty = true
+							ss.preview_dirty = true
+							vr.history_valid = false
+						}
+					} else if !det.sun_detected {
 						imgui.Spacing()
-						imgui.TextColored({0.9, 0.6, 0.2, 1.0}, "Manual Direction Override (Sun Not Detected):")
+						imgui.TextColored({0.9, 0.6, 0.2, 1.0}, "Fallback Direction (Sun Not Detected):")
 						dir_changed := false
 						if imgui.SliderFloat("Sun Azimuth", &det.azimuth, -180.0, 180.0, "%.1f deg") {
 							dir_changed = true
@@ -113,6 +165,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 							vr.history_valid = false
 						}
 					}
+
 				}
 				imgui.Spacing()
 				imgui.Separator()
@@ -504,17 +557,36 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		}
 		match_count += 1
 	}
-	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override") {
+	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override gizmo light source position color tint chromaticity window skylight aperture opening portal") {
 		ss := state.sun_shadow
 		det := &ss.detection
 		imgui.SliderFloat("Sun Volumetric Intensity##filt", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
 		imgui.SliderFloat("Max Ray Distance##filt", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
-		if !det.sun_detected {
+
+		eff_col := rendering.sun_shadow_get_effective_color(ss)
+		imgui.ColorButton("Sun Color##vol_filt_swatch", imgui.Vec4{eff_col.x, eff_col.y, eff_col.z, 1.0})
+		imgui.SameLine()
+		imgui.Text("Color: RGB(%.2f, %.2f, %.2f)", eff_col.x, eff_col.y, eff_col.z)
+		imgui.SameLine()
+		imgui.Checkbox("Override Color##vol_filt_col", &ss.color_override_enabled)
+		if ss.color_override_enabled {
+			color_arr := [3]f32{ss.manual_color.x, ss.manual_color.y, ss.manual_color.z}
+			if imgui.ColorEdit3("Manual Sun Color##vol_filt_edit", &color_arr) {
+				ss.manual_color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
+				vr.history_valid = false
+			}
+		}
+
+		imgui.Checkbox("Manual Sun Direction Override##vol_filt", &ss.override_enabled)
+		imgui.SameLine()
+		imgui.Checkbox("Show Sun 3D Gizmo##vol_filt", &ss.show_gizmo)
+
+		if ss.override_enabled || !det.sun_detected {
 			dir_changed := false
-			if imgui.SliderFloat("Sun Azimuth##filt", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+			if imgui.SliderFloat("Sun Azimuth##vol_filt", &det.azimuth, -180.0, 180.0, "%.1f deg") {
 				dir_changed = true
 			}
-			if imgui.SliderFloat("Sun Elevation##filt", &det.elevation, 0.0, 90.0, "%.1f deg") {
+			if imgui.SliderFloat("Sun Elevation##vol_filt", &det.elevation, 0.0, 90.0, "%.1f deg") {
 				dir_changed = true
 			}
 			if dir_changed {
@@ -523,6 +595,9 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 				ss.preview_dirty = true
 				vr.history_valid = false
 			}
+		} else {
+			imgui.TextDisabled("Sun Azimuth: %.1f deg | Elevation: %.1f deg (Auto-detected)", det.azimuth, det.elevation)
+			imgui.TextDisabled("Enable 'Manual Sun Direction Override' to adjust angles.")
 		}
 		match_count += 1
 	}

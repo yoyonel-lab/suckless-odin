@@ -246,7 +246,17 @@ draw_tab_shadows :: proc(g: ^Gui, state: Scene_State) {
 						rendering.instanced_reset_grid(state.spheres)
 					}
 				}
+			case .Sun:
+				imgui.TextColored({1.0, 0.85, 0.2, 1.0}, "Selected: Directional Sun")
+				imgui.SameLine()
+				if imgui.SmallButton("Deselect##sun") {
+					state.selection.type = .None
+					if state.sun_shadow != nil {
+						state.sun_shadow.show_gizmo = false
+					}
+				}
 			}
+
 		}
 
 		imgui.Checkbox("Enable 3D Gizmo", &light.show_gizmo)

@@ -86,7 +86,12 @@ test_session_save_load :: proc(t: ^testing.T) {
 		max_ray_distance       = 80.0,
 		sun_azimuth            = 120.0,
 		sun_elevation          = 35.0,
+		sun_override_enabled   = true,
+		sun_show_gizmo         = true,
+		sun_color              = {1.0, 0.85, 0.65},
+		sun_color_override     = true,
 		step_count             = 32,
+
 		scattering_coeff       = 0.035,
 		extinction_coeff       = 0.050,
 		anisotropy_g           = 0.75,
@@ -234,6 +239,12 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.max_ray_distance, f32(80.0))
 	testing.expect_value(t, loaded_state.volumetric.sun_azimuth, f32(120.0))
 	testing.expect_value(t, loaded_state.volumetric.sun_elevation, f32(35.0))
+	testing.expect_value(t, loaded_state.volumetric.sun_override_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.sun_show_gizmo, true)
+	testing.expect_value(t, loaded_state.volumetric.sun_color.x, f32(1.0))
+	testing.expect_value(t, loaded_state.volumetric.sun_color.y, f32(0.85))
+	testing.expect_value(t, loaded_state.volumetric.sun_color.z, f32(0.65))
+	testing.expect_value(t, loaded_state.volumetric.sun_color_override, true)
 	testing.expect_value(t, loaded_state.volumetric.step_count, 32)
 	testing.expect_value(t, loaded_state.volumetric.anisotropy_g, 0.75)
 	testing.expect_value(t, loaded_state.volumetric.scattering_coeff, 0.035)

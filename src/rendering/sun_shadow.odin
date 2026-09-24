@@ -26,15 +26,18 @@ Sun_Detection :: struct {
 	direction:      mt.Vec3,
 	azimuth:        f32,
 	elevation:      f32,
+	color:          mt.Vec3,
 	peak_intensity: f32,
 	confidence:     i32,
 	sun_detected:   bool,
+	is_aperture:    bool,
 }
 
 // Fallback fixed direction: 45 deg elevation, south (+Z)
 SUN_FALLBACK_DIRECTION :: mt.Vec3{0.0, 0.70710678, 0.70710678}
 SUN_FALLBACK_AZIMUTH   :: 90.0
 SUN_FALLBACK_ELEVATION :: 45.0
+SUN_FALLBACK_COLOR     :: mt.Vec3{1.0, 0.95, 0.85}
 
 // Convert UV to equirectangular world direction (equivalent to shader uvToDir)
 sun_uv_to_dir :: proc(uv: [2]f32) -> mt.Vec3 {
@@ -73,6 +76,16 @@ sun_angles_to_dir :: proc(azimuth_deg, elevation_deg: f32) -> mt.Vec3 {
 	}
 }
 
+// Convert normalized world direction vector to azimuth and elevation in degrees
+sun_dir_to_angles :: proc(dir: mt.Vec3) -> (azimuth_deg, elevation_deg: f32) {
+	len_d := mt.vec3_length(dir)
+	d := dir / len_d if len_d > 1e-6 else SUN_FALLBACK_DIRECTION
+	azimuth_deg = math.to_degrees(math.atan2(d.z, d.x))
+	elevation_deg = math.to_degrees(math.asin(clamp(d.y, -1.0, 1.0)))
+	return
+}
+
+
 
 @(private)
 get_fp16_val :: proc(val_u16: u16) -> f32 {
@@ -88,9 +101,11 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	result.direction = SUN_FALLBACK_DIRECTION
 	result.azimuth = SUN_FALLBACK_AZIMUTH
 	result.elevation = SUN_FALLBACK_ELEVATION
+	result.color = SUN_FALLBACK_COLOR
 	result.peak_intensity = 0.0
 	result.confidence = 0
 	result.sun_detected = false
+	result.is_aperture = false
 
 	if half_data == nil || width <= 0 || height <= 0 {
 		return result
@@ -98,20 +113,29 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 
 	total_pixels := int(width) * int(height)
 	max_lum: f32 = 0.0
+	max_lum_sky: f32 = 0.0
+	peak_sky_dir := SUN_FALLBACK_DIRECTION
 	sum_lum: f64 = 0.0
 
-	// Step 1: Scan max luminance and mean luminance
+	// Step 1: Scan max luminance and mean luminance (overall and sky hemisphere)
 	for y in 0 ..< int(height) {
+		is_sky := y >= int(height / 2)
 		for x in 0 ..< int(width) {
 			idx := (y * int(width) + x) * 4
 			r := get_fp16_val(half_data[idx + 0])
 			g := get_fp16_val(half_data[idx + 1])
 			b := get_fp16_val(half_data[idx + 2])
 			lum := 0.2126 * r + 0.7152 * g + 0.0722 * b
+			sum_lum += f64(lum)
 			if lum > max_lum {
 				max_lum = lum
 			}
-			sum_lum += f64(lum)
+			if is_sky && lum > max_lum_sky {
+				max_lum_sky = lum
+				u := (f32(x) + 0.5) / f32(width)
+				v := (f32(y) + 0.5) / f32(height)
+				peak_sky_dir = sun_uv_to_dir([2]f32{u, v})
+			}
 		}
 	}
 
@@ -164,8 +188,9 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	// Adaptative threshold: isolate high-intensity hotspot if direct sun exists
 	threshold_lum := max(threshold_p9999, max_lum * 0.10)
 
-	// Step 3: Compute luminance-weighted direction centroid
+	// Step 3: Compute luminance-weighted direction centroid & chromaticity
 	acc_dir := mt.Vec3{0, 0, 0}
+	acc_color := mt.Vec3{0, 0, 0}
 	conf_count: i32 = 0
 
 	for y in 0 ..< int(height) {
@@ -180,6 +205,7 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 				v := (f32(y) + 0.5) / f32(height)
 				dir := sun_uv_to_dir([2]f32{u, v})
 				acc_dir += dir * lum
+				acc_color += mt.Vec3{r, g, b} * lum
 				conf_count += 1
 			}
 		}
@@ -203,20 +229,87 @@ sun_detect_from_fp16 :: proc(half_data: [^]u16, width, height: i32) -> Sun_Detec
 	// - Peak luminance must indicate natural or strong directional source (>= 500.0)
 	// - Clear contrast ratio vs average luminance
 	ratio := max_lum / max(0.01, mean_lum)
-	is_sun := (raw_elevation > 5.0) && (max_lum >= 500.0) && (ratio >= 500.0) && (conf_count > 0)
+	is_sun := (raw_elevation > 5.0) && (max_lum >= 500.0) && (ratio >= 200.0) && (conf_count > 0)
 
 	if is_sun {
 		result.direction = cand_dir
 		result.azimuth = raw_azimuth
 		result.elevation = raw_elevation
+		result.confidence = conf_count
 		result.sun_detected = true
-	} else {
-		// Indoor/diffuse envmap fallback
-		result.direction = SUN_FALLBACK_DIRECTION
-		result.azimuth = SUN_FALLBACK_AZIMUTH
-		result.elevation = SUN_FALLBACK_ELEVATION
-		result.sun_detected = false
+		result.is_aperture = false
+		max_c := max(acc_color.x, max(acc_color.y, acc_color.z))
+		if max_c > 1e-4 {
+			result.color = acc_color / max_c
+		} else {
+			result.color = SUN_FALLBACK_COLOR
+		}
+		return result
 	}
+
+	// Mode 2: Indoor Light Aperture / Window / Skylight Detection
+	// Isolates natural daylight streaming through ceiling or wall openings
+	ratio_sky := max_lum_sky / max(0.01, mean_lum)
+	if max_lum_sky >= 5.0 && ratio_sky >= 8.0 {
+		threshold_aperture := max_lum_sky * 0.40
+		aperture_dir := mt.Vec3{0, 0, 0}
+		aperture_color := mt.Vec3{0, 0, 0}
+		ap_conf: i32 = 0
+
+		for y in int(height / 2) ..< int(height) {
+			for x in 0 ..< int(width) {
+				idx := (y * int(width) + x) * 4
+				r := get_fp16_val(half_data[idx + 0])
+				g := get_fp16_val(half_data[idx + 1])
+				b := get_fp16_val(half_data[idx + 2])
+				lum := 0.2126 * r + 0.7152 * g + 0.0722 * b
+				if lum >= threshold_aperture && lum > 0.0 {
+					u := (f32(x) + 0.5) / f32(width)
+					v := (f32(y) + 0.5) / f32(height)
+					dir := sun_uv_to_dir([2]f32{u, v})
+					// Restrict to cone of ~65 deg around the dominant sky hotspot
+					dot_peak := mt.vec3_dot(dir, peak_sky_dir)
+					if dot_peak >= 0.40 {
+						w_lum := lum * lum // Quadratic weighting centers centroid on aperture core
+						aperture_dir += dir * w_lum
+						aperture_color += mt.Vec3{r, g, b} * w_lum
+						ap_conf += 1
+					}
+				}
+			}
+		}
+
+		len_ap := mt.vec3_length(aperture_dir)
+		if len_ap > 1e-6 {
+			cand_ap := aperture_dir / len_ap
+			raw_ap_az := math.to_degrees(math.atan2(cand_ap.z, cand_ap.x))
+			raw_ap_el := math.to_degrees(math.asin(clamp(cand_ap.y, -1.0, 1.0)))
+
+			if raw_ap_el >= 5.0 && ap_conf > 0 {
+				result.direction = cand_ap
+				result.azimuth = raw_ap_az
+				result.elevation = raw_ap_el
+				result.confidence = ap_conf
+				result.sun_detected = true
+				result.is_aperture = true
+				max_c := max(aperture_color.x, max(aperture_color.y, aperture_color.z))
+				if max_c > 1e-4 {
+					result.color = aperture_color / max_c
+				} else {
+					result.color = SUN_FALLBACK_COLOR
+				}
+				return result
+			}
+		}
+	}
+
+	// Indoor/diffuse envmap fallback
+	result.direction = SUN_FALLBACK_DIRECTION
+	result.azimuth = SUN_FALLBACK_AZIMUTH
+	result.elevation = SUN_FALLBACK_ELEVATION
+	result.color = SUN_FALLBACK_COLOR
+	result.sun_detected = false
+	result.is_aperture = false
 
 	return result
 }
@@ -237,9 +330,14 @@ Sun_Shadow :: struct {
 	proj_matrix:      mt.Mat4,
 	view_proj:        mt.Mat4,
 
-	detection:        Sun_Detection,
-	is_dirty:         bool,
-	enabled:          bool,
+	detection:              Sun_Detection,
+	override_enabled:       bool,
+	show_gizmo:             bool,
+	gizmo_distance:         f32,
+	color_override_enabled: bool,
+	manual_color:           mt.Vec3,
+	is_dirty:               bool,
+	enabled:                bool,
 
 	// Shaders for analytical billboard shadow casting
 	program:          u32,
@@ -312,10 +410,16 @@ sun_shadow_destroy_fbo_texture :: proc(ss: ^Sun_Shadow) {
 sun_shadow_create :: proc(ss: ^Sun_Shadow, resolution: i32 = DEFAULT_SUN_SHADOW_RES) -> bool {
 	ss.enabled = true
 	ss.is_dirty = true
+	ss.override_enabled = false
+	ss.show_gizmo = false
+	ss.gizmo_distance = 25.0
+	ss.color_override_enabled = false
+	ss.manual_color = SUN_FALLBACK_COLOR
 	ss.detection = Sun_Detection{
 		direction      = SUN_FALLBACK_DIRECTION,
 		azimuth        = SUN_FALLBACK_AZIMUTH,
 		elevation      = SUN_FALLBACK_ELEVATION,
+		color          = SUN_FALLBACK_COLOR,
 		peak_intensity = 0.0,
 		confidence     = 0,
 		sun_detected   = false,
@@ -578,4 +682,17 @@ sun_shadow_update_preview_atlas :: proc(ss: ^Sun_Shadow) {
 	dbg.pop_group()
 
 	ss.preview_dirty = false
+}
+
+// Returns the active sun color (manual color if overridden, otherwise detected HDR color)
+sun_shadow_get_effective_color :: proc(ss: ^Sun_Shadow) -> mt.Vec3 {
+	if ss == nil do return SUN_FALLBACK_COLOR
+	if ss.color_override_enabled {
+		return ss.manual_color
+	}
+	col := ss.detection.color
+	if col.x > 0.001 || col.y > 0.001 || col.z > 0.001 {
+		return col
+	}
+	return SUN_FALLBACK_COLOR
 }
