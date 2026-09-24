@@ -713,7 +713,8 @@ volumetric_render :: proc(
 
 		gl.UniformMatrix4fv(vr.loc_dir_sun_view_proj, 1, false, &sun_vp[0][0])
 		gl.Uniform3f(vr.loc_dir_sun_dir, sun_dir.x, sun_dir.y, sun_dir.z)
-		gl.Uniform3f(vr.loc_dir_sun_color, 1.0, 0.95, 0.85)
+		sun_color := sun_shadow_get_effective_color(sun_shadow)
+		gl.Uniform3f(vr.loc_dir_sun_color, sun_color.x, sun_color.y, sun_color.z)
 		gl.Uniform1f(vr.loc_dir_sun_intensity, vr.params.sun_intensity)
 		gl.Uniform1f(vr.loc_dir_shadow_bias, 0.0015)
 		gl.Uniform1i(vr.loc_dir_shadows_enabled, 1 if shadows_enabled else 0)

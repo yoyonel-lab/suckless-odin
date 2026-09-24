@@ -25,6 +25,19 @@
         "specular_mip_grouping_start_mip": 3,
         "seamless_downsample_progressive_mip_threshold": 2
       }
+    },
+    "fast_200ms": {
+      "spbrdf_sample_count": 128,
+      "spmap_sample_count": 128,
+      "irmap_sample_delta": 0.1,
+      "slicing": {
+        "specular_mip0_slices": 1,
+        "specular_mip1_slices": 1,
+        "specular_mip2_slices": 1,
+        "irdiff_slices": 1,
+        "specular_mip_grouping_start_mip": 0,
+        "seamless_downsample_progressive_mip_threshold": 0
+      }
     }
   }
 }

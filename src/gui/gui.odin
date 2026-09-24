@@ -96,7 +96,7 @@ Scene_State :: struct {
 	env_thumbnails:       []rendering.Env_Thumbnail,
 	env_transitioning:    bool,
 	env_transition_alpha: f32,
-	change_env:           proc(scene_ptr: rawptr, path: string) -> bool,
+	change_env:           proc(scene_ptr: rawptr, path: string, force_recompute_sun: bool = false) -> bool,
 
 	// Optimization & performance profile preset
 	optimization_profile: ^rendering.Optimization_Profile,
@@ -441,9 +441,12 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 	sel := state.selection
 	if c == nil do return
 
+	sun := state.sun_shadow
+
 	// Determine what entity is targeted
 	is_light_target := false
 	is_sphere_target := false
+	is_sun_target := false
 	sphere_idx := -1
 
 	if sel != nil {
@@ -463,16 +466,27 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 			} else {
 				return
 			}
+		case .Sun:
+			is_sun_target = true
 		case .None:
-			return // Nothing selected, gizmo inactive
+			if sun != nil && sun.enabled && sun.show_gizmo {
+				is_sun_target = true
+			} else if light != nil && light.enabled && light.show_gizmo {
+				is_light_target = true
+			} else {
+				return
+			}
 		}
+	} else if sun != nil && sun.enabled && sun.show_gizmo {
+		is_sun_target = true
 	} else if light != nil && light.enabled && light.show_gizmo {
 		is_light_target = true
 	}
 
-	if !is_light_target && !is_sphere_target do return
+	if !is_light_target && !is_sphere_target && !is_sun_target do return
 	if is_light_target && (light == nil || !light.enabled) do return
 	if is_sphere_target && (state.spheres == nil || sphere_idx < 0 || sphere_idx >= int(state.spheres.count)) do return
+	if is_sun_target && (sun == nil || !sun.enabled) do return
 
 	io := imgui.GetIO()
 	if io.DisplaySize.x <= 1.0 || io.DisplaySize.y <= 1.0 {
@@ -492,10 +506,14 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 		model = mt.mat4_translate(light_pos)
 	} else if is_sphere_target {
 		model = state.spheres.instances[sphere_idx].model
+	} else if is_sun_target && sun != nil {
+		sun_dist := sun.gizmo_distance if sun.gizmo_distance > 1.0 else 25.0
+		sun_pos := c.position + sun.detection.direction * sun_dist
+		model = mt.mat4_translate(sun_pos)
 	}
 
 	op: Guizmo_Operation
-	gizmo_op := light.gizmo_op if light != nil else 0
+	gizmo_op := light.gizmo_op if (light != nil && !is_sun_target) else 0
 	switch gizmo_op {
 	case 1: op = .Rotate
 	case 2: op = .Scale
@@ -503,12 +521,12 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 	case:   op = .Translate
 	}
 
-	gizmo_mode := light.gizmo_mode if light != nil else 0
+	gizmo_mode := light.gizmo_mode if (light != nil && !is_sun_target) else 0
 	mode: Guizmo_Mode = .World if gizmo_mode == 0 else .Local
 
 	snap_val: mt.Vec3
 	snap_ptr: ^mt.Vec3 = nil
-	if light != nil && light.gizmo_snap {
+	if light != nil && light.gizmo_snap && !is_sun_target {
 		snap_val = {light.gizmo_snap_value, light.gizmo_snap_value, light.gizmo_snap_value}
 		snap_ptr = &snap_val
 	}
@@ -524,7 +542,7 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 	)
 
 	is_using := guizmo_is_using()
-	if light != nil {
+	if light != nil && is_light_target {
 		light.is_interacting = is_using
 	}
 
@@ -538,6 +556,20 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 			}
 			light.motion_cooldown = 0.40
 			light.is_dirty = true
+		} else if is_sun_target && sun != nil {
+			new_pos := mt.Vec3{model[3][0], model[3][1], model[3][2]} - c.position
+			len_p := mt.vec3_length(new_pos)
+			if len_p > 1e-4 {
+				sun.detection.direction = new_pos / len_p
+				sun.detection.azimuth, sun.detection.elevation = rendering.sun_dir_to_angles(sun.detection.direction)
+				sun.gizmo_distance = len_p
+				sun.override_enabled = true
+				sun.is_dirty = true
+				sun.preview_dirty = true
+				if state.volumetric != nil {
+					state.volumetric.history_valid = false
+				}
+			}
 		} else if is_sphere_target && state.spheres != nil && sphere_idx >= 0 && sphere_idx < int(state.spheres.count) {
 			// Enforce billboard constraints:
 			// Spheres are procedural raymarched billboards.
@@ -564,6 +596,7 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 		}
 	}
 }
+
 
 // ─── Tab: Camera ───────────────────────────────────────────────────────────────
 
@@ -1056,9 +1089,19 @@ draw_ibl_debug_env_map :: proc(g: ^Gui, state: Scene_State, preview_w, preview_h
 
 			if state.sun_shadow != nil {
 				det := state.sun_shadow.detection
-				status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback Direction (Fixed 45 deg, South)"
-				status_col := imgui.Vec4{1.0, 0.85, 0.2, 1.0} if det.sun_detected else imgui.Vec4{0.7, 0.7, 0.7, 1.0}
-				imgui.TextColored(status_col, "Sun Detection: %s", status_str)
+				status_str: string
+				status_col: imgui.Vec4
+				if det.is_aperture && det.sun_detected {
+					status_str = "Aperture Detected (Window / Skylight)"
+					status_col = imgui.Vec4{0.2, 0.85, 1.0, 1.0}
+				} else if det.sun_detected {
+					status_str = "Sun Detected (Direct Sunlight)"
+					status_col = imgui.Vec4{1.0, 0.85, 0.2, 1.0}
+				} else {
+					status_str = "Fallback Direction (Fixed 45 deg, South)"
+					status_col = imgui.Vec4{0.7, 0.7, 0.7, 1.0}
+				}
+				imgui.TextColored(status_col, "Light Source: %s", status_str)
 				imgui.Text("  Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
 					det.azimuth, det.elevation, det.confidence, det.peak_intensity)
 			}
@@ -1081,7 +1124,12 @@ draw_ibl_debug_env_map :: proc(g: ^Gui, state: Scene_State, preview_w, preview_h
 				sun_cy := item_min.y + (1.0 - sun_uv[1]) * preview_h
 
 				draw_list := imgui.GetWindowDrawList()
-				marker_col: u32 = 0xFF_00_D7_FF if state.sun_shadow.detection.sun_detected else 0xFF_88_88_88
+				marker_col: u32 = 0xFF_88_88_88
+				if state.sun_shadow.detection.is_aperture && state.sun_shadow.detection.sun_detected {
+					marker_col = 0xFF_FF_D7_00 // Sky blue/cyan for aperture
+				} else if state.sun_shadow.detection.sun_detected {
+					marker_col = 0xFF_00_D7_FF // Gold yellow for direct sun
+				}
 				// Outer reticle circle
 				imgui.DrawList_AddCircle(draw_list, imgui.Vec2{sun_cx, sun_cy}, 10.0, marker_col, 24, 2.0)
 				// Center pinpoint
@@ -1090,7 +1138,7 @@ draw_ibl_debug_env_map :: proc(g: ^Gui, state: Scene_State, preview_w, preview_h
 				imgui.DrawList_AddLine(draw_list, imgui.Vec2{sun_cx - 14.0, sun_cy}, imgui.Vec2{sun_cx + 14.0, sun_cy}, marker_col, 1.5)
 				imgui.DrawList_AddLine(draw_list, imgui.Vec2{sun_cx, sun_cy - 14.0}, imgui.Vec2{sun_cx, sun_cy + 14.0}, marker_col, 1.5)
 
-				label_str := "SUN" if state.sun_shadow.detection.sun_detected else "SUN (Fallback)"
+				label_str := "APERTURE" if state.sun_shadow.detection.is_aperture else ("SUN" if state.sun_shadow.detection.sun_detected else "SUN (Fallback)")
 				label_cstr := strings.clone_to_cstring(label_str, context.temp_allocator)
 				imgui.DrawList_AddText(draw_list, imgui.Vec2{sun_cx + 12.0, sun_cy - 8.0}, marker_col, label_cstr)
 			}
@@ -1107,8 +1155,18 @@ draw_ibl_debug_sun_shadow :: proc(g: ^Gui, state: Scene_State, preview_w: f32) {
 
 	if imgui.CollapsingHeader("Sun Directional Shadow Map (Ortho Depth)", {.DefaultOpen}) {
 		det := ss.detection
-		status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback (Fixed 45 deg, South)"
-		status_col := imgui.Vec4{1.0, 0.85, 0.2, 1.0} if det.sun_detected else imgui.Vec4{0.7, 0.7, 0.7, 1.0}
+		status_str: string
+		status_col: imgui.Vec4
+		if det.is_aperture && det.sun_detected {
+			status_str = "Aperture Detected (Window / Skylight)"
+			status_col = imgui.Vec4{0.2, 0.85, 1.0, 1.0}
+		} else if det.sun_detected {
+			status_str = "Sun Detected (Direct Sunlight)"
+			status_col = imgui.Vec4{1.0, 0.85, 0.2, 1.0}
+		} else {
+			status_str = "Fallback (Fixed 45 deg, South)"
+			status_col = imgui.Vec4{0.7, 0.7, 0.7, 1.0}
+		}
 
 		imgui.TextColored(status_col, "Status: %s", status_str)
 		imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
@@ -2398,7 +2456,7 @@ DEBUG_KEYWORDS :: "debug debug views bloom dof exposure luminance stops histogra
 ENV_KEYWORDS :: "environment hdr env lod blur screenshot capture reload shaders glsl cycling skybox map"
 
 @(private)
-ENV_MAP_KEYWORDS :: "env map environment hdr gallery thumbnails miniatures skybox switch load preview cedar bridge garage neon photostudio cathedral"
+ENV_MAP_KEYWORDS :: "env map environment hdr gallery thumbnails miniatures skybox switch load preview cedar bridge garage neon photostudio cathedral sun direction azimuth elevation gizmo override recompute analysis lighting position color tint chromaticity"
 
 @(private)
 OPTIMIZATION_KEYWORDS :: "optimization profile presets performance quality balanced ultra-performance speed vs quality fps raymarch steps stochastic"
@@ -2413,4 +2471,4 @@ COMPUTE_KEYWORDS :: "compute tuning shader progressive slicing dispatch samples 
 SHADOW_KEYWORDS :: "shadow shadows point light cubemap bias normal offset slope rnob ssdb bulb darkening omnidirectional atlas dirty cache time slicing near far pcf vogel disk filter radius jitter stochastic temporal taa reprojection alpha disocclusion clamping debug heatmap penumbra split delta"
 
 @(private)
-VOLUMETRIC_KEYWORDS :: "volumetric raymarch raymarching taa reprojection bilateral blur scattering extinction henyey greenstein anisotropy god rays jbu upsample downsample fog mist smoke atmosphere presets"
+VOLUMETRIC_KEYWORDS :: "volumetric raymarch raymarching taa reprojection bilateral blur scattering extinction henyey greenstein anisotropy god rays jbu upsample downsample fog mist smoke atmosphere presets sun direction azimuth elevation gizmo override light source intensity color tint chromaticity"

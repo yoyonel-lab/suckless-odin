@@ -751,9 +751,10 @@ scene_resize :: proc(s: ^Scene, width, height: i32) {
 
 // Trigger an asynchronous environment map change.
 // Path is relative to project root (e.g. "assets/textures/hdr/name.hdr").
-scene_change_env :: proc(s: ^Scene, path: string) -> bool {
-	return env_manager_trigger_transition(&s.env_mgr, path)
+scene_change_env :: proc(s: ^Scene, path: string, force_recompute_sun: bool = false) -> bool {
+	return env_manager_trigger_transition(&s.env_mgr, path, force_recompute_sun)
 }
+
 
 // Scan the HDR directory and populate the file list.
 // ISO: scene_scan_hdr_files from legacy C11.
@@ -898,7 +899,19 @@ scene_pick_entity :: proc(s: ^Scene, mouse_x, mouse_y, screen_w, screen_h: f32) 
 		}
 	}
 
-	// 2. Test Instanced Spheres
+	// 2. Test Sun Virtual Sphere (if enabled or show_gizmo)
+	if s.sun_shadow.enabled && s.sun_shadow.show_gizmo {
+		sun_dist := s.sun_shadow.gizmo_distance if s.sun_shadow.gizmo_distance > 1.0 else 25.0
+		sun_pos := s.camera.position + s.sun_shadow.detection.direction * sun_dist
+		sun_r: f32 = 1.8 // Comfortable virtual picking volume
+		hit, t := mt.ray_intersect_sphere(ray, sun_pos, sun_r)
+		if hit && t < closest_t {
+			closest_t = t
+			hit_type = .Sun
+		}
+	}
+
+	// 3. Test Instanced Spheres
 	sphere_r: f32 = 1.0
 	for i in 0..<s.spheres.count {
 		idx := int(i)
@@ -922,11 +935,16 @@ scene_pick_entity :: proc(s: ^Scene, mouse_x, mouse_y, screen_w, screen_h: f32) 
 
 	if hit_type != .None {
 		s.point_light.show_gizmo = true
+		if hit_type == .Sun {
+			s.sun_shadow.show_gizmo = true
+		}
 		log.log_info("app.input", "Selected %v (id=%d, index=%d, t=%.2f)", hit_type, s.selection.sphere_id, hit_sphere_idx, closest_t)
 		return true
 	} else {
 		s.point_light.show_gizmo = false
+		s.sun_shadow.show_gizmo = false
 		log.log_info("app.input", "Deselected all (clicked skybox)")
 		return false
 	}
+
 }

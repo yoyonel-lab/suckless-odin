@@ -10,6 +10,7 @@ import "core:testing"
 
 import mt "../src/core/math_types"
 import rendering "../src/rendering"
+import scene "../src/scene"
 import simd "../src/core/simd_utils"
 
 @(test)
@@ -66,44 +67,50 @@ test_sun_ortho_projection_mapping :: proc(t: ^testing.T) {
 @(test)
 test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 	Env_Test_Expectation :: struct {
-		path:           string,
-		expected_sun:   bool,
-		min_elevation:  f32,
-		max_elevation:  f32,
-		min_azimuth:    f32,
-		max_azimuth:    f32,
+		path:              string,
+		expected_sun:      bool,
+		expected_aperture: bool,
+		min_elevation:     f32,
+		max_elevation:     f32,
+		min_azimuth:       f32,
+		max_azimuth:       f32,
 	}
 
 	expectations := [?]Env_Test_Expectation{
 		{
-			path          = "assets/textures/hdr/abandoned_garage_4k.hdr",
-			expected_sun  = false, // Indoor garage -> Fallback fixed direction
-			min_elevation = 44.9, max_elevation = 45.1,
-			min_azimuth   = 89.9, max_azimuth   = 90.1,
+			path              = "assets/textures/hdr/abandoned_garage_4k.hdr",
+			expected_sun      = true,  // Indoor skylight/verrière aperture
+			expected_aperture = true,
+			min_elevation     = 20.0, max_elevation = 45.0,
+			min_azimuth       = 10.0, max_azimuth   = 40.0,
 		},
 		{
-			path          = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
-			expected_sun  = true,  // Outdoor sun detected
-			min_elevation = 45.0, max_elevation = 65.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path              = "assets/textures/hdr/cedar_bridge_2_4k.hdr",
+			expected_sun      = true,  // Outdoor direct sun
+			expected_aperture = false,
+			min_elevation     = 45.0, max_elevation = 65.0,
+			min_azimuth       = 25.0, max_azimuth   = 45.0,
 		},
 		{
-			path          = "assets/textures/hdr/neon_photostudio_4k.hdr",
-			expected_sun  = false, // Indoor studio -> Fallback fixed direction
-			min_elevation = 44.9, max_elevation = 45.1,
-			min_azimuth   = 89.9, max_azimuth   = 90.1,
+			path              = "assets/textures/hdr/neon_photostudio_4k.hdr",
+			expected_sun      = true,  // Indoor window wall aperture
+			expected_aperture = true,
+			min_elevation     = 10.0, max_elevation = 30.0,
+			min_azimuth       = 80.0, max_azimuth   = 120.0,
 		},
 		{
-			path          = "assets/textures/hdr/river_alcove_4k.hdr",
-			expected_sun  = true,  // Outdoor sun detected
-			min_elevation = 35.0, max_elevation = 55.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path              = "assets/textures/hdr/river_alcove_4k.hdr",
+			expected_sun      = true,  // Outdoor direct sun
+			expected_aperture = false,
+			min_elevation     = 35.0, max_elevation = 55.0,
+			min_azimuth       = 25.0, max_azimuth   = 45.0,
 		},
 		{
-			path          = "assets/textures/hdr/small_cathedral_02_4k.hdr",
-			expected_sun  = true,  // Direct sun through cathedral window
-			min_elevation = 5.0,  max_elevation = 20.0,
-			min_azimuth   = 25.0, max_azimuth   = 45.0,
+			path              = "assets/textures/hdr/small_cathedral_02_4k.hdr",
+			expected_sun      = true,  // Direct sun through cathedral window
+			expected_aperture = false,
+			min_elevation     = 5.0,  max_elevation = 20.0,
+			min_azimuth       = 25.0, max_azimuth   = 45.0,
 		},
 	}
 
@@ -129,6 +136,7 @@ test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 		det := rendering.sun_detect_from_fp16(half_data, w, h)
 
 		testing.expect_value(t, det.sun_detected, exp.expected_sun)
+		testing.expect_value(t, det.is_aperture, exp.expected_aperture)
 		testing.expect(t, det.elevation >= exp.min_elevation && det.elevation <= exp.max_elevation,
 			fmt.tprintf("%s: elevation %.2f not in [%.2f, %.2f]", exp.path, det.elevation, exp.min_elevation, exp.max_elevation))
 		testing.expect(t, det.azimuth >= exp.min_azimuth && det.azimuth <= exp.max_azimuth,
@@ -139,3 +147,85 @@ test_sun_detection_all_envmaps :: proc(t: ^testing.T) {
 		testing.expect(t, math.abs(dir_len - 1.0) < 1e-4, "Sun direction must be unit vector")
 	}
 }
+
+@(test)
+test_sun_angles_dir_roundtrip :: proc(t: ^testing.T) {
+	test_cases := [?][2]f32{
+		{0.0, 45.0},
+		{90.0, 30.0},
+		{-90.0, 60.0},
+		{180.0, 15.0},
+		{-180.0, 80.0},
+		{45.0, 0.0},     // Horizon
+		{-135.0, 75.0},
+		{33.8, 51.5},    // Cedar bridge angles
+	}
+
+	for tc in test_cases {
+		azimuth_in := tc[0]
+		elevation_in := tc[1]
+
+		dir := rendering.sun_angles_to_dir(azimuth_in, elevation_in)
+		dir_len := mt.vec3_length(dir)
+		testing.expect(t, math.abs(dir_len - 1.0) < 1e-4, "Direction must be unit vector")
+
+		azimuth_out, elevation_out := rendering.sun_dir_to_angles(dir)
+		diff_elev := math.abs(elevation_out - elevation_in)
+		testing.expect(t, diff_elev < 1e-2, fmt.tprintf("Elevation roundtrip error: in=%.2f, out=%.2f", elevation_in, elevation_out))
+
+		// If near zenith, azimuth is degenerate
+		if elevation_in < 89.0 {
+			diff_azim := math.abs(azimuth_out - azimuth_in)
+			if diff_azim > 359.0 do diff_azim = math.abs(diff_azim - 360.0)
+			testing.expect(t, diff_azim < 1e-2, fmt.tprintf("Azimuth roundtrip error: in=%.2f, out=%.2f", azimuth_in, azimuth_out))
+		}
+	}
+}
+
+@(test)
+test_env_metadata_cache_lookup :: proc(t: ^testing.T) {
+	// 1. Lookup cedar bridge from bundled cache
+	det_cedar, ok_cedar := scene.env_metadata_cache_lookup("assets/textures/hdr/cedar_bridge_2_4k.hdr")
+	testing.expect(t, ok_cedar, "Cedar bridge must be found in env_metadata.json cache")
+	testing.expect(t, det_cedar.sun_detected, "Cedar bridge must have sun_detected=true in cache")
+	testing.expect(t, det_cedar.azimuth > 30.0 && det_cedar.azimuth < 40.0, "Cedar bridge azimuth should match cached value (~35.2)")
+	testing.expect(t, det_cedar.elevation > 50.0 && det_cedar.elevation < 60.0, "Cedar bridge elevation should match cached value (~56.4)")
+	testing.expect(t, det_cedar.color.x > 0.95 && det_cedar.color.y > 0.80 && det_cedar.color.z > 0.80, "Cedar bridge color must be warm golden")
+
+	// 2. Lookup indoor map from bundled cache (verrière aperture detected)
+	det_garage, ok_garage := scene.env_metadata_cache_lookup("abandoned_garage_4k.hdr")
+	testing.expect(t, ok_garage, "Abandoned garage must be found using bare filename in cache")
+	testing.expect(t, det_garage.sun_detected, "Abandoned garage must have sun_detected=true (aperture) in cache")
+	testing.expect(t, det_garage.is_aperture, "Abandoned garage must have is_aperture=true in cache")
+	testing.expect(t, det_garage.confidence > 0, "Indoor garage should have confidence > 0 in cache")
+	testing.expect(t, det_garage.color.z > 0.90, "Garage skylight color must be cool blue daylight")
+
+	// 3. Lookup non-existent file
+	_, ok_nonexist := scene.env_metadata_cache_lookup("nonexistent_sky_999.hdr")
+	testing.expect(t, !ok_nonexist, "Nonexistent HDR must not be found in cache")
+}
+
+@(test)
+test_sun_shadow_color_override :: proc(t: ^testing.T) {
+	ss: rendering.Sun_Shadow
+	ss.detection = rendering.Sun_Detection{
+		color        = mt.Vec3{1.0, 0.70, 0.30},
+		sun_detected = true,
+	}
+	ss.color_override_enabled = false
+	ss.manual_color = mt.Vec3{0.20, 0.50, 1.0}
+
+	// 1. Without override: should return detected color
+	eff1 := rendering.sun_shadow_get_effective_color(&ss)
+	testing.expect_value(t, eff1.x, f32(1.0))
+	testing.expect_value(t, eff1.y, f32(0.70))
+	testing.expect_value(t, eff1.z, f32(0.30))
+
+	// 2. With override: should return manual color
+	ss.color_override_enabled = true
+	eff2 := rendering.sun_shadow_get_effective_color(&ss)
+	testing.expect_value(t, eff2.x, f32(0.20))
+	testing.expect_value(t, eff2.y, f32(0.50))
+	testing.expect_value(t, eff2.z, f32(1.0))
+}
+

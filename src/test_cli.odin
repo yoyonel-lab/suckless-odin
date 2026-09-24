@@ -99,6 +99,19 @@ test_cli_compute_profile_optimized :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_cli_compute_profile_fast_200ms :: proc(t: ^testing.T) {
+	args := []string{"app", "--compute-profile=fast_200ms"}
+	opts, action := cli_handle_args(args)
+	testing.expect_value(t, action, Cli_Action.Continue)
+	testing.expect_value(t, opts.compute_profile, settings.Compute_Shader_Profile.Fast_200ms)
+
+	args_alias := []string{"app", "--compute-profile=fast"}
+	opts_alias, action_alias := cli_handle_args(args_alias)
+	testing.expect_value(t, action_alias, Cli_Action.Continue)
+	testing.expect_value(t, opts_alias.compute_profile, settings.Compute_Shader_Profile.Fast_200ms)
+}
+
+@(test)
 test_cli_compute_profile_invalid :: proc(t: ^testing.T) {
 	args := []string{"app", "--compute-profile=nonexist"}
 	_, action := cli_handle_args(args)

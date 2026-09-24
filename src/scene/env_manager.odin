@@ -288,7 +288,7 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 
 // Trigger an environment map change (async load + transition).
 // ISO: env_manager_trigger_transition
-env_manager_trigger_transition :: proc(mgr: ^Env_Manager, path: string) -> bool {
+env_manager_trigger_transition :: proc(mgr: ^Env_Manager, path: string, force_recompute_sun: bool = false) -> bool {
 	// Don't trigger if already transitioning
 	if mgr.transition_state != .Idle {
 		log.log_warning("scene.env",
@@ -302,23 +302,24 @@ env_manager_trigger_transition :: proc(mgr: ^Env_Manager, path: string) -> bool 
 	env_manager_set_transition_state(mgr, .Loading)
 	mgr.transition_alpha = 0.0
 
-	if !async_loader_request(&mgr.loader, path) {
+	if !async_loader_request(&mgr.loader, path, force_recompute_sun) {
 		env_manager_set_transition_state(mgr, .Idle)
 		return false
 	}
 
-	log.log_debug("scene.env", "Transition triggered: %s", path)
+	log.log_debug("scene.env", "Transition triggered: %s (force_recompute_sun=%v)", path, force_recompute_sun)
 	return true
 }
 
 // Trigger the initial environment load at startup.
 // The env_manager starts in Wait_IBL state, which swaps textures on completion.
-env_manager_trigger_initial :: proc(mgr: ^Env_Manager, path: string) {
+env_manager_trigger_initial :: proc(mgr: ^Env_Manager, path: string, force_recompute_sun: bool = false) {
 	// transition_state is already .Wait_IBL from env_manager_create
 	mgr.load_start_tick = time.tick_now()
-	async_loader_request(&mgr.loader, path)
-	log.log_debug("scene.env", "Initial env load triggered: %s", path)
+	async_loader_request(&mgr.loader, path, force_recompute_sun)
+	log.log_debug("scene.env", "Initial env load triggered: %s (force_recompute_sun=%v)", path, force_recompute_sun)
 }
+
 
 // Must be called each frame from the main thread.
 // Polls async loader, advances IBL state machine, updates transition.
@@ -1168,13 +1169,30 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 	rendering.skybox_update_env(&scene.skybox, scene.env_texture.id, scene.ibl.prefilter_map)
 
 	// Update Sun directional shadow map detection & mark dirty
+	prev_dir := scene.sun_shadow.detection.direction
+	prev_az := scene.sun_shadow.detection.azimuth
+	prev_el := scene.sun_shadow.detection.elevation
+	prev_color := scene.sun_shadow.manual_color
 	scene.sun_shadow.detection = mgr.async_result.sun_detection
+	if scene.sun_shadow.override_enabled {
+		scene.sun_shadow.detection.direction = prev_dir
+		scene.sun_shadow.detection.azimuth = prev_az
+		scene.sun_shadow.detection.elevation = prev_el
+	}
+	if scene.sun_shadow.color_override_enabled {
+		scene.sun_shadow.detection.color = prev_color
+	}
 	scene.sun_shadow.is_dirty = true
-	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, confidence=%d, detected=%v",
+	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, color=(%.2f,%.2f,%.2f), confidence=%d, detected=%v (override=%v)",
 		scene.sun_shadow.detection.azimuth,
 		scene.sun_shadow.detection.elevation,
+		scene.sun_shadow.detection.color.x,
+		scene.sun_shadow.detection.color.y,
+		scene.sun_shadow.detection.color.z,
 		scene.sun_shadow.detection.confidence,
-		scene.sun_shadow.detection.sun_detected)
+		scene.sun_shadow.detection.sun_detected,
+		scene.sun_shadow.override_enabled)
+
 
 	log.log_debug("scene.env", "Environment textures swapped simultaneously (pool slot %d active)", mgr.pool_active_idx)
 	elapsed_ms := time.duration_milliseconds(time.tick_since(mgr.load_start_tick))

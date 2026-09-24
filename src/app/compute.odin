@@ -31,8 +31,9 @@ apply_compute_tuning_callback :: proc(scene_ptr: rawptr, params: settings.Comput
 	return true
 }
 
-change_env_callback :: proc(scene_ptr: rawptr, path: string) -> bool {
+change_env_callback :: proc(scene_ptr: rawptr, path: string, force_recompute_sun: bool = false) -> bool {
 	s := (^scene.Scene)(scene_ptr)
 	if s == nil do return false
-	return scene.scene_change_env(s, path)
+	return scene.scene_change_env(s, path, force_recompute_sun)
 }
+

@@ -88,9 +88,11 @@ cli_handle_args :: proc(args: []string) -> (Cli_Options, Cli_Action) {
 				opts.compute_profile = .Legacy
 			} else if value == "optimized" {
 				opts.compute_profile = .Optimized
+			} else if value == "fast_200ms" || value == "fast" {
+				opts.compute_profile = .Fast_200ms
 			} else {
 				fmt.eprintfln("Unknown compute profile: '%s'", value)
-				fmt.eprintln("Available profiles: legacy, optimized")
+				fmt.eprintln("Available profiles: legacy, optimized, fast_200ms")
 				return opts, .Exit_Failure
 			}
 		case strings.has_prefix(arg, "--opt-profile=") || strings.has_prefix(arg, "--optimization-profile="):
