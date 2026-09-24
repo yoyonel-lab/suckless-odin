@@ -160,6 +160,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter le Guide Full GPU & ImGuizmo](2026-09-03_gpu_ambient_occlusion_compute_shader_and_imguizmo.md)
 
+-   :material-chart-bell-curve-cumulative:{ .lg .middle } __Analyse Performance IBL & Débits Matériels__
+
+    ---
+
+    Étude comparative entre limites physiques théoriques (NVMe PCIe 4.0, LPDDR5-6400, Intel Iris Xe) et stratégie de time-slicing amorti par tranches inter-frames (profils legacy, optimized, fast_200ms).
+
+    [:octicons-arrow-right-24: Consulter l'Analyse Matérielle IBL](2026-09-23_ibl_async_loading_performance_hardware_analysis.md)
+
 </div>
 
 ---

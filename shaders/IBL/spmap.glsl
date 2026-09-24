@@ -82,17 +82,19 @@ void main(void)
 	if (pos.x >= outputSize.x || pos.y >= outputSize.y || pos.y >= u_max_y)
 		return;
 
-	// Calcul de la direction N à partir des coordonnées de l'image de
-	// sortie
-	vec2 st = vec2(pos) / vec2(outputSize);
-	float phi = (st.x - 0.5) * TwoPI;
-	float theta = (st.y - 0.5) * PI;
-
+	// Calcul de la direction N a partir des coordonnees de l'image de sortie
 	vec3 normal;
-	normal.x = cos(theta) * cos(phi);
-	normal.y = sin(theta);
-	normal.z = cos(theta) * sin(phi);
-	normal = normalize(normal);
+	if (pos.y >= outputSize.y - 1) {
+		normal = vec3(0.0, 1.0, 0.0);
+	} else if (pos.y <= 0) {
+		normal = vec3(0.0, -1.0, 0.0);
+	} else {
+		vec2 st = vec2(float(pos.x) / float(outputSize.x),
+		               float(pos.y) / float(outputSize.y - 1));
+		float phi = (st.x - 0.5) * TwoPI;
+		float theta = (st.y - 0.5) * PI;
+		normal = normalize(vec3(cos(theta) * cos(phi), sin(theta), cos(theta) * sin(phi)));
+	}
 
 	vec3 viewDir = normal;
 	vec3 tangent, bitangent;
