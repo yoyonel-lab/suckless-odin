@@ -176,6 +176,22 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter l'Analyse Matérielle IBL](2026-09-23_ibl_async_loading_performance_hardware_analysis.md)
 
+-   :material-weather-fog:{ .lg .middle } __Rendu Volumétrique Organique & Fumée AAA__
+
+    ---
+
+    Analyse comparative des techniques AAA pour ajouter du corps et de la matière aux rayons lumineux : bruit 3D Perlin-Worley défilant, gradient altimétrique, fonction de phase double lobe Henyey-Greenstein et architecture raymarching hétérogène.
+
+    [:octicons-arrow-right-24: Consulter l'Analyse Volumétrique Organique](2026-09-24_organic_volumetric_fog_and_smoke_analysis.md)
+
+-   :material-speedometer:{ .lg .middle } __Audit de Performance GPU & Quick Wins P0__
+
+    ---
+
+    Rapport d'optimisation GPU et benchmarks : adoption de `textureGather` sur PCF raymarch (-21% GPU time), suppression des `gl.Clear` redondants, conditionnement des previews GUI et mise en cache O(1) des métadonnées HDR.
+
+    [:octicons-arrow-right-24: Consulter l'Audit d'Optimisation P0](2026-10-26_p0_performance_optimization_audit_and_benchmarks.md)
+
 </div>
 
 ---
