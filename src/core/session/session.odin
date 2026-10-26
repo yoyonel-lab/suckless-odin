@@ -58,6 +58,14 @@ Volumetric_Session_Settings :: struct {
 	shadow_far_plane:       f32     `json:"shadow_far_plane"`,
 	zoom_scale:             f32     `json:"zoom_scale"`,
 	zoom_center:            mt.Vec2 `json:"zoom_center"`,
+	dual_lobe_enabled:            bool    `json:"dual_lobe_enabled"`,
+	anisotropy_g_backward:        f32     `json:"anisotropy_g_backward"`,
+	dual_lobe_blend:              f32     `json:"dual_lobe_blend"`,
+	crepuscular_boost_enabled:    bool    `json:"crepuscular_boost_enabled"`,
+	crepuscular_boost_strength:   f32     `json:"crepuscular_boost_strength"`,
+	crepuscular_boost_threshold:  f32     `json:"crepuscular_boost_threshold"`,
+	spectral_scattering_enabled:  bool    `json:"spectral_scattering_enabled"`,
+	spectral_coefficients:        mt.Vec3 `json:"spectral_coefficients"`,
 }
 
 Point_Light_Session_Settings :: struct {

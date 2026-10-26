@@ -139,6 +139,14 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			depth_preview_max      = s.depth_downsample.preview_max_depth,
 			zoom_scale             = s.volumetric.params.zoom_scale,
 			zoom_center            = s.volumetric.params.zoom_center,
+			dual_lobe_enabled            = s.volumetric.params.dual_lobe_enabled,
+			anisotropy_g_backward        = s.volumetric.params.anisotropy_g_backward,
+			dual_lobe_blend              = s.volumetric.params.dual_lobe_blend,
+			crepuscular_boost_enabled    = s.volumetric.params.crepuscular_boost_enabled,
+			crepuscular_boost_strength   = s.volumetric.params.crepuscular_boost_strength,
+			crepuscular_boost_threshold  = s.volumetric.params.crepuscular_boost_threshold,
+			spectral_scattering_enabled  = s.volumetric.params.spectral_scattering_enabled,
+			spectral_coefficients        = s.volumetric.params.spectral_coefficients,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -351,6 +359,24 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		}
 		if state.volumetric.zoom_center.x != 0 || state.volumetric.zoom_center.y != 0 {
 			s.volumetric.params.zoom_center = state.volumetric.zoom_center
+		}
+		s.volumetric.params.dual_lobe_enabled = state.volumetric.dual_lobe_enabled
+		if state.volumetric.anisotropy_g_backward != 0 {
+			s.volumetric.params.anisotropy_g_backward = state.volumetric.anisotropy_g_backward
+		}
+		if state.volumetric.dual_lobe_blend > 0 {
+			s.volumetric.params.dual_lobe_blend = state.volumetric.dual_lobe_blend
+		}
+		s.volumetric.params.crepuscular_boost_enabled = state.volumetric.crepuscular_boost_enabled
+		if state.volumetric.crepuscular_boost_strength > 0 {
+			s.volumetric.params.crepuscular_boost_strength = state.volumetric.crepuscular_boost_strength
+		}
+		if state.volumetric.crepuscular_boost_threshold > 0 {
+			s.volumetric.params.crepuscular_boost_threshold = state.volumetric.crepuscular_boost_threshold
+		}
+		s.volumetric.params.spectral_scattering_enabled = state.volumetric.spectral_scattering_enabled
+		if state.volumetric.spectral_coefficients.x > 0 || state.volumetric.spectral_coefficients.y > 0 || state.volumetric.spectral_coefficients.z > 0 {
+			s.volumetric.params.spectral_coefficients = state.volumetric.spectral_coefficients
 		}
 		s.volumetric.history_valid                 = false
 

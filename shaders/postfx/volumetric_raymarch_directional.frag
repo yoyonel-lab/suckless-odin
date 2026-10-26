@@ -35,6 +35,16 @@ uniform float u_anisotropy_g;     // Henyey-Greenstein eccentricity g [-0.9..+0.
 uniform float u_intensity_mult;   // Master volumetric intensity [0.0..10.0]
 uniform bool  u_jitter_enabled;   // Interleaved gradient noise spatial jittering
 
+// Phase 1 Cinematic & Optical Enhancements
+uniform bool  u_dual_lobe_enabled;
+uniform float u_anisotropy_g_backward; // [-0.99..0.0], default -0.30
+uniform float u_dual_lobe_blend;       // [0.0..1.0], default 0.70 (forward weight)
+uniform bool  u_crepuscular_boost_enabled;
+uniform float u_crepuscular_boost_strength;  // [0.0..5.0], default 2.0
+uniform float u_crepuscular_boost_threshold; // [0.0..1.0], default 0.70
+uniform bool  u_spectral_scattering_enabled;
+uniform vec3  u_spectral_coefficients;       // default vec3(1.20, 1.00, 0.85)
+
 // Interleaved Gradient Noise (spatial/temporal ray jittering)
 float interleaved_gradient_noise(vec2 screen_pos, int frame)
 {
@@ -81,16 +91,40 @@ void main()
     // When ray_dir aligns with u_sun_dir (camera looking towards sun), cos_theta ~ 1
     float cos_theta = dot(normalize(u_sun_dir), ray_dir);
     float phase = 1.0;
-    if (has_anisotropy) {
+    if (u_dual_lobe_enabled) {
+        float g1 = g;
+        float g1_2 = g1 * g1;
+        float denom1 = max(1.0 + g1_2 - 2.0 * g1 * cos_theta, 0.0001);
+        float inv1 = inversesqrt(denom1);
+        float phase1 = (1.0 - g1_2) * (inv1 * inv1 * inv1);
+
+        float g2 = clamp(u_anisotropy_g_backward, -0.99, 0.0);
+        float g2_2 = g2 * g2;
+        float denom2 = max(1.0 + g2_2 - 2.0 * g2 * cos_theta, 0.0001);
+        float inv2 = inversesqrt(denom2);
+        float phase2 = (1.0 - g2_2) * (inv2 * inv2 * inv2);
+
+        phase = mix(phase2, phase1, clamp(u_dual_lobe_blend, 0.0, 1.0));
+    } else if (has_anisotropy) {
         float denom = max(1.0 + g2 - two_g * cos_theta, 0.0001);
         float inv_denom = inversesqrt(denom);
         phase = one_minus_g2 * (inv_denom * inv_denom * inv_denom);
     }
 
+    // Crepuscular counter-jour boost
+    float crepuscular_mult = 1.0;
+    if (u_crepuscular_boost_enabled) {
+        float boost_factor = smoothstep(u_crepuscular_boost_threshold, 1.0, cos_theta);
+        crepuscular_mult += boost_factor * u_crepuscular_boost_strength;
+    }
+
+    // Spectral scattering (wavelength-dependent Rayleigh/Mie chromatic shift)
+    vec3 spectral_factor = (u_spectral_scattering_enabled) ? u_spectral_coefficients : vec3(1.0);
+
     float transmittance = 1.0;
     float step_extinction = exp(-u_extinction_coeff * step_size);
     float scattered_amount = 0.0;
-    vec3 light_color_intensity = u_sun_color * (u_sun_intensity * u_intensity_mult);
+    vec3 light_color_intensity = u_sun_color * (u_sun_intensity * u_intensity_mult * crepuscular_mult) * spectral_factor;
 
     float shadow_res = max(u_shadow_resolution, 512.0);
 

@@ -219,15 +219,102 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			imgui.SameLine()
 			if imgui.Button("Backscatter (g=-0.35)") { rendering.volumetric_set_anisotropy(vr, light, -0.35) }
 
+			// Phase 1: Cinematic & Optical Enhancements
+			imgui.Spacing()
+			imgui.Separator()
+			imgui.TextColored({1.0, 0.75, 0.3, 1.0}, "Cinematic & Optical Enhancements (Phase 1):")
+
+			if imgui.Checkbox("Dual-Lobed Henyey-Greenstein##vol", &vr.params.dual_lobe_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.dual_lobe_enabled {
+				if imgui.SliderFloat("Backward Anisotropy (g2)##vol", &vr.params.anisotropy_g_backward, -0.99, 0.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##anisotropy_g2_vol") {
+					vr.params.anisotropy_g_backward = rendering.DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if imgui.SliderFloat("Forward Lobe Blend##vol", &vr.params.dual_lobe_blend, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dual_lobe_blend_vol") {
+					vr.params.dual_lobe_blend = rendering.DEFAULT_DUAL_LOBE_BLEND
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+
+			if imgui.Checkbox("Crepuscular Ray Boost (Contre-jour)##vol", &vr.params.crepuscular_boost_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.crepuscular_boost_enabled {
+				if imgui.SliderFloat("Crepuscular Boost Strength##vol", &vr.params.crepuscular_boost_strength, 0.0, 5.0, "%.2fx") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##crep_strength_vol") {
+					vr.params.crepuscular_boost_strength = rendering.DEFAULT_CREPUSCULAR_BOOST_STRENGTH
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if imgui.SliderFloat("Crepuscular Cos Threshold##vol", &vr.params.crepuscular_boost_threshold, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##crep_threshold_vol") {
+					vr.params.crepuscular_boost_threshold = rendering.DEFAULT_CREPUSCULAR_BOOST_THRESHOLD
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+
+			if imgui.Checkbox("Spectral Chromatic Scattering (Rayleigh/Mie)##vol", &vr.params.spectral_scattering_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.spectral_scattering_enabled {
+				spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
+				if imgui.SliderFloat3("RGB Scattering Weights##vol", &spectral_arr, 0.1, 3.0, "%.2f") {
+					vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##spectral_vol") {
+					vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+			imgui.Separator()
+
 			// Henyey-Greenstein Phase Plot
 			imgui.Spacing()
-			imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "Henyey-Greenstein Phase Function P(theta, g):")
+			phase_title := "Dual-Lobed Phase Function P(theta, g1, g2):" if vr.params.dual_lobe_enabled else "Henyey-Greenstein Phase Function P(theta, g):"
+			imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "%s", phase_title)
 			phase_samples: [64]f32
 			max_p: f32 = 0.001
 			for i in 0..<64 {
 				theta := (f32(i) / 63.0) * math.PI
 				cos_theta := math.cos(theta)
-				p := rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g)
+				p: f32
+				if vr.params.dual_lobe_enabled {
+					p1 := rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g)
+					p2 := rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g_backward)
+					p = p2 + vr.params.dual_lobe_blend * (p1 - p2)
+				} else {
+					p = rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g)
+				}
 				phase_samples[i] = p
 				if p > max_p do max_p = p
 			}
@@ -641,6 +728,85 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		g_val := vr.params.anisotropy_g
 		if imgui.SliderFloat("Phase Anisotropy (g)##filt", &g_val, -0.9, 0.9, "%.2f") {
 			rendering.volumetric_set_anisotropy(vr, light, g_val)
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dual-Lobed Henyey-Greenstein", "volumetric dual lobe henyey greenstein forward backward phase anisotropy optical") {
+		if imgui.Checkbox("Dual-Lobed Henyey-Greenstein##vol_filt", &vr.params.dual_lobe_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dual_lobe_enabled {
+			if imgui.SliderFloat("Backward Anisotropy (g2)##vol_filt", &vr.params.anisotropy_g_backward, -0.99, 0.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##anisotropy_g2_vol_filt") {
+				vr.params.anisotropy_g_backward = rendering.DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if imgui.SliderFloat("Forward Lobe Blend##vol_filt", &vr.params.dual_lobe_blend, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dual_lobe_blend_vol_filt") {
+				vr.params.dual_lobe_blend = rendering.DEFAULT_DUAL_LOBE_BLEND
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Crepuscular Ray Boost", "volumetric crepuscular ray boost contre jour sun looking threshold flare cinema") {
+		if imgui.Checkbox("Crepuscular Ray Boost (Contre-jour)##vol_filt", &vr.params.crepuscular_boost_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.crepuscular_boost_enabled {
+			if imgui.SliderFloat("Crepuscular Boost Strength##vol_filt", &vr.params.crepuscular_boost_strength, 0.0, 5.0, "%.2fx") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_strength_vol_filt") {
+				vr.params.crepuscular_boost_strength = rendering.DEFAULT_CREPUSCULAR_BOOST_STRENGTH
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if imgui.SliderFloat("Crepuscular Cos Threshold##vol_filt", &vr.params.crepuscular_boost_threshold, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_threshold_vol_filt") {
+				vr.params.crepuscular_boost_threshold = rendering.DEFAULT_CREPUSCULAR_BOOST_THRESHOLD
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Spectral Chromatic Scattering", "volumetric spectral chromatic scattering rayleigh mie wavelength rgb weights") {
+		if imgui.Checkbox("Spectral Chromatic Scattering##vol_filt", &vr.params.spectral_scattering_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.spectral_scattering_enabled {
+			spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
+			if imgui.SliderFloat3("RGB Scattering Weights##vol_filt", &spectral_arr, 0.1, 3.0, "%.2f") {
+				vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##spectral_vol_filt") {
+				vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
 		}
 		match_count += 1
 	}

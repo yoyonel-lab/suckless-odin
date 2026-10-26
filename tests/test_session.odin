@@ -120,6 +120,14 @@ test_session_save_load :: proc(t: ^testing.T) {
 		depth_preview_max      = 45.0,
 		zoom_scale             = 2.5,
 		zoom_center            = {0.4, 0.6},
+		dual_lobe_enabled           = true,
+		anisotropy_g_backward       = -0.35,
+		dual_lobe_blend             = 0.65,
+		crepuscular_boost_enabled   = true,
+		crepuscular_boost_strength  = 2.5,
+		crepuscular_boost_threshold = 0.60,
+		spectral_scattering_enabled = true,
+		spectral_coefficients       = {1.25, 1.05, 0.80},
 	}
 	state_to_save.point_light = session.Point_Light_Session_Settings{
 		position               = {10.0, 5.0, -2.0},
@@ -265,6 +273,16 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.zoom_scale, 2.5)
 	testing.expect_value(t, loaded_state.volumetric.zoom_center.x, 0.4)
 	testing.expect_value(t, loaded_state.volumetric.zoom_center.y, 0.6)
+	testing.expect_value(t, loaded_state.volumetric.dual_lobe_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.anisotropy_g_backward, f32(-0.35))
+	testing.expect_value(t, loaded_state.volumetric.dual_lobe_blend, f32(0.65))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_strength, f32(2.5))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_threshold, f32(0.60))
+	testing.expect_value(t, loaded_state.volumetric.spectral_scattering_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.x, f32(1.25))
+	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.y, f32(1.05))
+	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.z, f32(0.80))
 
 	// Point Light validation
 	testing.expect_value(t, loaded_state.point_light.enabled, true)

@@ -89,6 +89,13 @@ Volumetric_Light_Mode :: enum i32 {
 VOLUMETRIC_DEFAULT_INTENSITY_OMNI :: 1.0
 VOLUMETRIC_DEFAULT_INTENSITY_SUN  :: 0.25
 
+// Phase 1: Cinematic Defaults
+DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD :: -0.30
+DEFAULT_DUAL_LOBE_BLEND               :: 0.70
+DEFAULT_CREPUSCULAR_BOOST_STRENGTH    :: 2.0
+DEFAULT_CREPUSCULAR_BOOST_THRESHOLD   :: 0.70
+DEFAULT_SPECTRAL_SCATTERING_WEIGHTS   :: mt.Vec3{1.20, 1.00, 0.85}
+
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
 	case .Sun_Directional: return VOLUMETRIC_DEFAULT_INTENSITY_SUN
@@ -135,6 +142,16 @@ Volumetric_Params :: struct {
 	preview_exposure_boost:       f32,  // default 1.0 (range 1.0..10.0)
 	zoom_scale:                   f32,  // Loupe zoom (1.0 to 16.0)
 	zoom_center:                  mt.Vec2, // (0.5, 0.5)
+
+	// Phase 1: Cinematic & Optical Extensions
+	dual_lobe_enabled:            bool, // Dual-lobed Henyey-Greenstein (forward + backward)
+	anisotropy_g_backward:        f32,  // Backward eccentricity (default -0.30, range -0.99..0.0)
+	dual_lobe_blend:              f32,  // Forward lobe blend weight (default 0.70, range 0.0..1.0)
+	crepuscular_boost_enabled:    bool, // Counter-jour intensity boost when looking towards sun
+	crepuscular_boost_strength:   f32,  // Multiplier boost (default 2.0, range 0.0..5.0)
+	crepuscular_boost_threshold:  f32,  // Look-at-sun cos threshold (default 0.70, range 0.0..1.0)
+	spectral_scattering_enabled:  bool, // Wavelength-dependent chromatic scattering (Rayleigh/Mie)
+	spectral_coefficients:        mt.Vec3, // RGB scattering weights (default {1.20, 1.00, 0.85})
 }
 
 // Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
@@ -197,8 +214,16 @@ Volumetric_Renderer :: struct {
 	loc_dir_scattering_coeff:     i32,
 	loc_dir_extinction_coeff:     i32,
 	loc_dir_anisotropy_g:         i32,
-	loc_dir_intensity_mult:       i32,
-	loc_dir_jitter_enabled:       i32,
+	loc_dir_intensity_mult:               i32,
+	loc_dir_jitter_enabled:               i32,
+	loc_dir_dual_lobe_enabled:            i32,
+	loc_dir_anisotropy_g_backward:        i32,
+	loc_dir_dual_lobe_blend:              i32,
+	loc_dir_crepuscular_boost_enabled:    i32,
+	loc_dir_crepuscular_boost_strength:   i32,
+	loc_dir_crepuscular_boost_threshold:  i32,
+	loc_dir_spectral_scattering_enabled:  i32,
+	loc_dir_spectral_coefficients:        i32,
 
 	// TAA Reprojection Shader & Uniform Locations
 	taa_program:            u32,
@@ -305,20 +330,28 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		anisotropy_g           = 0.55,
 		intensity_mult         = 1.0,
 		jitter_enabled         = true,
-		taa_mode               = 2, // TAA Reprojection
-		taa_alpha              = 0.20,
-		taa_depth_threshold    = 0.80,
-		taa_clamping_enabled   = true,
-		blur_mode              = 2, // 9-tap Bilateral (Smooth ISO legacy)
-		blur_sharpness         = 500.0,
-		viewport_debug_mode    = 0,
-		upsample_mode          = 2, // Joint Bilateral Upsampling (JBU 2x2 Depth-Guided)
-		upsample_sharpness     = 200.0,
-		resolution_divider     = 2, // Half-resolution buffer (1/2 default)
-		preview_mode           = 0,
-		preview_exposure_boost = 1.0,
-		zoom_scale             = 1.0,
-		zoom_center            = mt.Vec2{0.5, 0.5},
+		taa_mode                    = 2, // TAA Reprojection
+		taa_alpha                   = 0.15,
+		taa_depth_threshold         = 0.80,
+		taa_clamping_enabled        = true,
+		blur_mode                   = 2, // 9-tap Bilateral (Smooth ISO legacy)
+		blur_sharpness              = 500.0,
+		viewport_debug_mode         = 0,
+		upsample_mode               = 2, // Joint Bilateral Upsampling (JBU 2x2 Depth-Guided)
+		upsample_sharpness          = 200.0,
+		resolution_divider          = 2, // Half-resolution buffer (1/2 default)
+		preview_mode                = 0,
+		preview_exposure_boost      = 1.0,
+		zoom_scale                  = 1.0,
+		zoom_center                 = mt.Vec2{0.5, 0.5},
+		dual_lobe_enabled           = false,
+		anisotropy_g_backward       = DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD,
+		dual_lobe_blend             = DEFAULT_DUAL_LOBE_BLEND,
+		crepuscular_boost_enabled   = false,
+		crepuscular_boost_strength  = DEFAULT_CREPUSCULAR_BOOST_STRENGTH,
+		crepuscular_boost_threshold = DEFAULT_CREPUSCULAR_BOOST_THRESHOLD,
+		spectral_scattering_enabled = false,
+		spectral_coefficients       = DEFAULT_SPECTRAL_SCATTERING_WEIGHTS,
 	}
 
 	div := max(1, vr.params.resolution_divider)
@@ -376,6 +409,14 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_dir_anisotropy_g     = gl.GetUniformLocation(vr.directional_program, "u_anisotropy_g")
 	vr.loc_dir_intensity_mult   = gl.GetUniformLocation(vr.directional_program, "u_intensity_mult")
 	vr.loc_dir_jitter_enabled   = gl.GetUniformLocation(vr.directional_program, "u_jitter_enabled")
+	vr.loc_dir_dual_lobe_enabled           = gl.GetUniformLocation(vr.directional_program, "u_dual_lobe_enabled")
+	vr.loc_dir_anisotropy_g_backward       = gl.GetUniformLocation(vr.directional_program, "u_anisotropy_g_backward")
+	vr.loc_dir_dual_lobe_blend             = gl.GetUniformLocation(vr.directional_program, "u_dual_lobe_blend")
+	vr.loc_dir_crepuscular_boost_enabled   = gl.GetUniformLocation(vr.directional_program, "u_crepuscular_boost_enabled")
+	vr.loc_dir_crepuscular_boost_strength  = gl.GetUniformLocation(vr.directional_program, "u_crepuscular_boost_strength")
+	vr.loc_dir_crepuscular_boost_threshold = gl.GetUniformLocation(vr.directional_program, "u_crepuscular_boost_threshold")
+	vr.loc_dir_spectral_scattering_enabled = gl.GetUniformLocation(vr.directional_program, "u_spectral_scattering_enabled")
+	vr.loc_dir_spectral_coefficients       = gl.GetUniformLocation(vr.directional_program, "u_spectral_coefficients")
 
 	gl.UseProgram(vr.directional_program)
 	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_low_res_depth"), 0)
@@ -727,6 +768,17 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_dir_anisotropy_g, vr.params.anisotropy_g)
 		gl.Uniform1f(vr.loc_dir_intensity_mult, vr.params.intensity_mult)
 		gl.Uniform1i(vr.loc_dir_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
+
+		gl.Uniform1i(vr.loc_dir_dual_lobe_enabled, 1 if vr.params.dual_lobe_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_anisotropy_g_backward, vr.params.anisotropy_g_backward)
+		gl.Uniform1f(vr.loc_dir_dual_lobe_blend, vr.params.dual_lobe_blend)
+
+		gl.Uniform1i(vr.loc_dir_crepuscular_boost_enabled, 1 if vr.params.crepuscular_boost_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_crepuscular_boost_strength, vr.params.crepuscular_boost_strength)
+		gl.Uniform1f(vr.loc_dir_crepuscular_boost_threshold, vr.params.crepuscular_boost_threshold)
+
+		gl.Uniform1i(vr.loc_dir_spectral_scattering_enabled, 1 if vr.params.spectral_scattering_enabled else 0)
+		gl.Uniform3f(vr.loc_dir_spectral_coefficients, vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z)
 
 		fullscreen_triangle_draw(&vr.triangle)
 
