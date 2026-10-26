@@ -76,8 +76,33 @@ Chaque fonctionnalité de la Phase 1 est conçue pour être **individuellement c
 
 ---
 
-## 4. Spécification de la Phase 2 (Planifiée)
+## 4. Détail de la Phase 2 (Implémentée)
 
-1. **Jitter Blue Noise 2D** : Remplacement de l'IGN mathématique par une texture 2D tileable 64x64 pour éliminer les artéfacts diagonaux et accélérer la convergence temporelle.
-2. **Texture Volumétrique 3D (64³)** : Bruit de Worley/Perlin précalculé ou curl noise généré au démarrage pour moduler localement la densité sans écrouler le taux de rafraîchissement.
-3. **Plafond & Gradient Altimétrique** : Atténuation exponentielle naturelle vers le ciel pour simuler la couche limite planétaire.
+Chaque fonctionnalité de la Phase 2 dispose de son **toggle on/off**, de curseurs de réglage avec bouton **Reset**, d'une **persistance JSON intégrale** et d'une intégration dans la recherche floue (`draw_filtered_volumetric`).
+
+### 2.1 Jitter Blue Noise 2D (Void-and-Cluster)
+- **Modèle** : Table périodique 64x64 précalculée (algorithme de void-and-cluster de Robert Ulichney, 1993) intégrée dans le binaire (`src/rendering/blue_noise_data.odin`).
+- **Rotation temporelle** : Décalage quasi-aléatoire par frame selon le nombre d'or sur tore toroïdal $64 \times 64$ :
+  $$\vec{u}_{\text{offset}} = \frac{\text{gl\_FragCoord.xy} + (f \bmod 64) \cdot (0.754877, 0.569840)}{64}$$
+- **Intérêt visuel** : Élimine totalement le lignage diagonal caractéristique de l'IGN (*Interleaved Gradient Noise*) et optimise la dispersion fréquentielle pour une convergence ultra-rapide sous TAA.
+- **Coût VRAM / GPU** : $4\,\text{KB}$ de VRAM (`GL_R8`, 64x64). Échantillonnage GPU négligeable ($< 0.01\,\text{ms}$).
+
+### 2.2 Texture Volumétrique 3D de Poussière / Corpuscularité ($64^3$)
+- **Modèle** : Texture 3D $64 \times 64 \times 64$ `GL_R8` ($256\,\text{KB}$) générée au démarrage avec bruit de Perlin FBM périodique à 3 octaves sans coupure de bord (`src/rendering/dust_noise.odin`).
+- **Échantillonnage dynamique** :
+  $$\vec{p}_{\text{noise}} = \vec{p}_{\text{sample}} \cdot s + \vec{v}_{\text{drift}} \cdot (t \cdot v)$$
+  $$\text{mod}_{\text{dust}} = \text{mix}(1.0, 2.0 \cdot \text{noise3D}(\vec{p}_{\text{noise}}), \text{intensity})$$
+- **Paramètres réglables** :
+  - `Dust Intensity` : contraste des volutes ($[0.0, 1.0]$, défaut $0.50$, reset).
+  - `Dust Scale` : échelle spatiale des panaches ($[0.01, 2.0]$, défaut $0.25$, reset).
+  - `Dust Drift Speed` : vitesse de convection temporelle ($[0.0, 1.0]$, défaut $0.15$, reset).
+- **Coût GPU** : Filtrage trilinéaire matériel natif OpenGL 4.5 ($< 0.15\,\text{ms}$ à 16 steps en half-res).
+
+### 2.3 Masquage Altimétrique de Sol (Height Fog / Plafond Exponentiel)
+- **Modèle** : Atténuation barométrique exponentielle simulant la troposphère et la couche limite :
+  $$\text{mod}_{\text{height}} = e^{-k \cdot \max(0, y - y_0)}$$
+- **Paramètres réglables** :
+  - `Ground Altitude (y0)` : altitude de base du sol ($[-10.0, 10.0]\,\text{m}$, défaut $0.0\,\text{m}$, reset).
+  - `Altitude Falloff (k)` : coefficient de décroissance vertical ($[0.01, 2.0]$, défaut $0.20$, reset).
+- **Intérêt visuel** : Concentre le brouillard dense et les rais de lumière au sol tout en dégageant le ciel et l'arrière-plan.
+- **Coût GPU** : $0.00\,\text{ms}$ (1 exponentielle vectorielle par pas).

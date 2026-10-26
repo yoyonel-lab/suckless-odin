@@ -167,6 +167,38 @@ L'onglet **Shadows** propose 7 modes de visualisation analytique :
 | **`Shadow Map Dirty Caching`**| Checkbox | Bool | Cache évitant le recalcul des ombres quand la lumière est immobile. |
 | **`Shadow Time-Slicing`** | Combo | 6 faces, 3 faces, 2 faces, 1 face | Répartition du coût de rendu des faces sur plusieurs frames. |
 
+### 5.2. Onglet Volumetric (Lumière Volumétrique & Effets Cinématiques)
+
+| Contrôle ImGui | Type | Plage / Valeurs | Bouton Reset | Description & Effet |
+| :--- | :--- | :--- | :---: | :--- |
+| **`Volumetric Lighting`** | Checkbox | Bool | — | Active ou désactive le calcul global volumétrique. |
+| **`Composite In Scene`** | Checkbox | Bool | — | Additionne le flux lumineux dans le tampon HDR de la scène. |
+| **`Isolate in Scene`** | Checkbox | Bool | — | Isole le milieu volumétrique en coupant l'IBL et le ciel. |
+| **`Light Source Mode`** | RadioButtons | Omni Point / Sun Directional | — | Sélectionne la source lumineuse pour le raymarching. |
+| **`Buffer Resolution`** | RadioButtons | 1/1, 1/2, 1/4 | — | Diviseur de résolution du tampon volumétrique. |
+| **`Raymarch Steps (N)`** | SliderInt | $4 \to 64$ pas | — | Nombre d'échantillons le long du rayon. |
+| **`Scattering Coeff`** | SliderFloat | $0.01 \to 1.00$ | — | Coefficient de diffusion volumétrique $\sigma_s$. |
+| **`Anisotropy (g)`** | SliderFloat | $-0.90 \to 0.90$ | — | Facteur d'asymétrie Henyey-Greenstein avant/arrière. |
+| **`Intensity Multiplier`** | SliderFloat | $0.00 \to 10.00$ | `Reset` | Multiplicateur d'énergie globale in-scattering. |
+| **`Dual-Lobed HG`** (Phase 1) | Checkbox | Bool | — | Active le mélange double lobe (halo avant + rétrodiffusion). |
+| **`Backward Anisotropy (g2)`** | SliderFloat | $-0.99 \to 0.00$ | `Reset` | Anisotropie rétrograde secondaire (défaut $-0.30$). |
+| **`Forward Lobe Blend`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Pondération entre les lobes avant et arrière (défaut $0.70$). |
+| **`Crepuscular Boost`** (Phase 1) | Checkbox | Bool | — | Sur-amplification optique face au soleil (contre-jour). |
+| **`Boost Strength`** | SliderFloat | $0.00 \to 5.00\times$ | `Reset` | Facteur multiplicateur d'éblouissement (défaut $2.00\times$). |
+| **`Cos Threshold`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Seuil d'alignement $\cos\theta$ observateur-soleil (défaut $0.70$). |
+| **`Spectral Scattering`** (Phase 1) | Checkbox | Bool | — | Diffusion chromatique RGB Rayleigh/Mie. |
+| **`RGB Scattering Weights`** | SliderFloat3 | $0.10 \to 3.00$ | `Reset` | Poids spectraux par canal RGB (défaut $1.20, 1.00, 0.85$). |
+| **`Blue Noise Jitter`** (Phase 2) | Checkbox | Bool | — | Jitter Void-and-Cluster 64x64 éliminant le banding IGN. |
+| **`Dust Particles`** (Phase 2) | Checkbox | Bool | — | Modulation 3D FBM pour particules de poussière en suspension. |
+| **`Dust Intensity`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Contraste des volutes de poussière (défaut $0.50$). |
+| **`Dust Scale`** | SliderFloat | $0.01 \to 2.00$ | `Reset` | Fréquence spatiale des panaches (défaut $0.25$). |
+| **`Dust Drift Speed`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Vitesse de convection temporelle (défaut $0.15$). |
+| **`Height Fog`** (Phase 2) | Checkbox | Bool | — | Gradient exponentiel de sol (couche limite planétaire). |
+| **`Ground Altitude (y0)`** | SliderFloat | $-10.0 \to 10.0\text{ m}$ | `Reset` | Altitude de base du niveau du sol (défaut $0.0\,\text{m}$). |
+| **`Altitude Falloff (k)`** | SliderFloat | $0.01 \to 2.00$ | `Reset` | Taux d'atténuation verticale (défaut $0.20$). |
+| **`TAA Reprojection`** | Combo + Slider | Modes 0, 1, 2 | — | Accumulation temporelle anti-bruit avec clamping 3x3. |
+| **`Bilateral Blur`** | Combo + Slider | Modes 0, 1, 2 | — | Flou bilatéral guidé par la géométrie (lissage des pas). |
+
 ---
 
 ## 6. Persistance des Paramètres (100% JSON)
