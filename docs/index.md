@@ -192,6 +192,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter l'Audit d'Optimisation P0](2026-10-26_p0_performance_optimization_audit_and_benchmarks.md)
 
+-   :material-movie-open:{ .lg .middle } __Feuille de Route Volumétrique Cinématique (Phases 1 & 2)__
+
+    ---
+
+    Spécification technique d'amélioration visuelle des god rays : fonction de phase double lobe Henyey-Greenstein, sur-amplification en contre-jour, diffusion chromatique spectrale et texture 3D de poussière.
+
+    [:octicons-arrow-right-24: Consulter la Feuille de Route Cinématique](2026-10-26_volumetric_lighting_cinematic_improvements_roadmap.md)
+
 </div>
 
 ---
