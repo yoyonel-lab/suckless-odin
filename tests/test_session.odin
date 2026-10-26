@@ -128,6 +128,14 @@ test_session_save_load :: proc(t: ^testing.T) {
 		crepuscular_boost_threshold = 0.60,
 		spectral_scattering_enabled = true,
 		spectral_coefficients       = {1.25, 1.05, 0.80},
+		blue_noise_jitter_enabled   = true,
+		dust_enabled                = true,
+		dust_intensity              = 0.75,
+		dust_scale                  = 0.35,
+		dust_speed                  = 0.20,
+		height_fog_enabled          = true,
+		height_fog_ground_y         = -1.5,
+		height_fog_falloff          = 0.30,
 	}
 	state_to_save.point_light = session.Point_Light_Session_Settings{
 		position               = {10.0, 5.0, -2.0},
@@ -283,6 +291,14 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.x, f32(1.25))
 	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.y, f32(1.05))
 	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.z, f32(0.80))
+	testing.expect_value(t, loaded_state.volumetric.blue_noise_jitter_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_intensity, f32(0.75))
+	testing.expect_value(t, loaded_state.volumetric.dust_scale, f32(0.35))
+	testing.expect_value(t, loaded_state.volumetric.dust_speed, f32(0.20))
+	testing.expect_value(t, loaded_state.volumetric.height_fog_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.height_fog_ground_y, f32(-1.5))
+	testing.expect_value(t, loaded_state.volumetric.height_fog_falloff, f32(0.30))
 
 	// Point Light validation
 	testing.expect_value(t, loaded_state.point_light.enabled, true)

@@ -9,6 +9,8 @@ layout(location = 0) out vec4 FragColor; // RGB: In-Scattering Radiance, A: Tran
 
 layout(binding = 0) uniform sampler2D u_low_res_depth;   // Linear camera depth in meters (W/2 x H/2)
 layout(binding = 1) uniform sampler2D u_sun_shadow_map;  // Orthographic hardware depth map (D32F)
+layout(binding = 2) uniform sampler2D u_blue_noise_tex;  // 64x64 periodic blue noise (R8)
+layout(binding = 3) uniform sampler3D u_dust_noise_tex3d;// 64x64x64 periodic FBM noise (R8)
 
 // Camera & Frame Uniforms
 uniform mat4  u_inv_view_proj;
@@ -45,6 +47,17 @@ uniform float u_crepuscular_boost_threshold; // [0.0..1.0], default 0.70
 uniform bool  u_spectral_scattering_enabled;
 uniform vec3  u_spectral_coefficients;       // default vec3(1.20, 1.00, 0.85)
 
+// Phase 2 Corpuscularity & Volumetric Noise
+uniform bool  u_blue_noise_jitter_enabled;
+uniform bool  u_dust_enabled;
+uniform float u_dust_intensity;
+uniform float u_dust_scale;
+uniform float u_dust_speed;
+uniform float u_time;
+uniform bool  u_height_fog_enabled;
+uniform float u_height_fog_ground_y;
+uniform float u_height_fog_falloff;
+
 // Interleaved Gradient Noise (spatial/temporal ray jittering)
 float interleaved_gradient_noise(vec2 screen_pos, int frame)
 {
@@ -75,7 +88,16 @@ void main()
     float step_size = (t_end - t_start) / float(steps);
     vec3 step_dir = ray_dir * step_size;
 
-    float jitter = (u_jitter_enabled) ? interleaved_gradient_noise(gl_FragCoord.xy, u_frame_idx) : 0.5;
+    float jitter = 0.5;
+    if (u_jitter_enabled) {
+        if (u_blue_noise_jitter_enabled) {
+            vec2 blue_offset = vec2(float(u_frame_idx % 64) * 0.754877666, float((u_frame_idx / 64) % 64) * 0.56984029);
+            vec2 blue_uv = (gl_FragCoord.xy + blue_offset) / 64.0;
+            jitter = texture(u_blue_noise_tex, blue_uv).r;
+        } else {
+            jitter = interleaved_gradient_noise(gl_FragCoord.xy, u_frame_idx);
+        }
+    }
     vec3 sample_pos = u_cam_pos + ray_dir * (t_start + jitter * step_size);
 
     float base_step_energy = step_size * u_scattering_coeff;
@@ -146,8 +168,21 @@ void main()
             }
         }
 
-        scattered_amount += base_step_energy * (shadow_factor * phase) * transmittance;
-        transmittance *= step_extinction;
+        // Density modulation (Phase 2)
+        float density_mod = 1.0;
+        if (u_dust_enabled) {
+            vec3 dust_coord = sample_pos * u_dust_scale + vec3(0.08, 0.04, 0.06) * (u_time * u_dust_speed);
+            float dust_sample = texture(u_dust_noise_tex3d, dust_coord).r;
+            density_mod *= mix(1.0, dust_sample * 2.0, u_dust_intensity);
+        }
+
+        if (u_height_fog_enabled) {
+            float h_diff = max(0.0, sample_pos.y - u_height_fog_ground_y);
+            density_mod *= exp(-h_diff * u_height_fog_falloff);
+        }
+
+        scattered_amount += base_step_energy * (shadow_factor * phase * density_mod) * transmittance;
+        transmittance *= exp(-u_extinction_coeff * step_size * density_mod);
         sample_pos += step_dir;
     }
 

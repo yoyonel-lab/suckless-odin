@@ -147,6 +147,14 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			crepuscular_boost_threshold  = s.volumetric.params.crepuscular_boost_threshold,
 			spectral_scattering_enabled  = s.volumetric.params.spectral_scattering_enabled,
 			spectral_coefficients        = s.volumetric.params.spectral_coefficients,
+			blue_noise_jitter_enabled    = s.volumetric.params.blue_noise_jitter_enabled,
+			dust_enabled                 = s.volumetric.params.dust_enabled,
+			dust_intensity               = s.volumetric.params.dust_intensity,
+			dust_scale                   = s.volumetric.params.dust_scale,
+			dust_speed                   = s.volumetric.params.dust_speed,
+			height_fog_enabled           = s.volumetric.params.height_fog_enabled,
+			height_fog_ground_y          = s.volumetric.params.height_fog_ground_y,
+			height_fog_falloff           = s.volumetric.params.height_fog_falloff,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -377,6 +385,24 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		s.volumetric.params.spectral_scattering_enabled = state.volumetric.spectral_scattering_enabled
 		if state.volumetric.spectral_coefficients.x > 0 || state.volumetric.spectral_coefficients.y > 0 || state.volumetric.spectral_coefficients.z > 0 {
 			s.volumetric.params.spectral_coefficients = state.volumetric.spectral_coefficients
+		}
+		s.volumetric.params.blue_noise_jitter_enabled = state.volumetric.blue_noise_jitter_enabled
+		s.volumetric.params.dust_enabled = state.volumetric.dust_enabled
+		if state.volumetric.dust_intensity > 0 {
+			s.volumetric.params.dust_intensity = state.volumetric.dust_intensity
+		}
+		if state.volumetric.dust_scale > 0 {
+			s.volumetric.params.dust_scale = state.volumetric.dust_scale
+		}
+		if state.volumetric.dust_speed > 0 {
+			s.volumetric.params.dust_speed = state.volumetric.dust_speed
+		}
+		s.volumetric.params.height_fog_enabled = state.volumetric.height_fog_enabled
+		if state.volumetric.height_fog_ground_y != 0 {
+			s.volumetric.params.height_fog_ground_y = state.volumetric.height_fog_ground_y
+		}
+		if state.volumetric.height_fog_falloff > 0 {
+			s.volumetric.params.height_fog_falloff = state.volumetric.height_fog_falloff
 		}
 		s.volumetric.history_valid                 = false
 

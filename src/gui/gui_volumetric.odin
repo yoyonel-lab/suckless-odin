@@ -296,6 +296,83 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					vr.preview_dirty = true
 				}
 			}
+
+			// Phase 2: Corpuscularity & Volumetric Noise
+			imgui.Spacing()
+			imgui.Separator()
+			imgui.TextColored({1.0, 0.75, 0.3, 1.0}, "Corpuscularity & Volumetric Noise (Phase 2):")
+
+			if imgui.Checkbox("Blue Noise Jitter (vs IGN)##vol", &vr.params.blue_noise_jitter_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.Checkbox("Dust / Corpuscular Particles##vol", &vr.params.dust_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.dust_enabled {
+				if imgui.SliderFloat("Dust Intensity##vol", &vr.params.dust_intensity, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_intensity_vol") {
+					vr.params.dust_intensity = rendering.DEFAULT_DUST_INTENSITY
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if imgui.SliderFloat("Dust Scale##vol", &vr.params.dust_scale, 0.01, 2.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_scale_vol") {
+					vr.params.dust_scale = rendering.DEFAULT_DUST_SCALE
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if imgui.SliderFloat("Dust Drift Speed##vol", &vr.params.dust_speed, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_speed_vol") {
+					vr.params.dust_speed = rendering.DEFAULT_DUST_SPEED
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+
+			if imgui.Checkbox("Height Fog (Atmospheric Falloff)##vol", &vr.params.height_fog_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.height_fog_enabled {
+				if imgui.SliderFloat("Ground Altitude (y0)##vol", &vr.params.height_fog_ground_y, -10.0, 10.0, "%.2f m") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##height_fog_ground_y_vol") {
+					vr.params.height_fog_ground_y = rendering.DEFAULT_HEIGHT_FOG_GROUND_Y
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if imgui.SliderFloat("Altitude Falloff (k)##vol", &vr.params.height_fog_falloff, 0.01, 2.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##height_fog_falloff_vol") {
+					vr.params.height_fog_falloff = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
 			imgui.Separator()
 
 			// Henyey-Greenstein Phase Plot
@@ -804,6 +881,84 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 			imgui.SameLine()
 			if imgui.Button("Reset##spectral_vol_filt") {
 				vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Blue Noise Jitter", "volumetric blue noise jitter void and cluster isotropic dither ign") {
+		if imgui.Checkbox("Blue Noise Jitter (vs IGN)##vol_filt", &vr.params.blue_noise_jitter_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dust Particles Noise", "volumetric dust corpuscular particles suspension 3d noise fbm turbulence") {
+		if imgui.Checkbox("Dust / Corpuscular Particles##vol_filt", &vr.params.dust_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dust_enabled {
+			if imgui.SliderFloat("Dust Intensity##vol_filt", &vr.params.dust_intensity, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_intensity_vol_filt") {
+				vr.params.dust_intensity = rendering.DEFAULT_DUST_INTENSITY
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Dust Scale##vol_filt", &vr.params.dust_scale, 0.01, 2.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_scale_vol_filt") {
+				vr.params.dust_scale = rendering.DEFAULT_DUST_SCALE
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Dust Drift Speed##vol_filt", &vr.params.dust_speed, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_speed_vol_filt") {
+				vr.params.dust_speed = rendering.DEFAULT_DUST_SPEED
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Height Fog Atmospheric Falloff", "volumetric height fog atmospheric falloff ground altitude boundary layer exponential") {
+		if imgui.Checkbox("Height Fog (Atmospheric Falloff)##vol_filt", &vr.params.height_fog_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.height_fog_enabled {
+			if imgui.SliderFloat("Ground Altitude (y0)##vol_filt", &vr.params.height_fog_ground_y, -10.0, 10.0, "%.2f m") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##height_fog_ground_y_vol_filt") {
+				vr.params.height_fog_ground_y = rendering.DEFAULT_HEIGHT_FOG_GROUND_Y
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Altitude Falloff (k)##vol_filt", &vr.params.height_fog_falloff, 0.01, 2.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##height_fog_falloff_vol_filt") {
+				vr.params.height_fog_falloff = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
 				vr.history_valid = false
 				vr.preview_dirty = true
 			}

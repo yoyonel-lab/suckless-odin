@@ -66,6 +66,14 @@ Volumetric_Session_Settings :: struct {
 	crepuscular_boost_threshold:  f32     `json:"crepuscular_boost_threshold"`,
 	spectral_scattering_enabled:  bool    `json:"spectral_scattering_enabled"`,
 	spectral_coefficients:        mt.Vec3 `json:"spectral_coefficients"`,
+	blue_noise_jitter_enabled:    bool    `json:"blue_noise_jitter_enabled"`,
+	dust_enabled:                 bool    `json:"dust_enabled"`,
+	dust_intensity:               f32     `json:"dust_intensity"`,
+	dust_scale:                   f32     `json:"dust_scale"`,
+	dust_speed:                   f32     `json:"dust_speed"`,
+	height_fog_enabled:           bool    `json:"height_fog_enabled"`,
+	height_fog_ground_y:          f32     `json:"height_fog_ground_y"`,
+	height_fog_falloff:           f32     `json:"height_fog_falloff"`,
 }
 
 Point_Light_Session_Settings :: struct {

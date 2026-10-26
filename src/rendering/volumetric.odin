@@ -96,6 +96,16 @@ DEFAULT_CREPUSCULAR_BOOST_STRENGTH    :: 2.0
 DEFAULT_CREPUSCULAR_BOOST_THRESHOLD   :: 0.70
 DEFAULT_SPECTRAL_SCATTERING_WEIGHTS   :: mt.Vec3{1.20, 1.00, 0.85}
 
+// Phase 2: Corpuscularity & Volumetric Noise Defaults
+DEFAULT_BLUE_NOISE_JITTER_ENABLED     :: true
+DEFAULT_DUST_ENABLED                  :: false
+DEFAULT_DUST_INTENSITY                :: 0.50
+DEFAULT_DUST_SCALE                    :: 0.25
+DEFAULT_DUST_SPEED                    :: 0.15
+DEFAULT_HEIGHT_FOG_ENABLED            :: false
+DEFAULT_HEIGHT_FOG_GROUND_Y           :: 0.0
+DEFAULT_HEIGHT_FOG_FALLOFF            :: 0.20
+
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
 	case .Sun_Directional: return VOLUMETRIC_DEFAULT_INTENSITY_SUN
@@ -152,6 +162,16 @@ Volumetric_Params :: struct {
 	crepuscular_boost_threshold:  f32,  // Look-at-sun cos threshold (default 0.70, range 0.0..1.0)
 	spectral_scattering_enabled:  bool, // Wavelength-dependent chromatic scattering (Rayleigh/Mie)
 	spectral_coefficients:        mt.Vec3, // RGB scattering weights (default {1.20, 1.00, 0.85})
+
+	// Phase 2: Corpuscularity & Volumetric Noise
+	blue_noise_jitter_enabled:    bool, // Void-and-Cluster 64x64 blue noise jitter (vs IGN)
+	dust_enabled:                 bool, // 3D FBM particle suspension modulation
+	dust_intensity:               f32,  // Dust contrast [0.0..1.0] (default 0.50)
+	dust_scale:                   f32,  // Dust spatial scale [0.01..2.0] (default 0.25)
+	dust_speed:                   f32,  // Dust convection drift speed [0.0..1.0] (default 0.15)
+	height_fog_enabled:           bool, // Exponential atmospheric height falloff
+	height_fog_ground_y:          f32,  // Ground baseline altitude y0 [-10.0..10.0] (default 0.0)
+	height_fog_falloff:           f32,  // Altitude attenuation coefficient k [0.01..2.0] (default 0.20)
 }
 
 // Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
@@ -224,6 +244,19 @@ Volumetric_Renderer :: struct {
 	loc_dir_crepuscular_boost_threshold:  i32,
 	loc_dir_spectral_scattering_enabled:  i32,
 	loc_dir_spectral_coefficients:        i32,
+	loc_dir_blue_noise_jitter_enabled:    i32,
+	loc_dir_dust_enabled:                 i32,
+	loc_dir_dust_intensity:               i32,
+	loc_dir_dust_scale:                   i32,
+	loc_dir_dust_speed:                   i32,
+	loc_dir_time:                         i32,
+	loc_dir_height_fog_enabled:           i32,
+	loc_dir_height_fog_ground_y:          i32,
+	loc_dir_height_fog_falloff:           i32,
+
+	// Phase 2 Textures
+	blue_noise_tex:                       u32,
+	dust_noise_tex3d:                     u32,
 
 	// TAA Reprojection Shader & Uniform Locations
 	taa_program:            u32,
@@ -352,6 +385,14 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		crepuscular_boost_threshold = DEFAULT_CREPUSCULAR_BOOST_THRESHOLD,
 		spectral_scattering_enabled = false,
 		spectral_coefficients       = DEFAULT_SPECTRAL_SCATTERING_WEIGHTS,
+		blue_noise_jitter_enabled   = DEFAULT_BLUE_NOISE_JITTER_ENABLED,
+		dust_enabled                = DEFAULT_DUST_ENABLED,
+		dust_intensity              = DEFAULT_DUST_INTENSITY,
+		dust_scale                  = DEFAULT_DUST_SCALE,
+		dust_speed                  = DEFAULT_DUST_SPEED,
+		height_fog_enabled          = DEFAULT_HEIGHT_FOG_ENABLED,
+		height_fog_ground_y         = DEFAULT_HEIGHT_FOG_GROUND_Y,
+		height_fog_falloff          = DEFAULT_HEIGHT_FOG_FALLOFF,
 	}
 
 	div := max(1, vr.params.resolution_divider)
@@ -417,10 +458,25 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_dir_crepuscular_boost_threshold = gl.GetUniformLocation(vr.directional_program, "u_crepuscular_boost_threshold")
 	vr.loc_dir_spectral_scattering_enabled = gl.GetUniformLocation(vr.directional_program, "u_spectral_scattering_enabled")
 	vr.loc_dir_spectral_coefficients       = gl.GetUniformLocation(vr.directional_program, "u_spectral_coefficients")
+	vr.loc_dir_blue_noise_jitter_enabled   = gl.GetUniformLocation(vr.directional_program, "u_blue_noise_jitter_enabled")
+	vr.loc_dir_dust_enabled                = gl.GetUniformLocation(vr.directional_program, "u_dust_enabled")
+	vr.loc_dir_dust_intensity              = gl.GetUniformLocation(vr.directional_program, "u_dust_intensity")
+	vr.loc_dir_dust_scale                  = gl.GetUniformLocation(vr.directional_program, "u_dust_scale")
+	vr.loc_dir_dust_speed                  = gl.GetUniformLocation(vr.directional_program, "u_dust_speed")
+	vr.loc_dir_time                        = gl.GetUniformLocation(vr.directional_program, "u_time")
+	vr.loc_dir_height_fog_enabled          = gl.GetUniformLocation(vr.directional_program, "u_height_fog_enabled")
+	vr.loc_dir_height_fog_ground_y         = gl.GetUniformLocation(vr.directional_program, "u_height_fog_ground_y")
+	vr.loc_dir_height_fog_falloff          = gl.GetUniformLocation(vr.directional_program, "u_height_fog_falloff")
+
+	// Create Phase 2 GPU Noise Textures
+	vr.blue_noise_tex = create_blue_noise_texture_2d()
+	vr.dust_noise_tex3d = create_dust_noise_texture_3d()
 
 	gl.UseProgram(vr.directional_program)
 	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_low_res_depth"), 0)
 	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_sun_shadow_map"), 1)
+	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_blue_noise_tex"), 2)
+	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_dust_noise_tex3d"), 3)
 	gl.UseProgram(0)
 
 
@@ -741,6 +797,14 @@ volumetric_render :: proc(
 		gl.ActiveTexture(gl.TEXTURE1)
 		gl.BindTexture(gl.TEXTURE_2D, sun_tex)
 
+		// Unit 2: Blue Noise 2D Texture
+		gl.ActiveTexture(gl.TEXTURE2)
+		gl.BindTexture(gl.TEXTURE_2D, vr.blue_noise_tex)
+
+		// Unit 3: 3D Dust / Corpuscular Noise Texture
+		gl.ActiveTexture(gl.TEXTURE3)
+		gl.BindTexture(gl.TEXTURE_3D, vr.dust_noise_tex3d)
+
 		gl.UniformMatrix4fv(vr.loc_dir_inv_view_proj, 1, false, &inv_view_proj[0][0])
 		gl.Uniform3f(vr.loc_dir_cam_pos, cam_pos.x, cam_pos.y, cam_pos.z)
 		gl.Uniform1f(vr.loc_dir_near_plane, near_plane)
@@ -780,8 +844,23 @@ volumetric_render :: proc(
 		gl.Uniform1i(vr.loc_dir_spectral_scattering_enabled, 1 if vr.params.spectral_scattering_enabled else 0)
 		gl.Uniform3f(vr.loc_dir_spectral_coefficients, vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z)
 
+		// Phase 2 Uniforms
+		gl.Uniform1i(vr.loc_dir_blue_noise_jitter_enabled, 1 if vr.params.blue_noise_jitter_enabled else 0)
+		gl.Uniform1i(vr.loc_dir_dust_enabled, 1 if vr.params.dust_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_dust_intensity, vr.params.dust_intensity)
+		gl.Uniform1f(vr.loc_dir_dust_scale, vr.params.dust_scale)
+		gl.Uniform1f(vr.loc_dir_dust_speed, vr.params.dust_speed)
+		gl.Uniform1f(vr.loc_dir_time, total_time)
+		gl.Uniform1i(vr.loc_dir_height_fog_enabled, 1 if vr.params.height_fog_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_height_fog_ground_y, vr.params.height_fog_ground_y)
+		gl.Uniform1f(vr.loc_dir_height_fog_falloff, vr.params.height_fog_falloff)
+
 		fullscreen_triangle_draw(&vr.triangle)
 
+		gl.ActiveTexture(gl.TEXTURE3)
+		gl.BindTexture(gl.TEXTURE_3D, 0)
+		gl.ActiveTexture(gl.TEXTURE2)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.ActiveTexture(gl.TEXTURE1)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.ActiveTexture(gl.TEXTURE0)
@@ -1163,6 +1242,15 @@ volumetric_destroy :: proc(vr: ^Volumetric_Renderer) {
 	destroy_volumetric_fbo(vr)
 	fullscreen_triangle_destroy(&vr.triangle)
 	volumetric_timers_destroy(&vr.timers)
+
+	if vr.blue_noise_tex != 0 {
+		gl.DeleteTextures(1, &vr.blue_noise_tex)
+		vr.blue_noise_tex = 0
+	}
+	if vr.dust_noise_tex3d != 0 {
+		gl.DeleteTextures(1, &vr.dust_noise_tex3d)
+		vr.dust_noise_tex3d = 0
+	}
 
 	if vr.program != 0 {
 		gl.DeleteProgram(vr.program)
