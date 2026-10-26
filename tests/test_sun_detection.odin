@@ -184,6 +184,8 @@ test_sun_angles_dir_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 test_env_metadata_cache_lookup :: proc(t: ^testing.T) {
+	defer scene.env_metadata_cache_destroy()
+
 	// 1. Lookup cedar bridge from bundled cache
 	det_cedar, ok_cedar := scene.env_metadata_cache_lookup("assets/textures/hdr/cedar_bridge_2_4k.hdr")
 	testing.expect(t, ok_cedar, "Cedar bridge must be found in env_metadata.json cache")

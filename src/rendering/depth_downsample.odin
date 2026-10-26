@@ -244,8 +244,6 @@ depth_downsample_render :: proc(dd: ^Depth_Downsample, full_depth_tex: u32, near
 	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
 	gl_state.reset()
 	dbg.pop_group()
-
-	dd.preview_dirty = true
 }
 
 // Returns the current frame's downsampled depth texture

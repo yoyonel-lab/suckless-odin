@@ -204,7 +204,7 @@ pipeline_run_passes :: proc(p: ^Pipeline) {
 
 	// Run bloom multi-pass if enabled
 	gpu_timer_begin(&p.timers, .Bloom)
-	if .Bloom in p.active_effects {
+	if .Bloom in p.active_effects && p.bloom.intensity > 0.001 {
 		dbg.push_group("PostFX_Bloom")
 		bloom_render(&p.bloom_fx, &p.bloom, p.scene_color_tex, p.depth_tex, &p.quad)
 		dbg.pop_group()
@@ -261,7 +261,6 @@ pipeline_run_fxaa_prepass :: proc(p: ^Pipeline) -> bool {
 
 		gl_state.bind_framebuffer(gl.FRAMEBUFFER, p.fxaa_fbo)
 		gl_state.set_viewport(0, 0, p.width, p.height)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		gl_state.use_program(p.fxaa_program)
 		gl_state.active_texture(gl.TEXTURE0)
@@ -356,7 +355,6 @@ pipeline_end :: proc(p: ^Pipeline) {
 		// PostFX master disabled: direct passthrough of scene HDR buffer without sub-passes
 		gl_state.bind_framebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
 		gl_state.set_viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
-		gl.Clear(gl.COLOR_BUFFER_BIT)
 		gl_state.disable(gl.DEPTH_TEST)
 
 		saved_effects := p.active_effects
@@ -389,7 +387,6 @@ pipeline_end :: proc(p: ^Pipeline) {
 
 	gl_state.bind_framebuffer(gl.FRAMEBUFFER, u32(p.prev_fbo))
 	gl_state.set_viewport(p.prev_viewport[0], p.prev_viewport[1], p.prev_viewport[2], p.prev_viewport[3])
-	gl.Clear(gl.COLOR_BUFFER_BIT)
 	gl_state.disable(gl.DEPTH_TEST)
 
 	// Generate mipmaps on the composite source for motion blur LOD sampling.

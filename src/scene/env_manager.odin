@@ -283,6 +283,8 @@ env_manager_destroy :: proc(mgr: ^Env_Manager) {
 		mgr.async_result.data = nil
 	}
 
+	env_metadata_cache_destroy()
+
 	log.log_info("scene.env", "Env manager destroyed")
 }
 

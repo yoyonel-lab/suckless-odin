@@ -29,19 +29,21 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 		// Preview display modes
 		imgui.Text("Depth Preview Mode:")
 		imgui.SameLine()
-		if imgui.RadioButton("Turbo Heatmap", dd.preview_mode == 0) { dd.preview_mode = 0 }
+		if imgui.RadioButton("Turbo Heatmap", dd.preview_mode == 0) { dd.preview_mode = 0; dd.preview_dirty = true }
 		imgui.SameLine()
-		if imgui.RadioButton("Linear Grayscale", dd.preview_mode == 1) { dd.preview_mode = 1 }
+		if imgui.RadioButton("Linear Grayscale", dd.preview_mode == 1) { dd.preview_mode = 1; dd.preview_dirty = true }
 		imgui.SameLine()
-		if imgui.RadioButton("Discontinuity Mask", dd.preview_mode == 2) { dd.preview_mode = 2 }
+		if imgui.RadioButton("Discontinuity Mask", dd.preview_mode == 2) { dd.preview_mode = 2; dd.preview_dirty = true }
 
 		if dd.preview_mode != 2 {
-			imgui.SliderFloat("Min Depth Range", &dd.preview_min_depth, 0.1, 10.0, "%.1f m")
-			imgui.SliderFloat("Max Depth Range", &dd.preview_max_depth, 5.0, 100.0, "%.1f m")
+			if imgui.SliderFloat("Min Depth Range", &dd.preview_min_depth, 0.1, 10.0, "%.1f m") { dd.preview_dirty = true }
+			if imgui.SliderFloat("Max Depth Range", &dd.preview_max_depth, 5.0, 100.0, "%.1f m") { dd.preview_dirty = true }
 		}
 
 		// Update preview texture on-demand
-		rendering.depth_downsample_update_preview(dd)
+		if dd.preview_dirty {
+			rendering.depth_downsample_update_preview(dd)
+		}
 
 		imgui.Spacing()
 		avail_w := imgui.GetContentRegionAvail().x
@@ -248,45 +250,49 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Text("Buffer Preview Mode:")
 			if imgui.RadioButton("Final Output##vol", vr.params.preview_mode == 0) { vr.params.preview_mode = 0 }
 			imgui.SameLine()
-			if imgui.RadioButton("Raw Grain##vol", vr.params.preview_mode == 1) { vr.params.preview_mode = 1 }
+			if imgui.RadioButton("Raw Grain##vol", vr.params.preview_mode == 1) { vr.params.preview_mode = 1; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Heatmap##vol", vr.params.preview_mode == 2) { vr.params.preview_mode = 2 }
+			if imgui.RadioButton("Heatmap##vol", vr.params.preview_mode == 2) { vr.params.preview_mode = 2; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("TAA Acceptance##vol", vr.params.preview_mode == 3) { vr.params.preview_mode = 3 }
+			if imgui.RadioButton("TAA Acceptance##vol", vr.params.preview_mode == 3) { vr.params.preview_mode = 3; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Post-Blur HDR##vol", vr.params.preview_mode == 4) { vr.params.preview_mode = 4 }
+			if imgui.RadioButton("Post-Blur HDR##vol", vr.params.preview_mode == 4) { vr.params.preview_mode = 4; vr.preview_dirty = true }
 
-			if imgui.RadioButton("Bilateral Diff (|Delta|x10)##vol", vr.params.preview_mode == 5) { vr.params.preview_mode = 5 }
+			if imgui.RadioButton("Bilateral Diff (|Delta|x10)##vol", vr.params.preview_mode == 5) { vr.params.preview_mode = 5; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Edge Overlay (Magenta)##vol", vr.params.preview_mode == 6) { vr.params.preview_mode = 6 }
+			if imgui.RadioButton("Edge Overlay (Magenta)##vol", vr.params.preview_mode == 6) { vr.params.preview_mode = 6; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Silhouette Only##vol", vr.params.preview_mode == 7) { vr.params.preview_mode = 7 }
+			if imgui.RadioButton("Silhouette Only##vol", vr.params.preview_mode == 7) { vr.params.preview_mode = 7; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Weight Attenuation##vol", vr.params.preview_mode == 8) { vr.params.preview_mode = 8 }
+			if imgui.RadioButton("Weight Attenuation##vol", vr.params.preview_mode == 8) { vr.params.preview_mode = 8; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Transmittance##vol", vr.params.preview_mode == 9) { vr.params.preview_mode = 9 }
+			if imgui.RadioButton("Transmittance##vol", vr.params.preview_mode == 9) { vr.params.preview_mode = 9; vr.preview_dirty = true }
 
-			imgui.SliderFloat("Exposure Boost##vol", &vr.params.preview_exposure_boost, 1.0, 10.0, "%.1fx")
+			if imgui.SliderFloat("Exposure Boost##vol", &vr.params.preview_exposure_boost, 1.0, 10.0, "%.1fx") { vr.preview_dirty = true }
 
 			// Magnifier Loupe Tool
 			imgui.Spacing()
 			imgui.TextColored({1.0, 0.7, 0.2, 1.0}, "Inspector Magnifier Loupe (Zoom on Sphere Edges):")
-			imgui.SliderFloat("Magnifier Zoom", &vr.params.zoom_scale, 1.0, 16.0, "%.1fx")
+			if imgui.SliderFloat("Magnifier Zoom", &vr.params.zoom_scale, 1.0, 16.0, "%.1fx") { vr.preview_dirty = true }
 			if vr.params.zoom_scale > 1.0 {
 				pan := [2]f32{vr.params.zoom_center.x, vr.params.zoom_center.y}
 				if imgui.SliderFloat2("Loupe Pan (UV)", &pan, 0.0, 1.0, "%.2f") {
 					vr.params.zoom_center = mt.Vec2{pan[0], pan[1]}
+					vr.preview_dirty = true
 				}
 				imgui.SameLine()
 				if imgui.Button("Reset Loupe") {
 					vr.params.zoom_scale = 1.0
 					vr.params.zoom_center = {0.5, 0.5}
+					vr.preview_dirty = true
 				}
 			}
 
-			cur_depth := rendering.depth_downsample_get_current_depth(state.depth_downsample)
-			disc_tex := state.depth_downsample.discontinuity_tex if state.depth_downsample != nil else 0
-			rendering.volumetric_update_preview(vr, cur_depth, disc_tex)
+			if vr.preview_dirty {
+				cur_depth := rendering.depth_downsample_get_current_depth(state.depth_downsample)
+				disc_tex := state.depth_downsample.discontinuity_tex if state.depth_downsample != nil else 0
+				rendering.volumetric_update_preview(vr, cur_depth, disc_tex)
+			}
 
 			preview_w := max(256.0, min(avail_w, 600.0))
 			aspect := f32(vr.height) / f32(max(1, vr.width))

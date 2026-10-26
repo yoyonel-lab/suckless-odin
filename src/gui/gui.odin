@@ -593,6 +593,14 @@ draw_point_light_gizmo :: proc(state: Scene_State) {
 			state.spheres.instances[sphere_idx].model = clean_model
 			state.spheres.instances[sphere_idx].prev_center = new_center
 			rendering.instanced_upload(state.spheres)
+			if state.sun_shadow != nil {
+				state.sun_shadow.is_dirty = true
+				state.sun_shadow.preview_dirty = true
+			}
+			if state.volumetric != nil {
+				state.volumetric.history_valid = false
+				state.volumetric.preview_dirty = true
+			}
 		}
 	}
 }

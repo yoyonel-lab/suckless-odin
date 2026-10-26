@@ -717,6 +717,16 @@ scene_update :: proc(s: ^Scene, dt: f32) {
 	s.camera.pitch_target = clamp(s.camera.pitch_target, cam.DEFAULT_MIN_PITCH, cam.DEFAULT_MAX_PITCH)
 
 	cam.update_vectors(&s.camera)
+
+	// If camera or light is in motion, mark inspector previews dirty
+	if mt.vec3_length(s.camera.velocity_current) > 1e-4 ||
+	   abs(s.camera.yaw - s.camera.yaw_target) > 1e-3 ||
+	   abs(s.camera.pitch - s.camera.pitch_target) > 1e-3 ||
+	   s.point_light.motion_cooldown > 0.0 ||
+	   s.point_light.is_animated {
+		s.volumetric.preview_dirty = true
+		s.depth_downsample.preview_dirty = true
+	}
 }
 
 // Toggle text overlay mode (F1): Off → FPS+Position → FPS+Position+Env → Off

@@ -35,7 +35,7 @@ DEFAULT_CLI_OPTIONS :: Cli_Options{
 	benchmark        = false,
 	benchmark_frames = BENCHMARK_DEFAULT_FRAMES,
 	vsync            = false,
-	compute_profile  = .Legacy,
+	compute_profile  = .Optimized,
 	capture_ibl      = false,
 	opt_profile      = nil,
 }

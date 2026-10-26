@@ -93,13 +93,6 @@ void main()
     vec3 light_color_intensity = u_sun_color * (u_sun_intensity * u_intensity_mult);
 
     float shadow_res = max(u_shadow_resolution, 512.0);
-    vec2 texel_size = vec2(1.0 / shadow_res);
-    const vec2 pcf_offsets[4] = vec2[](
-        vec2(-0.5, -0.5),
-        vec2( 0.5, -0.5),
-        vec2(-0.5,  0.5),
-        vec2( 0.5,  0.5)
-    );
 
     for (int i = 0; i < steps; ++i) {
         float shadow_factor = 1.0;
@@ -113,12 +106,9 @@ void main()
                 shadow_coords.z >= 0.0 && shadow_coords.z <= 1.0) {
 
                 float current_depth = shadow_coords.z - u_shadow_bias;
-                float shadow_sum = 0.0;
-                for (int k = 0; k < 4; ++k) {
-                    float d = texture(u_sun_shadow_map, shadow_coords.xy + pcf_offsets[k] * texel_size).r;
-                    shadow_sum += (current_depth <= d) ? 1.0 : 0.0;
-                }
-                shadow_factor = shadow_sum * 0.25;
+                vec4 depths = textureGather(u_sun_shadow_map, shadow_coords.xy, 0);
+                vec4 cmp = step(vec4(current_depth), depths);
+                shadow_factor = dot(cmp, vec4(0.25));
             }
         }
 

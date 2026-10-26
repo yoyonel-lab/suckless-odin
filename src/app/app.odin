@@ -132,7 +132,7 @@ create :: proc(width, height: i32, title: cstring) -> ^App {
 init :: proc(
 	application: ^App,
 	vsync: bool = false,
-	compute_profile: settings.Compute_Shader_Profile = .Legacy,
+	compute_profile: settings.Compute_Shader_Profile = .Optimized,
 	capture_ibl: bool = false,
 ) -> bool {
 	if application == nil { return false }

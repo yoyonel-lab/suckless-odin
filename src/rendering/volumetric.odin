@@ -927,8 +927,6 @@ volumetric_render :: proc(
 	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
 	gl_state.reset()
 	dbg.pop_group()
-
-	vr.preview_dirty = true
 }
 
 // Returns the active volumetric texture (Bilateral Blurred if active, TAA Filtered if active, or Raw)

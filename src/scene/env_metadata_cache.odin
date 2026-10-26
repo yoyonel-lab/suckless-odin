@@ -22,6 +22,11 @@ Env_Metadata_Entry :: struct {
 
 Env_Metadata_Table :: map[string]Env_Metadata_Entry
 
+@(private="file")
+g_env_metadata_cache: Env_Metadata_Table
+@(private="file")
+g_env_metadata_cache_loaded: bool
+
 // Extracts bare filename from path (e.g. "assets/textures/hdr/cedar_bridge_2_4k.hdr" -> "cedar_bridge_2_4k.hdr")
 env_metadata_key :: proc(path: string) -> string {
 	idx := strings.last_index_byte(path, '/')
@@ -31,21 +36,47 @@ env_metadata_key :: proc(path: string) -> string {
 	return path
 }
 
-// Attempts to read precomputed sun detection metadata for a given HDR file.
-env_metadata_cache_lookup :: proc(path: string) -> (det: rendering.Sun_Detection, ok: bool) {
+// Loads cached metadata into in-memory table once
+env_metadata_cache_init :: proc() {
+	if g_env_metadata_cache_loaded do return
+
+	g_env_metadata_cache = make(Env_Metadata_Table)
+	g_env_metadata_cache_loaded = true
+
 	data, err := os.read_entire_file_from_path(ENV_METADATA_CACHE_PATH, context.temp_allocator)
 	if err != nil {
-		return det, false
+		return
 	}
 
-	table: Env_Metadata_Table
-	json_err := json.unmarshal(data, &table, allocator = context.temp_allocator)
+	temp_table: Env_Metadata_Table
+	json_err := json.unmarshal(data, &temp_table, allocator = context.temp_allocator)
 	if json_err != nil {
-		return det, false
+		return
+	}
+
+	for k, v in temp_table {
+		g_env_metadata_cache[strings.clone(k)] = v
+	}
+}
+
+// Cleans up in-memory table
+env_metadata_cache_destroy :: proc() {
+	if !g_env_metadata_cache_loaded do return
+	for k, _ in g_env_metadata_cache {
+		delete(k)
+	}
+	delete(g_env_metadata_cache)
+	g_env_metadata_cache_loaded = false
+}
+
+// Attempts to read precomputed sun detection metadata for a given HDR file (O(1) in-memory lookup).
+env_metadata_cache_lookup :: proc(path: string) -> (det: rendering.Sun_Detection, ok: bool) {
+	if !g_env_metadata_cache_loaded {
+		env_metadata_cache_init()
 	}
 
 	key := env_metadata_key(path)
-	entry, found := table[key]
+	entry, found := g_env_metadata_cache[key]
 	if !found {
 		return det, false
 	}
@@ -64,13 +95,10 @@ env_metadata_cache_lookup :: proc(path: string) -> (det: rendering.Sun_Detection
 	return det, true
 }
 
-// Stores updated sun detection metadata to cache file on disk.
+// Stores updated sun detection metadata to cache file on disk and updates in-memory cache.
 env_metadata_cache_save :: proc(path: string, det: rendering.Sun_Detection) -> bool {
-	table: Env_Metadata_Table
-
-	data, err := os.read_entire_file_from_path(ENV_METADATA_CACHE_PATH, context.temp_allocator)
-	if err == nil {
-		_ = json.unmarshal(data, &table, allocator = context.temp_allocator)
+	if !g_env_metadata_cache_loaded {
+		env_metadata_cache_init()
 	}
 
 	key := env_metadata_key(path)
@@ -84,9 +112,14 @@ env_metadata_cache_save :: proc(path: string, det: rendering.Sun_Detection) -> b
 		sun_detected   = det.sun_detected,
 		is_aperture    = det.is_aperture,
 	}
-	table[key] = entry
 
-	out_bytes, marshal_err := json.marshal(table, allocator = context.temp_allocator, opt = json.Marshal_Options{pretty = true})
+	if key not_in g_env_metadata_cache {
+		g_env_metadata_cache[strings.clone(key)] = entry
+	} else {
+		g_env_metadata_cache[key] = entry
+	}
+
+	out_bytes, marshal_err := json.marshal(g_env_metadata_cache, allocator = context.temp_allocator, opt = json.Marshal_Options{pretty = true})
 	if marshal_err != nil {
 		log.log_error("scene.env", "Failed to marshal env metadata cache: %v", marshal_err)
 		return false
