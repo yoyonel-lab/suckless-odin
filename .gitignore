@@ -57,3 +57,7 @@ __pycache__/
 callgrind.out*
 # Test audit reports
 tests/reports/
+
+# AI Repomix bundles
+repomix-*.md
+

@@ -57,7 +57,7 @@ def find_markdown_files() -> list[str]:
         if any(ignored in root for ignored in IGNORED_DIRS):
             continue
         for file in files:
-            if file.endswith(".md"):
+            if file.endswith(".md") and not file.startswith("repomix-"):
                 files_to_check.append(os.path.join(root, file))
     return files_to_check
 
