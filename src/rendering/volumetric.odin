@@ -106,6 +106,13 @@ DEFAULT_HEIGHT_FOG_ENABLED            :: false
 DEFAULT_HEIGHT_FOG_GROUND_Y           :: 0.0
 DEFAULT_HEIGHT_FOG_FALLOFF            :: 0.20
 
+// Phase 3: Cellular Noise & Depth Window Mask Defaults
+DEFAULT_DUST_WORLEY_ENABLED           :: true
+DEFAULT_DUST_WORLEY_BLEND             :: 1.0
+DEFAULT_DUST_DEPTH_MASK_ENABLED       :: true
+DEFAULT_DUST_DEPTH_NEAR               :: 0.50
+DEFAULT_DUST_DEPTH_FAR                :: 20.0
+
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
 	case .Sun_Directional: return VOLUMETRIC_DEFAULT_INTENSITY_SUN
@@ -172,6 +179,13 @@ Volumetric_Params :: struct {
 	height_fog_enabled:           bool, // Exponential atmospheric height falloff
 	height_fog_ground_y:          f32,  // Ground baseline altitude y0 [-10.0..10.0] (default 0.0)
 	height_fog_falloff:           f32,  // Altitude attenuation coefficient k [0.01..2.0] (default 0.20)
+
+	// Phase 3: Worley Cellular Dust & Depth Window Mask
+	dust_worley_enabled:          bool, // Worley 3D cellular noise (sparkling particles vs Perlin smoke)
+	dust_worley_blend:            f32,  // Worley particle blend ratio [0.0..1.0] (default 1.0)
+	dust_depth_mask_enabled:      bool, // Quadratic depth bell-curve window mask
+	dust_depth_near:              f32,  // Near focus boundary [0.1..10.0] meters (default 0.50)
+	dust_depth_far:               f32,  // Far focus boundary [5.0..100.0] meters (default 20.0)
 }
 
 // Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
@@ -253,6 +267,11 @@ Volumetric_Renderer :: struct {
 	loc_dir_height_fog_enabled:           i32,
 	loc_dir_height_fog_ground_y:          i32,
 	loc_dir_height_fog_falloff:           i32,
+	loc_dir_dust_worley_enabled:          i32,
+	loc_dir_dust_worley_blend:            i32,
+	loc_dir_dust_depth_mask_enabled:      i32,
+	loc_dir_dust_depth_near:              i32,
+	loc_dir_dust_depth_far:               i32,
 
 	// Phase 2 Textures
 	blue_noise_tex:                       u32,
@@ -393,6 +412,11 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		height_fog_enabled          = DEFAULT_HEIGHT_FOG_ENABLED,
 		height_fog_ground_y         = DEFAULT_HEIGHT_FOG_GROUND_Y,
 		height_fog_falloff          = DEFAULT_HEIGHT_FOG_FALLOFF,
+		dust_worley_enabled         = DEFAULT_DUST_WORLEY_ENABLED,
+		dust_worley_blend           = DEFAULT_DUST_WORLEY_BLEND,
+		dust_depth_mask_enabled     = DEFAULT_DUST_DEPTH_MASK_ENABLED,
+		dust_depth_near             = DEFAULT_DUST_DEPTH_NEAR,
+		dust_depth_far              = DEFAULT_DUST_DEPTH_FAR,
 	}
 
 	div := max(1, vr.params.resolution_divider)
@@ -467,6 +491,11 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_dir_height_fog_enabled          = gl.GetUniformLocation(vr.directional_program, "u_height_fog_enabled")
 	vr.loc_dir_height_fog_ground_y         = gl.GetUniformLocation(vr.directional_program, "u_height_fog_ground_y")
 	vr.loc_dir_height_fog_falloff          = gl.GetUniformLocation(vr.directional_program, "u_height_fog_falloff")
+	vr.loc_dir_dust_worley_enabled         = gl.GetUniformLocation(vr.directional_program, "u_dust_worley_enabled")
+	vr.loc_dir_dust_worley_blend           = gl.GetUniformLocation(vr.directional_program, "u_dust_worley_blend")
+	vr.loc_dir_dust_depth_mask_enabled     = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_mask_enabled")
+	vr.loc_dir_dust_depth_near             = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_near")
+	vr.loc_dir_dust_depth_far              = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_far")
 
 	// Create Phase 2 GPU Noise Textures
 	vr.blue_noise_tex = create_blue_noise_texture_2d()
@@ -574,6 +603,11 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	dbg.object_label(gl.TEXTURE, vr.history_tex[1], "Volumetric_History_RGBA16F_1")
 	dbg.object_label(gl.TEXTURE, vr.acceptance_tex, "Volumetric_Acceptance_RGBA8")
 	dbg.object_label(gl.TEXTURE, vr.preview_tex, "Volumetric_Preview_RGBA8")
+	dbg.object_label(gl.TEXTURE, vr.blue_noise_tex, "Volumetric_Blue_Noise_2D")
+	dbg.object_label(gl.TEXTURE, vr.dust_noise_tex3d, "Volumetric_Dust_Noise_3D_Worley_Perlin")
+	dbg.object_label(gl.PROGRAM, vr.program, "Volumetric_Raymarch_Point_Program")
+	dbg.object_label(gl.PROGRAM, vr.directional_program, "Volumetric_Raymarch_Directional_Program")
+	dbg.object_label(gl.PROGRAM, vr.composite_program, "Volumetric_Composite_Program")
 
 	log.log_info("render.volumetric", "Volumetric renderer with TAA created (%dx%d -> %dx%d)", vr.full_width, vr.full_height, vr.width, vr.height)
 	return true
@@ -786,6 +820,7 @@ volumetric_render :: proc(
 	gl.Disable(gl.BLEND)
 
 	if vr.params.light_mode == .Sun_Directional && vr.directional_program != 0 {
+		dbg.push_group("Volumetric_Raymarch_Sun_Directional")
 		gl.UseProgram(vr.directional_program)
 
 		// Unit 0: Low-Res Depth (2D)
@@ -855,6 +890,13 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_dir_height_fog_ground_y, vr.params.height_fog_ground_y)
 		gl.Uniform1f(vr.loc_dir_height_fog_falloff, vr.params.height_fog_falloff)
 
+		// Phase 3 Uniforms (Worley Cellular Dust & Depth Window Mask)
+		gl.Uniform1i(vr.loc_dir_dust_worley_enabled, 1 if vr.params.dust_worley_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_dust_worley_blend, vr.params.dust_worley_blend)
+		gl.Uniform1i(vr.loc_dir_dust_depth_mask_enabled, 1 if vr.params.dust_depth_mask_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_dust_depth_near, vr.params.dust_depth_near)
+		gl.Uniform1f(vr.loc_dir_dust_depth_far, vr.params.dust_depth_far)
+
 		fullscreen_triangle_draw(&vr.triangle)
 
 		gl.ActiveTexture(gl.TEXTURE3)
@@ -866,8 +908,10 @@ volumetric_render :: proc(
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.UseProgram(0)
+		dbg.pop_group()
 	} else {
 		// Legacy Omni Point Raymarching
+		dbg.push_group("Volumetric_Raymarch_Omni_Point")
 		gl.UseProgram(vr.program)
 
 		// Bind Low-Res Depth (unit 0) & Shadow Cubemap (unit 1)
@@ -914,6 +958,7 @@ volumetric_render :: proc(
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.UseProgram(0)
+		dbg.pop_group()
 	}
 
 	dbg.pop_group()

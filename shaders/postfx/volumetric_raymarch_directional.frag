@@ -58,6 +58,13 @@ uniform bool  u_height_fog_enabled;
 uniform float u_height_fog_ground_y;
 uniform float u_height_fog_falloff;
 
+// Phase 3 Worley Cellular Dust & Depth Window Mask
+uniform bool  u_dust_worley_enabled;
+uniform float u_dust_worley_blend;      // [0.0..1.0] blend Perlin (0.0) -> Worley (1.0)
+uniform bool  u_dust_depth_mask_enabled;
+uniform float u_dust_depth_near;        // [0.1..10.0] meters (near focus boundary)
+uniform float u_dust_depth_far;         // [5.0..100.0] meters (far focus boundary)
+
 // Mathematical & Quasirandom Constants (Zero Magic Constants)
 const float BLUE_NOISE_GOLDEN_X = 0.754877666; // 1 / phi_2
 const float BLUE_NOISE_GOLDEN_Y = 0.569840291; // 1 / (phi_2^2)
@@ -173,12 +180,25 @@ void main()
             }
         }
 
-        // Density modulation (Phase 2)
+        // Density modulation (Phase 2 & 3)
         float density_mod = 1.0;
         if (u_dust_enabled) {
             vec3 dust_coord = sample_pos * u_dust_scale + DUST_DRIFT_DIR * (u_time * u_dust_speed);
-            float dust_sample = texture(u_dust_noise_tex3d, dust_coord).r;
-            density_mod *= mix(1.0, 0.25 + dust_sample * 1.75, u_dust_intensity);
+            vec2 dust_samples = texture(u_dust_noise_tex3d, dust_coord).rg;
+            float dust_sample = dust_samples.r;
+            if (u_dust_worley_enabled) {
+                dust_sample = mix(dust_samples.r, dust_samples.g, u_dust_worley_blend);
+            }
+
+            float depth_mask = 1.0;
+            if (u_dust_depth_mask_enabled) {
+                float sample_dist = length(sample_pos - u_cam_pos);
+                float span = max(0.01, u_dust_depth_far - u_dust_depth_near);
+                float d_rel = clamp((sample_dist - u_dust_depth_near) / span, 0.0, 1.0);
+                depth_mask = d_rel * (1.0 - d_rel) * 4.0; // Quadratic bell curve [0 -> 1 -> 0]
+            }
+
+            density_mod *= mix(1.0, 0.25 + dust_sample * 1.75 * depth_mask, u_dust_intensity);
         }
 
         if (u_height_fog_enabled) {

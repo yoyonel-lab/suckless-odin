@@ -344,6 +344,51 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					vr.history_valid = false
 					vr.preview_dirty = true
 				}
+
+				if imgui.Checkbox("Worley Cellular Dust (vs Perlin)##vol", &vr.params.dust_worley_enabled) {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if vr.params.dust_worley_enabled {
+					if imgui.SliderFloat("Worley Particle Blend##vol", &vr.params.dust_worley_blend, 0.0, 1.0, "%.2f") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_worley_blend_vol") {
+						vr.params.dust_worley_blend = rendering.DEFAULT_DUST_WORLEY_BLEND
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+				}
+
+				if imgui.Checkbox("Dust Depth Window Mask##vol", &vr.params.dust_depth_mask_enabled) {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if vr.params.dust_depth_mask_enabled {
+					if imgui.SliderFloat("Depth Focus Near##vol", &vr.params.dust_depth_near, 0.1, 10.0, "%.2f m") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_depth_near_vol") {
+						vr.params.dust_depth_near = rendering.DEFAULT_DUST_DEPTH_NEAR
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					if imgui.SliderFloat("Depth Focus Far##vol", &vr.params.dust_depth_far, 5.0, 100.0, "%.1f m") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_depth_far_vol") {
+						vr.params.dust_depth_far = rendering.DEFAULT_DUST_DEPTH_FAR
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+				}
 			}
 
 			if imgui.Checkbox("Height Fog (Atmospheric Falloff)##vol", &vr.params.height_fog_enabled) {
@@ -959,6 +1004,55 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 			imgui.SameLine()
 			if imgui.Button("Reset##height_fog_falloff_vol_filt") {
 				vr.params.height_fog_falloff = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Worley Cellular Dust", "volumetric worley cellular dust particles noise fbm blend perlin") {
+		if imgui.Checkbox("Worley Cellular Dust (vs Perlin)##vol_filt", &vr.params.dust_worley_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dust_worley_enabled {
+			if imgui.SliderFloat("Worley Particle Blend##vol_filt", &vr.params.dust_worley_blend, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_worley_blend_vol_filt") {
+				vr.params.dust_worley_blend = rendering.DEFAULT_DUST_WORLEY_BLEND
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dust Depth Window Mask", "volumetric dust depth window mask near far focus bell curve distance clipping") {
+		if imgui.Checkbox("Dust Depth Window Mask##vol_filt", &vr.params.dust_depth_mask_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dust_depth_mask_enabled {
+			if imgui.SliderFloat("Depth Focus Near##vol_filt", &vr.params.dust_depth_near, 0.1, 10.0, "%.2f m") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_depth_near_vol_filt") {
+				vr.params.dust_depth_near = rendering.DEFAULT_DUST_DEPTH_NEAR
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Depth Focus Far##vol_filt", &vr.params.dust_depth_far, 5.0, 100.0, "%.1f m") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_depth_far_vol_filt") {
+				vr.params.dust_depth_far = rendering.DEFAULT_DUST_DEPTH_FAR
 				vr.history_valid = false
 				vr.preview_dirty = true
 			}

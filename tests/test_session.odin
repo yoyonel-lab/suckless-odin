@@ -136,6 +136,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 		height_fog_enabled          = true,
 		height_fog_ground_y         = -1.5,
 		height_fog_falloff          = 0.30,
+		dust_worley_enabled         = true,
+		dust_worley_blend           = 0.85,
+		dust_depth_mask_enabled     = true,
+		dust_depth_near             = 0.60,
+		dust_depth_far              = 25.0,
 	}
 	state_to_save.point_light = session.Point_Light_Session_Settings{
 		position               = {10.0, 5.0, -2.0},
@@ -299,6 +304,11 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.height_fog_enabled, true)
 	testing.expect_value(t, loaded_state.volumetric.height_fog_ground_y, f32(-1.5))
 	testing.expect_value(t, loaded_state.volumetric.height_fog_falloff, f32(0.30))
+	testing.expect_value(t, loaded_state.volumetric.dust_worley_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_worley_blend, f32(0.85))
+	testing.expect_value(t, loaded_state.volumetric.dust_depth_mask_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_depth_near, f32(0.60))
+	testing.expect_value(t, loaded_state.volumetric.dust_depth_far, f32(25.0))
 
 	// Point Light validation
 	testing.expect_value(t, loaded_state.point_light.enabled, true)
@@ -351,6 +361,11 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 		height_fog_enabled          = true,
 		height_fog_ground_y         = 0.0,
 		height_fog_falloff          = 0.20,
+		dust_worley_enabled         = true,
+		dust_worley_blend           = 0.0,
+		dust_depth_mask_enabled     = true,
+		dust_depth_near             = 0.50,
+		dust_depth_far              = 20.0,
 	}
 
 	save_ok := session.save_session(&state_to_save, test_file)
@@ -367,6 +382,7 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.dust_intensity, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.dust_speed, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.height_fog_ground_y, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_worley_blend, f32(0.0))
 }
 
 @(test)

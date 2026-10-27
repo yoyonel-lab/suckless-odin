@@ -155,6 +155,11 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			height_fog_enabled           = s.volumetric.params.height_fog_enabled,
 			height_fog_ground_y          = s.volumetric.params.height_fog_ground_y,
 			height_fog_falloff           = s.volumetric.params.height_fog_falloff,
+			dust_worley_enabled          = s.volumetric.params.dust_worley_enabled,
+			dust_worley_blend            = s.volumetric.params.dust_worley_blend,
+			dust_depth_mask_enabled      = s.volumetric.params.dust_depth_mask_enabled,
+			dust_depth_near              = s.volumetric.params.dust_depth_near,
+			dust_depth_far               = s.volumetric.params.dust_depth_far,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -413,6 +418,22 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		} else {
 			s.volumetric.params.height_fog_ground_y = rendering.DEFAULT_HEIGHT_FOG_GROUND_Y
 			s.volumetric.params.height_fog_falloff  = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
+		}
+
+		s.volumetric.params.dust_worley_enabled = state.volumetric.dust_worley_enabled
+		if state.volumetric.dust_worley_enabled {
+			s.volumetric.params.dust_worley_blend = clamp(state.volumetric.dust_worley_blend, 0.0, 1.0)
+		} else {
+			s.volumetric.params.dust_worley_blend = rendering.DEFAULT_DUST_WORLEY_BLEND
+		}
+
+		s.volumetric.params.dust_depth_mask_enabled = state.volumetric.dust_depth_mask_enabled
+		if state.volumetric.dust_depth_mask_enabled {
+			s.volumetric.params.dust_depth_near = clamp(state.volumetric.dust_depth_near, 0.1, 10.0)
+			s.volumetric.params.dust_depth_far  = clamp(state.volumetric.dust_depth_far, 5.0, 100.0)
+		} else {
+			s.volumetric.params.dust_depth_near = rendering.DEFAULT_DUST_DEPTH_NEAR
+			s.volumetric.params.dust_depth_far  = rendering.DEFAULT_DUST_DEPTH_FAR
 		}
 		s.volumetric.history_valid                 = false
 

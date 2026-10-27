@@ -2,6 +2,17 @@ package rendering
 
 import gl "vendor:OpenGL"
 
+import tracy "../core/tracy"
+
+@(private)
+srcloc_create_blue_noise := tracy.Source_Location_Data{
+	name     = "Create_Blue_Noise_2D",
+	function = "create_blue_noise_texture_2d",
+	file     = #file,
+	line     = #line,
+	color    = 0xBF616A,
+}
+
 // Canonical 64x64 Void-and-Cluster Blue Noise Table (Ulichney 1993)
 // Used for isotropic spatial/temporal jittering without IGN diagonal banding artifacts.
 BLUE_NOISE_64x64 := [4096]u8{
@@ -72,6 +83,9 @@ BLUE_NOISE_64x64 := [4096]u8{
 }
 
 create_blue_noise_texture_2d :: proc() -> u32 {
+	zone := tracy.zone_begin(&srcloc_create_blue_noise)
+	defer tracy.zone_end(zone)
+
 	tex_id: u32
 	gl.GenTextures(1, &tex_id)
 	gl.BindTexture(gl.TEXTURE_2D, tex_id)
