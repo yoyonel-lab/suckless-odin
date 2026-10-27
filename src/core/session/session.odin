@@ -76,9 +76,12 @@ Volumetric_Session_Settings :: struct {
 	height_fog_falloff:           f32     `json:"height_fog_falloff"`,
 	dust_worley_enabled:          bool    `json:"dust_worley_enabled"`,
 	dust_worley_blend:            f32     `json:"dust_worley_blend"`,
-	dust_depth_mask_enabled:      bool    `json:"dust_depth_mask_enabled"`,
-	dust_depth_near:              f32     `json:"dust_depth_near"`,
-	dust_depth_far:               f32     `json:"dust_depth_far"`,
+	dust_depth_mask_enabled:          bool    `json:"dust_depth_mask_enabled"`,
+	dust_depth_near:                  f32     `json:"dust_depth_near"`,
+	dust_depth_far:                   f32     `json:"dust_depth_far"`,
+	crepuscular_horizon_fade_enabled: bool    `json:"crepuscular_horizon_fade_enabled"`,
+	crepuscular_horizon_fade_start:   f32     `json:"crepuscular_horizon_fade_start"`,
+	crepuscular_horizon_fade_end:     f32     `json:"crepuscular_horizon_fade_end"`,
 }
 
 Point_Light_Session_Settings :: struct {

@@ -106,12 +106,15 @@ DEFAULT_HEIGHT_FOG_ENABLED            :: false
 DEFAULT_HEIGHT_FOG_GROUND_Y           :: 0.0
 DEFAULT_HEIGHT_FOG_FALLOFF            :: 0.20
 
-// Phase 3: Cellular Noise & Depth Window Mask Defaults
-DEFAULT_DUST_WORLEY_ENABLED           :: true
-DEFAULT_DUST_WORLEY_BLEND             :: 1.0
-DEFAULT_DUST_DEPTH_MASK_ENABLED       :: true
-DEFAULT_DUST_DEPTH_NEAR               :: 0.50
-DEFAULT_DUST_DEPTH_FAR                :: 20.0
+// Phase 3: Cellular Noise, Depth Window Mask & Crepuscular Horizon Fade Defaults
+DEFAULT_DUST_WORLEY_ENABLED              :: true
+DEFAULT_DUST_WORLEY_BLEND                :: 1.0
+DEFAULT_DUST_DEPTH_MASK_ENABLED          :: true
+DEFAULT_DUST_DEPTH_NEAR                  :: 0.50
+DEFAULT_DUST_DEPTH_FAR                   :: 20.0
+DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED :: false
+DEFAULT_CREPUSCULAR_HORIZON_FADE_START   :: 45.0 // Min elevation angle (deg) below which 100% boost is preserved
+DEFAULT_CREPUSCULAR_HORIZON_FADE_END     :: 85.0 // Max elevation angle (deg) above which boost is fully faded to 0
 
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
@@ -180,12 +183,15 @@ Volumetric_Params :: struct {
 	height_fog_ground_y:          f32,  // Ground baseline altitude y0 [-10.0..10.0] (default 0.0)
 	height_fog_falloff:           f32,  // Altitude attenuation coefficient k [0.01..2.0] (default 0.20)
 
-	// Phase 3: Worley Cellular Dust & Depth Window Mask
-	dust_worley_enabled:          bool, // Worley 3D cellular noise (sparkling particles vs Perlin smoke)
-	dust_worley_blend:            f32,  // Worley particle blend ratio [0.0..1.0] (default 1.0)
-	dust_depth_mask_enabled:      bool, // Quadratic depth bell-curve window mask
-	dust_depth_near:              f32,  // Near focus boundary [0.1..10.0] meters (default 0.50)
-	dust_depth_far:               f32,  // Far focus boundary [5.0..100.0] meters (default 20.0)
+	// Phase 3: Worley Cellular Dust, Depth Window Mask & Crepuscular Horizon Fade
+	dust_worley_enabled:              bool, // Worley 3D cellular noise (sparkling particles vs Perlin smoke)
+	dust_worley_blend:                f32,  // Worley particle blend ratio [0.0..1.0] (default 1.0)
+	dust_depth_mask_enabled:          bool, // Quadratic depth bell-curve window mask
+	dust_depth_near:                  f32,  // Near focus boundary [0.1..10.0] meters (default 0.50)
+	dust_depth_far:                   f32,  // Far focus boundary [5.0..100.0] meters (default 20.0)
+	crepuscular_horizon_fade_enabled: bool, // Sun elevation-based modulation of contre-jour boost
+	crepuscular_horizon_fade_start:   f32,  // Elevation angle (deg) below which boost is 100% (default 45.0)
+	crepuscular_horizon_fade_end:     f32,  // Elevation angle (deg) above which boost is 0% (default 85.0)
 }
 
 // Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
@@ -348,6 +354,17 @@ volumetric_henyey_greenstein :: proc(cos_theta, g: f32) -> f32 {
 	return (1.0 - g2) / (denom * math.sqrt(denom))
 }
 
+// Computes smoothstep-based contre-jour attenuation according to sun elevation angle (theta_elevation).
+// Below fade_start: full boost (1.0). Above fade_end: boost completely suppressed (0.0).
+compute_crepuscular_horizon_fade :: proc(elevation, fade_start, fade_end: f32) -> f32 {
+	el := clamp(elevation, 0.0, 90.0)
+	if el <= fade_start do return 1.0
+	if el >= fade_end do return 0.0
+	span := max(0.001, fade_end - fade_start)
+	t := clamp((el - fade_start) / span, 0.0, 1.0)
+	return 1.0 - (t * t * (3.0 - 2.0 * t))
+}
+
 // Ray-Sphere intersection calculation (CPU analytic)
 volumetric_intersect_ray_sphere :: proc(
 	ray_orig, ray_dir, sphere_center: mt.Vec3,
@@ -414,9 +431,12 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		height_fog_falloff          = DEFAULT_HEIGHT_FOG_FALLOFF,
 		dust_worley_enabled         = DEFAULT_DUST_WORLEY_ENABLED,
 		dust_worley_blend           = DEFAULT_DUST_WORLEY_BLEND,
-		dust_depth_mask_enabled     = DEFAULT_DUST_DEPTH_MASK_ENABLED,
-		dust_depth_near             = DEFAULT_DUST_DEPTH_NEAR,
-		dust_depth_far              = DEFAULT_DUST_DEPTH_FAR,
+		dust_depth_mask_enabled          = DEFAULT_DUST_DEPTH_MASK_ENABLED,
+		dust_depth_near                  = DEFAULT_DUST_DEPTH_NEAR,
+		dust_depth_far                   = DEFAULT_DUST_DEPTH_FAR,
+		crepuscular_horizon_fade_enabled = DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED,
+		crepuscular_horizon_fade_start   = DEFAULT_CREPUSCULAR_HORIZON_FADE_START,
+		crepuscular_horizon_fade_end     = DEFAULT_CREPUSCULAR_HORIZON_FADE_END,
 	}
 
 	div := max(1, vr.params.resolution_divider)
@@ -873,7 +893,12 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_dir_dual_lobe_blend, vr.params.dual_lobe_blend)
 
 		gl.Uniform1i(vr.loc_dir_crepuscular_boost_enabled, 1 if vr.params.crepuscular_boost_enabled else 0)
-		gl.Uniform1f(vr.loc_dir_crepuscular_boost_strength, vr.params.crepuscular_boost_strength)
+		effective_crepuscular_strength := vr.params.crepuscular_boost_strength
+		if vr.params.crepuscular_boost_enabled && vr.params.crepuscular_horizon_fade_enabled {
+			elevation := sun_shadow.detection.elevation if sun_shadow != nil else SUN_FALLBACK_ELEVATION
+			effective_crepuscular_strength *= compute_crepuscular_horizon_fade(elevation, vr.params.crepuscular_horizon_fade_start, vr.params.crepuscular_horizon_fade_end)
+		}
+		gl.Uniform1f(vr.loc_dir_crepuscular_boost_strength, effective_crepuscular_strength)
 		gl.Uniform1f(vr.loc_dir_crepuscular_boost_threshold, vr.params.crepuscular_boost_threshold)
 
 		gl.Uniform1i(vr.loc_dir_spectral_scattering_enabled, 1 if vr.params.spectral_scattering_enabled else 0)

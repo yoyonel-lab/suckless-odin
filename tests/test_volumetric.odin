@@ -249,5 +249,37 @@ test_volumetric_presets_and_timers :: proc(t: ^testing.T) {
 	testing.expect_value(t, w.display_max, 3.0)
 }
 
+// Verifies Proposition 3.2: Crepuscular Horizon Fade smoothstep attenuation
+@(test)
+test_crepuscular_horizon_fade :: proc(t: ^testing.T) {
+	fade_start: f32 = 45.0
+	fade_end: f32 = 85.0
+
+	// 1. Below or at start angle: full boost (1.0)
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(0.0, fade_start, fade_end), f32(1.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(20.0, fade_start, fade_end), f32(1.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(45.0, fade_start, fade_end), f32(1.0))
+
+	// 2. Above or at end angle: zero boost (0.0)
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(85.0, fade_start, fade_end), f32(0.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(90.0, fade_start, fade_end), f32(0.0))
+
+	// 3. Midpoint: (65 - 45) / (85 - 45) = 20 / 40 = 0.5 -> smoothstep(0.5) = 0.5 -> 1.0 - 0.5 = 0.5
+	mid := rendering.compute_crepuscular_horizon_fade(65.0, fade_start, fade_end)
+	testing.expect_value(t, math.abs(mid - 0.5) < 0.0001, true)
+
+	// 4. Clamping bounds: negative elevation clamped to 0.0 -> returns 1.0; > 90 clamped to 90.0 -> returns 0.0
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(-10.0, fade_start, fade_end), f32(1.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(120.0, fade_start, fade_end), f32(0.0))
+
+	// 5. Monotonic decrease over [fade_start, fade_end]
+	prev := f32(1.0)
+	for deg in 45..=85 {
+		val := rendering.compute_crepuscular_horizon_fade(f32(deg), fade_start, fade_end)
+		testing.expect(t, val <= prev, "Horizon fade must be monotonically decreasing")
+		prev = val
+	}
+}
+
 
 

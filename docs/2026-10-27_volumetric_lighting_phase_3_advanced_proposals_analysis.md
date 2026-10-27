@@ -55,7 +55,7 @@ Remplacer ou combiner le bruit de Perlin par du bruit cellulaire de Worley (*Vor
   * Échantillonnage unifié : 1 seul fetch trilinéaire hardware `texture(u_dust_tex3d, uvw)` pour les 3 métriques !
 
 #### Projection dans `suckless-odin`
-* **Génération CPU au boot** : Étendre [`src/rendering/dust_noise.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/rendering/dust_noise.odin) pour précalculer une grille $64^3$ périodique toroïdale combinée en ~12 ms au lancement.
+* **Génération CPU au boot** : Étendre `src/rendering/dust_noise.odin` pour précalculer une grille $64^3$ périodique toroïdale combinée en ~12 ms au lancement.
 * **VRAM** : $64 \times 64 \times 64 \times 4\,\text{octets} = 1\,\text{MB}$ (totalement négligeable).
 * **Shader** : `density_mod = mix(perlin_sample, worley_sample, u_dust_type)`.
 
@@ -72,8 +72,8 @@ $$\text{boost}_{\text{effective}} = \text{boost} \cdot (1.0 - \text{smoothstep}(
 * **Coût GPU** : **0.00 ms** (calcul scalaire évalué sur CPU en Odin avant l'upload d'uniforms ou une seule fois par fragment dans le vertex/fragment shader hors boucle).
 
 #### Projection dans `suckless-odin`
-* **Localisation** : Calculé directement dans [`src/rendering/volumetric.odin`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/rendering/volumetric.odin#L820) à partir de `sun_shadow.detection.elevation`.
-* **Contrôles ImGui** : Toggle `Auto Horizon Fade##vol` avec slider de transition angulaire.
+* **Localisation** : Calculé analytiquement dans `src/rendering/volumetric.odin` (`compute_crepuscular_horizon_fade`) et injecté dans `volumetric_render` pour moduler `effective_crepuscular_strength` avant upload uniform.
+* **Contrôles ImGui** : Toggle `Auto Horizon Fade (Zenith Attenuation)##vol` avec sliders `Horizon Fade Start Angle` (défaut $45.0^\circ$) et `Horizon Fade End Angle` (défaut $85.0^\circ$), boutons `Reset`, télémétrie temps réel et recherche floue 100%.
 
 ---
 
@@ -87,7 +87,7 @@ Remplacer le vecteur de dérive temporel fixe `vec3(0.08, 0.04, 0.06)` par une d
 * **Simplicité** : Évite d'ajouter une simulation de particules physique complète tout en donnant l'illusion parfaite d'une physique de fluides.
 
 #### Projection dans `suckless-odin`
-* **Architecture** : Passer un uniform `uniform vec3 u_dust_drift_dir` injecté dans [`volumetric_render`](file:///home/latty/Prog/__PERSO__/suckless-odin/src/rendering/volumetric.odin#L700).
+* **Architecture** : Passer un uniform `uniform vec3 u_dust_drift_dir` injecté dans `volumetric_render` (`src/rendering/volumetric.odin`).
 * **Modes réglables** :
   1. *Manual Direction* (Euler yaw/pitch).
   2. *Solar Convection* (`normalize(vec3(sun_dir.x * 0.2, 1.0, sun_dir.z * 0.2))`).
@@ -172,7 +172,7 @@ $$\text{mask}(t) = \exp\left(-\left(\frac{t - t_{\text{focus}}}{w}\right)^2\righ
 | ID | Proposition | Impact Visuel | Coût GPU | Complexité Odin / GLSL | Priorité & Statut |
 | :---: | :--- | :---: | :---: | :---: | :---: |
 | **3.1** | **Worley Noise 3D $64^3$ (Texture RG8)** | ⭐⭐⭐⭐⭐ | $< 0.05\,\text{ms}$ | Texture Generator CPU + Fetch unifié | ✅ **Implémenté & Validé** |
-| **3.2** | **Crepuscular Horizon Fade** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Très faible (Formule CPU) | **P1 (Suivant)** |
+| **3.2** | **Crepuscular Horizon Fade** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Très faible (Formule CPU) | ✅ **Implémenté & Validé** |
 | **3.3** | **Masque Gaussien / Cloche de Distance** | ⭐⭐⭐⭐ | $< 0.02\,\text{ms}$ | Faible (Cloche quadratique sans exp) | ✅ **Implémenté & Validé** |
 | **3.4** | **Convection Dynamique Solaire** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Passage d'uniform) | **P2** |
 | **3.5** | **Multi-Scattering Isotrope** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Shader hors-boucle) | **P2** |

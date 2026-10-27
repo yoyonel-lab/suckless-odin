@@ -138,9 +138,12 @@ test_session_save_load :: proc(t: ^testing.T) {
 		height_fog_falloff          = 0.30,
 		dust_worley_enabled         = true,
 		dust_worley_blend           = 0.85,
-		dust_depth_mask_enabled     = true,
-		dust_depth_near             = 0.60,
-		dust_depth_far              = 25.0,
+		dust_depth_mask_enabled          = true,
+		dust_depth_near                  = 0.60,
+		dust_depth_far                   = 25.0,
+		crepuscular_horizon_fade_enabled = true,
+		crepuscular_horizon_fade_start   = 40.0,
+		crepuscular_horizon_fade_end     = 80.0,
 	}
 	state_to_save.point_light = session.Point_Light_Session_Settings{
 		position               = {10.0, 5.0, -2.0},
@@ -309,6 +312,9 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.dust_depth_mask_enabled, true)
 	testing.expect_value(t, loaded_state.volumetric.dust_depth_near, f32(0.60))
 	testing.expect_value(t, loaded_state.volumetric.dust_depth_far, f32(25.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_start, f32(40.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(80.0))
 
 	// Point Light validation
 	testing.expect_value(t, loaded_state.point_light.enabled, true)
@@ -363,9 +369,12 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 		height_fog_falloff          = 0.20,
 		dust_worley_enabled         = true,
 		dust_worley_blend           = 0.0,
-		dust_depth_mask_enabled     = true,
-		dust_depth_near             = 0.50,
-		dust_depth_far              = 20.0,
+		dust_depth_mask_enabled          = true,
+		dust_depth_near                  = 0.50,
+		dust_depth_far                   = 20.0,
+		crepuscular_horizon_fade_enabled = true,
+		crepuscular_horizon_fade_start   = 0.0,
+		crepuscular_horizon_fade_end     = 0.0,
 	}
 
 	save_ok := session.save_session(&state_to_save, test_file)
@@ -383,6 +392,8 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.dust_speed, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.height_fog_ground_y, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.dust_worley_blend, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_start, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(0.0))
 }
 
 @(test)

@@ -186,6 +186,9 @@ L'onglet **Shadows** propose 7 modes de visualisation analytique :
 | **`Crepuscular Boost`** (Phase 1) | Checkbox | Bool | — | Sur-amplification optique face au soleil (contre-jour). |
 | **`Boost Strength`** | SliderFloat | $0.00 \to 5.00\times$ | `Reset` | Facteur multiplicateur d'éblouissement (défaut $2.00\times$). |
 | **`Cos Threshold`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Seuil d'alignement $\cos\theta$ observateur-soleil (défaut $0.70$). |
+| **`Auto Horizon Fade`** (Phase 3) | Checkbox | Bool | — | Atténuation automatique du contre-jour au zénith solaire. |
+| **`Horizon Fade Start Angle`** | SliderFloat | $0.0^\circ \to 90.0^\circ$ | `Reset` | Élévation minimale préservant 100% du boost (défaut $45.0^\circ$). |
+| **`Horizon Fade End Angle`** | SliderFloat | $0.0^\circ \to 90.0^\circ$ | `Reset` | Élévation maximale où le boost est totalement éteint (défaut $85.0^\circ$). |
 | **`Spectral Scattering`** (Phase 1) | Checkbox | Bool | — | Diffusion chromatique RGB Rayleigh/Mie. |
 | **`RGB Scattering Weights`** | SliderFloat3 | $0.10 \to 3.00$ | `Reset` | Poids spectraux par canal RGB (défaut $1.20, 1.00, 0.85$). |
 | **`Blue Noise Jitter`** (Phase 2) | Checkbox | Bool | — | Jitter Void-and-Cluster 64x64 éliminant le banding IGN. |

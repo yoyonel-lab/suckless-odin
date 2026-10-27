@@ -276,6 +276,45 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					vr.history_valid = false
 					vr.preview_dirty = true
 				}
+
+				if imgui.Checkbox("Auto Horizon Fade (Zenith Attenuation)##vol", &vr.params.crepuscular_horizon_fade_enabled) {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if vr.params.crepuscular_horizon_fade_enabled {
+					if imgui.SliderFloat("Horizon Fade Start Angle##vol", &vr.params.crepuscular_horizon_fade_start, 0.0, 90.0, "%.1f deg") {
+						if vr.params.crepuscular_horizon_fade_start > vr.params.crepuscular_horizon_fade_end {
+							vr.params.crepuscular_horizon_fade_end = vr.params.crepuscular_horizon_fade_start
+						}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##crep_horizon_fade_start_vol") {
+						vr.params.crepuscular_horizon_fade_start = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_START
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					if imgui.SliderFloat("Horizon Fade End Angle##vol", &vr.params.crepuscular_horizon_fade_end, 0.0, 90.0, "%.1f deg") {
+						if vr.params.crepuscular_horizon_fade_end < vr.params.crepuscular_horizon_fade_start {
+							vr.params.crepuscular_horizon_fade_start = vr.params.crepuscular_horizon_fade_end
+						}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##crep_horizon_fade_end_vol") {
+						vr.params.crepuscular_horizon_fade_end = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_END
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+					fade_factor := rendering.compute_crepuscular_horizon_fade(elevation, vr.params.crepuscular_horizon_fade_start, vr.params.crepuscular_horizon_fade_end)
+					effective_boost := vr.params.crepuscular_boost_strength * fade_factor
+					imgui.TextDisabled("Elevation: %.1f deg | Fade: %.1f%% | Effective Boost: %.2fx", elevation, fade_factor * 100.0, effective_boost)
+				}
 			}
 
 			if imgui.Checkbox("Spectral Chromatic Scattering (Rayleigh/Mie)##vol", &vr.params.spectral_scattering_enabled) {
@@ -908,6 +947,47 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 				vr.history_valid = false
 				vr.preview_dirty = true
 			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Crepuscular Horizon Fade", "volumetric crepuscular horizon fade zenith attenuation elevation angle sun contre jour") {
+		if imgui.Checkbox("Auto Horizon Fade (Zenith Attenuation)##vol_filt", &vr.params.crepuscular_horizon_fade_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.crepuscular_horizon_fade_enabled {
+			if imgui.SliderFloat("Horizon Fade Start Angle##vol_filt", &vr.params.crepuscular_horizon_fade_start, 0.0, 90.0, "%.1f deg") {
+				if vr.params.crepuscular_horizon_fade_start > vr.params.crepuscular_horizon_fade_end {
+					vr.params.crepuscular_horizon_fade_end = vr.params.crepuscular_horizon_fade_start
+				}
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_horizon_fade_start_vol_filt") {
+				vr.params.crepuscular_horizon_fade_start = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_START
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Horizon Fade End Angle##vol_filt", &vr.params.crepuscular_horizon_fade_end, 0.0, 90.0, "%.1f deg") {
+				if vr.params.crepuscular_horizon_fade_end < vr.params.crepuscular_horizon_fade_start {
+					vr.params.crepuscular_horizon_fade_start = vr.params.crepuscular_horizon_fade_end
+				}
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_horizon_fade_end_vol_filt") {
+				vr.params.crepuscular_horizon_fade_end = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_END
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+			fade_factor := rendering.compute_crepuscular_horizon_fade(elevation, vr.params.crepuscular_horizon_fade_start, vr.params.crepuscular_horizon_fade_end)
+			effective_boost := vr.params.crepuscular_boost_strength * fade_factor
+			imgui.TextDisabled("Elevation: %.1f deg | Fade: %.1f%% | Effective Boost: %.2fx", elevation, fade_factor * 100.0, effective_boost)
 		}
 		match_count += 1
 	}

@@ -157,9 +157,12 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			height_fog_falloff           = s.volumetric.params.height_fog_falloff,
 			dust_worley_enabled          = s.volumetric.params.dust_worley_enabled,
 			dust_worley_blend            = s.volumetric.params.dust_worley_blend,
-			dust_depth_mask_enabled      = s.volumetric.params.dust_depth_mask_enabled,
-			dust_depth_near              = s.volumetric.params.dust_depth_near,
-			dust_depth_far               = s.volumetric.params.dust_depth_far,
+			dust_depth_mask_enabled          = s.volumetric.params.dust_depth_mask_enabled,
+			dust_depth_near                  = s.volumetric.params.dust_depth_near,
+			dust_depth_far                   = s.volumetric.params.dust_depth_far,
+			crepuscular_horizon_fade_enabled = s.volumetric.params.crepuscular_horizon_fade_enabled,
+			crepuscular_horizon_fade_start   = s.volumetric.params.crepuscular_horizon_fade_start,
+			crepuscular_horizon_fade_end     = s.volumetric.params.crepuscular_horizon_fade_end,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -434,6 +437,15 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		} else {
 			s.volumetric.params.dust_depth_near = rendering.DEFAULT_DUST_DEPTH_NEAR
 			s.volumetric.params.dust_depth_far  = rendering.DEFAULT_DUST_DEPTH_FAR
+		}
+
+		s.volumetric.params.crepuscular_horizon_fade_enabled = state.volumetric.crepuscular_horizon_fade_enabled
+		if state.volumetric.crepuscular_horizon_fade_enabled {
+			s.volumetric.params.crepuscular_horizon_fade_start = clamp(state.volumetric.crepuscular_horizon_fade_start, 0.0, 90.0)
+			s.volumetric.params.crepuscular_horizon_fade_end   = clamp(state.volumetric.crepuscular_horizon_fade_end, 0.0, 90.0)
+		} else {
+			s.volumetric.params.crepuscular_horizon_fade_start = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_START
+			s.volumetric.params.crepuscular_horizon_fade_end   = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_END
 		}
 		s.volumetric.history_valid                 = false
 
