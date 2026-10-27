@@ -147,7 +147,9 @@ void main()
         phase = one_minus_g2 * (inv_denom * inv_denom * inv_denom);
     }
 
-    // Multi-scattering isotropic background compensation (Phase 3.5)
+    // Multi-scattering isotropic background compensation (Phase 3.5, Frostbite convention)
+    // Strong forward anisotropy (g >= 0.6) causes an unphysical energy dip around 90 deg.
+    // Isotropic term 1.0 (normalized where scattering coeff absorbs 1/(4*pi)) fills this dip.
     if (u_multi_scatter_enabled) {
         phase = mix(phase, 1.0, clamp(u_multi_scatter_amount, 0.0, 1.0));
     }
@@ -205,6 +207,8 @@ void main()
                 depth_mask = d_rel * (1.0 - d_rel) * 4.0; // Quadratic bell curve [0 -> 1 -> 0]
             }
 
+            // Floor at 0.25 prevents unnatural black voids when dust_sample is low or outside
+            // the depth focus window, preserving subtle ambient volumetric medium density.
             density_mod *= mix(1.0, 0.25 + dust_sample * 1.75 * depth_mask, u_dust_intensity);
         }
 

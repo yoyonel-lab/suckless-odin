@@ -160,7 +160,7 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			dust_depth_mask_enabled          = s.volumetric.params.dust_depth_mask_enabled,
 			dust_depth_near                  = s.volumetric.params.dust_depth_near,
 			dust_depth_far                   = s.volumetric.params.dust_depth_far,
-			dust_drift_mode                  = s.volumetric.params.dust_drift_mode,
+			dust_drift_mode                  = i32(s.volumetric.params.dust_drift_mode),
 			dust_custom_drift                = s.volumetric.params.dust_custom_drift,
 			crepuscular_horizon_fade_enabled = s.volumetric.params.crepuscular_horizon_fade_enabled,
 			crepuscular_horizon_fade_start   = s.volumetric.params.crepuscular_horizon_fade_start,
@@ -446,11 +446,15 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		}
 
 		if state.volumetric.dust_drift_mode >= 0 && state.volumetric.dust_drift_mode <= 2 {
-			s.volumetric.params.dust_drift_mode = state.volumetric.dust_drift_mode
+			s.volumetric.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(state.volumetric.dust_drift_mode)
 		} else {
 			s.volumetric.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
 		}
-		s.volumetric.params.dust_custom_drift = state.volumetric.dust_custom_drift
+		s.volumetric.params.dust_custom_drift = {
+			clamp(state.volumetric.dust_custom_drift.x, -1.0, 1.0),
+			clamp(state.volumetric.dust_custom_drift.y, -1.0, 1.0),
+			clamp(state.volumetric.dust_custom_drift.z, -1.0, 1.0),
+		}
 
 		s.volumetric.params.crepuscular_horizon_fade_enabled = state.volumetric.crepuscular_horizon_fade_enabled
 		if state.volumetric.crepuscular_horizon_fade_enabled {

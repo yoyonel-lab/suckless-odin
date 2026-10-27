@@ -106,14 +106,30 @@ DEFAULT_HEIGHT_FOG_ENABLED            :: false
 DEFAULT_HEIGHT_FOG_GROUND_Y           :: 0.0
 DEFAULT_HEIGHT_FOG_FALLOFF            :: 0.20
 
+// Kasten & Young (1989) atmospheric airmass constants (Zero Magic Constants)
+KASTEN_YOUNG_A               :: 0.50572
+KASTEN_YOUNG_B               :: 6.07995
+KASTEN_YOUNG_P               :: -1.6364
+AIRMASS_HORIZON_FALLBACK     :: 38.0
+AIRMASS_MAX_CLAMP            :: 40.0
+AIRMASS_NORMALIZATION_SPAN   :: 37.0 // Span from zenith (1.0) to horizon (~38.0)
+AIRMASS_CURVE_EXPONENT       :: 0.65 // Non-linear atmospheric optical depth transmission curve
+ZENITH_RAYLEIGH_RGB          :: mt.Vec3{0.75, 1.00, 1.35} // Cool scattered azure light at zenith
+HORIZON_SUNSET_RGB           :: mt.Vec3{1.60, 0.85, 0.40} // Warm golden/crimson scattered light at horizon
+
+// Dust convection constants (Zero Magic Constants)
+DUST_AMBIENT_DRIFT_DEFAULT   :: mt.Vec3{0.08, 0.04, 0.06}
+DUST_SOLAR_UPDRAFT_SPEED     :: 0.09
+DUST_SOLAR_TILT_WEIGHT       :: 0.25
+
 // Phase 3: Cellular Noise, Depth Window Mask & Crepuscular Horizon Fade Defaults
 DEFAULT_DUST_WORLEY_ENABLED              :: true
 DEFAULT_DUST_WORLEY_BLEND                :: 1.0
 DEFAULT_DUST_DEPTH_MASK_ENABLED          :: true
 DEFAULT_DUST_DEPTH_NEAR                  :: 0.50
 DEFAULT_DUST_DEPTH_FAR                   :: 20.0
-DEFAULT_DUST_DRIFT_MODE                  :: 0 // 0 = Ambient Fixed, 1 = Solar Updraft, 2 = Custom Wind
-DEFAULT_DUST_CUSTOM_DRIFT                :: mt.Vec3{0.08, 0.04, 0.06}
+DEFAULT_DUST_DRIFT_MODE                  :: Volumetric_Dust_Drift_Mode.Ambient_Fixed
+DEFAULT_DUST_CUSTOM_DRIFT                :: DUST_AMBIENT_DRIFT_DEFAULT
 DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED :: false
 DEFAULT_CREPUSCULAR_HORIZON_FADE_START   :: 45.0 // Min elevation angle (deg) below which 100% boost is preserved
 DEFAULT_CREPUSCULAR_HORIZON_FADE_END     :: 85.0 // Max elevation angle (deg) above which boost is fully faded to 0
@@ -202,7 +218,7 @@ Volumetric_Params :: struct {
 	dust_depth_mask_enabled:          bool, // Quadratic depth bell-curve window mask
 	dust_depth_near:                  f32,  // Near focus boundary [0.1..10.0] meters (default 0.50)
 	dust_depth_far:                   f32,  // Far focus boundary [5.0..100.0] meters (default 20.0)
-	dust_drift_mode:                  i32,  // Convection drift mode (0=Ambient, 1=Solar Updraft, 2=Custom Wind)
+	dust_drift_mode:                  Volumetric_Dust_Drift_Mode, // Convection drift mode (Ambient, Solar Updraft, Custom Wind)
 	dust_custom_drift:                mt.Vec3, // User-defined 3D wind velocity vector (default {0.08, 0.04, 0.06})
 	crepuscular_horizon_fade_enabled: bool, // Sun elevation-based modulation of contre-jour boost
 	crepuscular_horizon_fade_start:   f32,  // Elevation angle (deg) below which boost is 100% (default 45.0)
@@ -399,27 +415,22 @@ volumetric_compute_optical_airmass :: proc(elevation_deg: f32) -> f32 {
 	gamma := clamp(elevation_deg, 0.0, 90.0)
 	gamma_rad := math.to_radians(gamma)
 	sin_gamma := math.sin(gamma_rad)
-	denom := sin_gamma + 0.50572 * math.pow(gamma + 6.07995, -1.6364)
-	if denom <= 0.0001 do return 38.0
-	return clamp(1.0 / denom, 1.0, 40.0)
+	denom := sin_gamma + KASTEN_YOUNG_A * math.pow(gamma + KASTEN_YOUNG_B, KASTEN_YOUNG_P)
+	if denom <= 0.0001 do return AIRMASS_HORIZON_FALLBACK
+	return clamp(1.0 / denom, 1.0, AIRMASS_MAX_CLAMP)
 }
 
 // Computes dynamic RGB spectral scattering coefficients from solar elevation using Kasten-Young airmass.
 // Shifts from azure blue at zenith (elevation 90 deg, airmass ~1.0) to golden amber / crimson at sunset (airmass ~38.0).
 volumetric_compute_airmass_spectrum :: proc(elevation_deg: f32, intensity: f32 = 1.0) -> mt.Vec3 {
 	airmass := volumetric_compute_optical_airmass(elevation_deg)
-	t := clamp((airmass - 1.0) / 37.0, 0.0, 1.0)
-	t_curved := math.pow(t, 0.65) // Non-linear atmospheric optical depth transmission curve
-
-	// Zenith: Rayleigh azure haze (cool scattered light)
-	zenith_rgb := mt.Vec3{0.75, 1.00, 1.35}
-	// Horizon: Sunset extinction rais (warm golden/crimson scattered light)
-	horizon_rgb := mt.Vec3{1.60, 0.85, 0.40}
+	t := clamp((airmass - 1.0) / AIRMASS_NORMALIZATION_SPAN, 0.0, 1.0)
+	t_curved := math.pow(t, AIRMASS_CURVE_EXPONENT)
 
 	base_rgb := mt.Vec3{
-		math.lerp(zenith_rgb.x, horizon_rgb.x, t_curved),
-		math.lerp(zenith_rgb.y, horizon_rgb.y, t_curved),
-		math.lerp(zenith_rgb.z, horizon_rgb.z, t_curved),
+		math.lerp(ZENITH_RAYLEIGH_RGB.x, HORIZON_SUNSET_RGB.x, t_curved),
+		math.lerp(ZENITH_RAYLEIGH_RGB.y, HORIZON_SUNSET_RGB.y, t_curved),
+		math.lerp(ZENITH_RAYLEIGH_RGB.z, HORIZON_SUNSET_RGB.z, t_curved),
 	}
 
 	neutral := mt.Vec3{1.0, 1.0, 1.0}
@@ -432,19 +443,19 @@ volumetric_compute_airmass_spectrum :: proc(elevation_deg: f32, intensity: f32 =
 }
 
 // Computes 3D dust convection drift vector based on mode and solar direction.
-volumetric_compute_dust_drift :: proc(mode: i32, sun_dir: mt.Vec3, custom_drift: mt.Vec3) -> mt.Vec3 {
-	switch mode {
-	case 1:
+volumetric_compute_dust_drift :: proc(mode: Volumetric_Dust_Drift_Mode, sun_dir: mt.Vec3, custom_drift: mt.Vec3) -> mt.Vec3 {
+	#partial switch mode {
+	case .Solar_Updraft:
 		// Solar Updraft / Thermal Convection: warm air ascends tilted gently with solar direction
-		updraft := mt.Vec3{sun_dir.x * 0.25, 1.0, sun_dir.z * 0.25}
+		updraft := mt.Vec3{sun_dir.x * DUST_SOLAR_TILT_WEIGHT, 1.0, sun_dir.z * DUST_SOLAR_TILT_WEIGHT}
 		n := mt.vec3_normalize(updraft)
-		return mt.Vec3{n.x * 0.09, n.y * 0.09, n.z * 0.09}
-	case 2:
+		return mt.Vec3{n.x * DUST_SOLAR_UPDRAFT_SPEED, n.y * DUST_SOLAR_UPDRAFT_SPEED, n.z * DUST_SOLAR_UPDRAFT_SPEED}
+	case .Custom_Wind:
 		// Custom Wind Velocity Vector
 		return custom_drift
 	case:
-		// Mode 0: Ambient Gentle Drift
-		return mt.Vec3{0.08, 0.04, 0.06}
+		// Default / Ambient Gentle Drift
+		return DUST_AMBIENT_DRIFT_DEFAULT
 	}
 }
 

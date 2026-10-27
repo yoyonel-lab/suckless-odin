@@ -423,7 +423,9 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					vr.preview_dirty = true
 				}
 
-				if imgui.Combo("Convection Drift Mode##vol", &vr.params.dust_drift_mode, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+				drift_mode_idx := i32(vr.params.dust_drift_mode)
+				if imgui.Combo("Convection Drift Mode##vol", &drift_mode_idx, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+					vr.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(drift_mode_idx)
 					vr.history_valid = false
 					vr.preview_dirty = true
 				}
@@ -434,11 +436,11 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					vr.preview_dirty = true
 				}
 
-				if vr.params.dust_drift_mode == 1 {
+				if vr.params.dust_drift_mode == .Solar_Updraft {
 					sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
-					solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, vr.params.dust_custom_drift)
+					solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, vr.params.dust_custom_drift)
 					imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
-				} else if vr.params.dust_drift_mode == 2 {
+				} else if vr.params.dust_drift_mode == .Custom_Wind {
 					wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
 					if imgui.SliderFloat3("Wind Drift Vector##vol", &wind_arr, -1.0, 1.0, "%.2f") {
 						vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
@@ -1181,7 +1183,9 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 				vr.preview_dirty = true
 			}
 
-			if imgui.Combo("Convection Drift Mode##vol_filt", &vr.params.dust_drift_mode, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+			drift_mode_idx := i32(vr.params.dust_drift_mode)
+			if imgui.Combo("Convection Drift Mode##vol_filt", &drift_mode_idx, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+				vr.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(drift_mode_idx)
 				vr.history_valid = false
 				vr.preview_dirty = true
 			}
@@ -1192,11 +1196,11 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 				vr.preview_dirty = true
 			}
 
-			if vr.params.dust_drift_mode == 1 {
+			if vr.params.dust_drift_mode == .Solar_Updraft {
 				sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
-				solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, vr.params.dust_custom_drift)
+				solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, vr.params.dust_custom_drift)
 				imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
-			} else if vr.params.dust_drift_mode == 2 {
+			} else if vr.params.dust_drift_mode == .Custom_Wind {
 				wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
 				if imgui.SliderFloat3("Wind Drift Vector##vol_filt", &wind_arr, -1.0, 1.0, "%.2f") {
 					vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
@@ -1217,7 +1221,9 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		if !vr.params.dust_enabled {
 			imgui.TextDisabled("Dust / Corpuscular Particles must be enabled to configure Convection Drift.")
 		} else {
-			if imgui.Combo("Convection Drift Mode##vol_filt_solo", &vr.params.dust_drift_mode, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+			drift_mode_idx := i32(vr.params.dust_drift_mode)
+			if imgui.Combo("Convection Drift Mode##vol_filt_solo", &drift_mode_idx, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+				vr.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(drift_mode_idx)
 				vr.history_valid = false
 				vr.preview_dirty = true
 			}
@@ -1228,11 +1234,11 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 				vr.preview_dirty = true
 			}
 
-			if vr.params.dust_drift_mode == 1 {
+			if vr.params.dust_drift_mode == .Solar_Updraft {
 				sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
-				solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, vr.params.dust_custom_drift)
+				solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, vr.params.dust_custom_drift)
 				imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
-			} else if vr.params.dust_drift_mode == 2 {
+			} else if vr.params.dust_drift_mode == .Custom_Wind {
 				wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
 				if imgui.SliderFloat3("Wind Drift Vector##vol_filt_solo", &wind_arr, -1.0, 1.0, "%.2f") {
 					vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}

@@ -360,22 +360,22 @@ test_dust_convection_drift :: proc(t: ^testing.T) {
 	custom_wind := mt.Vec3{0.35, -0.10, 0.75}
 
 	// 1. Mode 0: Ambient Gentle Drift returns constant baseline
-	ambient := rendering.volumetric_compute_dust_drift(0, sun_dir, custom_wind)
-	testing.expect_value(t, ambient, mt.Vec3{0.08, 0.04, 0.06})
+	ambient := rendering.volumetric_compute_dust_drift(.Ambient_Fixed, sun_dir, custom_wind)
+	testing.expect_value(t, ambient, rendering.DUST_AMBIENT_DRIFT_DEFAULT)
 
 	// 2. Mode 1: Solar Updraft Convection rises vertically (Y > 0) and tilts with sun
-	solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, custom_wind)
+	solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, custom_wind)
 	testing.expect(t, solar_drift.y > 0.07, "Solar convection must have dominant upward thermal lift")
 	testing.expect(t, solar_drift.x > 0.0, "Solar convection X component must follow sun horizontal azimuth")
 	testing.expect(t, solar_drift.z < 0.0, "Solar convection Z component must follow sun horizontal azimuth")
 
 	// 3. Mode 2: Custom Wind Vector faithfully returns user values
-	custom := rendering.volumetric_compute_dust_drift(2, sun_dir, custom_wind)
+	custom := rendering.volumetric_compute_dust_drift(.Custom_Wind, sun_dir, custom_wind)
 	testing.expect_value(t, custom, custom_wind)
 
 	// 4. Fallback unknown mode defaults to ambient
-	fallback := rendering.volumetric_compute_dust_drift(99, sun_dir, custom_wind)
-	testing.expect_value(t, fallback, mt.Vec3{0.08, 0.04, 0.06})
+	fallback := rendering.volumetric_compute_dust_drift(rendering.Volumetric_Dust_Drift_Mode(99), sun_dir, custom_wind)
+	testing.expect_value(t, fallback, rendering.DUST_AMBIENT_DRIFT_DEFAULT)
 }
 
 
