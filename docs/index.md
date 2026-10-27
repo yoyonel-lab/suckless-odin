@@ -200,6 +200,14 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter la Feuille de Route Cinématique](2026-10-26_volumetric_lighting_cinematic_improvements_roadmap.md)
 
+-   :material-creation:{ .lg .middle } __Volumétrique Avancé — Analyse Phase 3 (GLM Proposals)__
+
+    ---
+
+    Étude physique et projections architecturales des 7 évolutions fonctionnelles : Worley noise 3D, modulation d'élévation, multi-scattering, convection solaire et cônes d'aperture.
+
+    [:octicons-arrow-right-24: Explorer les Propositions Phase 3](2026-10-27_volumetric_lighting_phase_3_advanced_proposals_analysis.md)
+
 </div>
 
 ---
