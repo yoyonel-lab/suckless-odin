@@ -141,6 +141,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 		dust_depth_mask_enabled          = true,
 		dust_depth_near                  = 0.60,
 		dust_depth_far                   = 25.0,
+		dust_drift_mode                  = 2,
+		dust_custom_drift                = {0.12, 0.45, -0.22},
 		crepuscular_horizon_fade_enabled = true,
 		crepuscular_horizon_fade_start   = 40.0,
 		crepuscular_horizon_fade_end     = 80.0,
@@ -316,6 +318,10 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.dust_depth_mask_enabled, true)
 	testing.expect_value(t, loaded_state.volumetric.dust_depth_near, f32(0.60))
 	testing.expect_value(t, loaded_state.volumetric.dust_depth_far, f32(25.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_drift_mode, 2)
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.x, f32(0.12))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.y, f32(0.45))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.z, f32(-0.22))
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_enabled, true)
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_start, f32(40.0))
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(80.0))
@@ -380,6 +386,8 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 		dust_depth_mask_enabled          = true,
 		dust_depth_near                  = 0.50,
 		dust_depth_far                   = 20.0,
+		dust_drift_mode                  = 0,
+		dust_custom_drift                = {0.0, 0.0, 0.0},
 		crepuscular_horizon_fade_enabled = true,
 		crepuscular_horizon_fade_start   = 0.0,
 		crepuscular_horizon_fade_end     = 0.0,
@@ -406,6 +414,10 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.dust_worley_blend, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_start, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_drift_mode, 0)
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.x, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.y, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.z, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.multi_scatter_amount, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.spectral_airmass_intensity, f32(0.0))
 }

@@ -353,5 +353,30 @@ test_optical_airmass_and_dynamic_spectrum :: proc(t: ^testing.T) {
 	testing.expect(t, spec_horizon.x > spec_horizon.y, "Horizon spectrum red must exceed green")
 }
 
+// Verifies Proposition 3.4: Wind & Solar Dust Convection Drift
+@(test)
+test_dust_convection_drift :: proc(t: ^testing.T) {
+	sun_dir := mt.Vec3{0.6, 0.8, -0.2}
+	custom_wind := mt.Vec3{0.35, -0.10, 0.75}
+
+	// 1. Mode 0: Ambient Gentle Drift returns constant baseline
+	ambient := rendering.volumetric_compute_dust_drift(0, sun_dir, custom_wind)
+	testing.expect_value(t, ambient, mt.Vec3{0.08, 0.04, 0.06})
+
+	// 2. Mode 1: Solar Updraft Convection rises vertically (Y > 0) and tilts with sun
+	solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, custom_wind)
+	testing.expect(t, solar_drift.y > 0.07, "Solar convection must have dominant upward thermal lift")
+	testing.expect(t, solar_drift.x > 0.0, "Solar convection X component must follow sun horizontal azimuth")
+	testing.expect(t, solar_drift.z < 0.0, "Solar convection Z component must follow sun horizontal azimuth")
+
+	// 3. Mode 2: Custom Wind Vector faithfully returns user values
+	custom := rendering.volumetric_compute_dust_drift(2, sun_dir, custom_wind)
+	testing.expect_value(t, custom, custom_wind)
+
+	// 4. Fallback unknown mode defaults to ambient
+	fallback := rendering.volumetric_compute_dust_drift(99, sun_dir, custom_wind)
+	testing.expect_value(t, fallback, mt.Vec3{0.08, 0.04, 0.06})
+}
+
 
 

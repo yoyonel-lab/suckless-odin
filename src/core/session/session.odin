@@ -79,6 +79,8 @@ Volumetric_Session_Settings :: struct {
 	dust_depth_mask_enabled:          bool    `json:"dust_depth_mask_enabled"`,
 	dust_depth_near:                  f32     `json:"dust_depth_near"`,
 	dust_depth_far:                   f32     `json:"dust_depth_far"`,
+	dust_drift_mode:                  i32     `json:"dust_drift_mode"`,
+	dust_custom_drift:                mt.Vec3 `json:"dust_custom_drift"`,
 	crepuscular_horizon_fade_enabled: bool    `json:"crepuscular_horizon_fade_enabled"`,
 	crepuscular_horizon_fade_start:   f32     `json:"crepuscular_horizon_fade_start"`,
 	crepuscular_horizon_fade_end:     f32     `json:"crepuscular_horizon_fade_end"`,

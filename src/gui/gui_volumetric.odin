@@ -423,6 +423,36 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					vr.preview_dirty = true
 				}
 
+				if imgui.Combo("Convection Drift Mode##vol", &vr.params.dust_drift_mode, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_drift_mode_vol") {
+					vr.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if vr.params.dust_drift_mode == 1 {
+					sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
+					solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, vr.params.dust_custom_drift)
+					imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
+				} else if vr.params.dust_drift_mode == 2 {
+					wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
+					if imgui.SliderFloat3("Wind Drift Vector##vol", &wind_arr, -1.0, 1.0, "%.2f") {
+						vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_custom_drift_vol") {
+						vr.params.dust_custom_drift = rendering.DEFAULT_DUST_CUSTOM_DRIFT
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+				}
+
 				if imgui.Checkbox("Worley Cellular Dust (vs Perlin)##vol", &vr.params.dust_worley_enabled) {
 					vr.history_valid = false
 					vr.preview_dirty = true
@@ -1149,6 +1179,72 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 				vr.params.dust_speed = rendering.DEFAULT_DUST_SPEED
 				vr.history_valid = false
 				vr.preview_dirty = true
+			}
+
+			if imgui.Combo("Convection Drift Mode##vol_filt", &vr.params.dust_drift_mode, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_drift_mode_vol_filt") {
+				vr.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if vr.params.dust_drift_mode == 1 {
+				sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
+				solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, vr.params.dust_custom_drift)
+				imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
+			} else if vr.params.dust_drift_mode == 2 {
+				wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
+				if imgui.SliderFloat3("Wind Drift Vector##vol_filt", &wind_arr, -1.0, 1.0, "%.2f") {
+					vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_custom_drift_vol_filt") {
+					vr.params.dust_custom_drift = rendering.DEFAULT_DUST_CUSTOM_DRIFT
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dust Convection Wind", "volumetric dust convection wind drift velocity thermal updraft solar") {
+		if !vr.params.dust_enabled {
+			imgui.TextDisabled("Dust / Corpuscular Particles must be enabled to configure Convection Drift.")
+		} else {
+			if imgui.Combo("Convection Drift Mode##vol_filt_solo", &vr.params.dust_drift_mode, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_drift_mode_vol_filt_solo") {
+				vr.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if vr.params.dust_drift_mode == 1 {
+				sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
+				solar_drift := rendering.volumetric_compute_dust_drift(1, sun_dir, vr.params.dust_custom_drift)
+				imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
+			} else if vr.params.dust_drift_mode == 2 {
+				wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
+				if imgui.SliderFloat3("Wind Drift Vector##vol_filt_solo", &wind_arr, -1.0, 1.0, "%.2f") {
+					vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_custom_drift_vol_filt_solo") {
+					vr.params.dust_custom_drift = rendering.DEFAULT_DUST_CUSTOM_DRIFT
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
 			}
 		}
 		match_count += 1

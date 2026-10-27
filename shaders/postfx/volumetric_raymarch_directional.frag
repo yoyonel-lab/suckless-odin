@@ -58,19 +58,19 @@ uniform bool  u_height_fog_enabled;
 uniform float u_height_fog_ground_y;
 uniform float u_height_fog_falloff;
 
-// Phase 3 Worley Cellular Dust, Depth Window Mask & Multi-Scattering
+// Phase 3 Worley Cellular Dust, Depth Window Mask, Multi-Scattering & Wind Convection
 uniform bool  u_dust_worley_enabled;
 uniform float u_dust_worley_blend;      // [0.0..1.0] blend Perlin (0.0) -> Worley (1.0)
 uniform bool  u_dust_depth_mask_enabled;
 uniform float u_dust_depth_near;        // [0.1..10.0] meters (near focus boundary)
 uniform float u_dust_depth_far;         // [5.0..100.0] meters (far focus boundary)
+uniform vec3  u_dust_drift_dir;         // Convection / wind drift direction vector
 uniform bool  u_multi_scatter_enabled;
 uniform float u_multi_scatter_amount;   // [0.0..1.0] isotropic compensation blend weight (default 0.25)
 
 // Mathematical & Quasirandom Constants (Zero Magic Constants)
 const float BLUE_NOISE_GOLDEN_X = 0.754877666; // 1 / phi_2
 const float BLUE_NOISE_GOLDEN_Y = 0.569840291; // 1 / (phi_2^2)
-const vec3  DUST_DRIFT_DIR      = vec3(0.08, 0.04, 0.06); // Normalized convection drift vector
 
 // Interleaved Gradient Noise (spatial/temporal ray jittering)
 float interleaved_gradient_noise(vec2 screen_pos, int frame)
@@ -190,7 +190,7 @@ void main()
         // Density modulation (Phase 2 & 3)
         float density_mod = 1.0;
         if (u_dust_enabled) {
-            vec3 dust_coord = sample_pos * u_dust_scale + DUST_DRIFT_DIR * (u_time * u_dust_speed);
+            vec3 dust_coord = sample_pos * u_dust_scale + u_dust_drift_dir * (u_time * u_dust_speed);
             vec2 dust_samples = texture(u_dust_noise_tex3d, dust_coord).rg;
             float dust_sample = dust_samples.r;
             if (u_dust_worley_enabled) {

@@ -112,6 +112,8 @@ DEFAULT_DUST_WORLEY_BLEND                :: 1.0
 DEFAULT_DUST_DEPTH_MASK_ENABLED          :: true
 DEFAULT_DUST_DEPTH_NEAR                  :: 0.50
 DEFAULT_DUST_DEPTH_FAR                   :: 20.0
+DEFAULT_DUST_DRIFT_MODE                  :: 0 // 0 = Ambient Fixed, 1 = Solar Updraft, 2 = Custom Wind
+DEFAULT_DUST_CUSTOM_DRIFT                :: mt.Vec3{0.08, 0.04, 0.06}
 DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED :: false
 DEFAULT_CREPUSCULAR_HORIZON_FADE_START   :: 45.0 // Min elevation angle (deg) below which 100% boost is preserved
 DEFAULT_CREPUSCULAR_HORIZON_FADE_END     :: 85.0 // Max elevation angle (deg) above which boost is fully faded to 0
@@ -125,6 +127,13 @@ volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	case .Sun_Directional: return VOLUMETRIC_DEFAULT_INTENSITY_SUN
 	case:                  return VOLUMETRIC_DEFAULT_INTENSITY_OMNI
 	}
+}
+
+// Convection drift mode for dust particles (Phase 3)
+Volumetric_Dust_Drift_Mode :: enum i32 {
+	Ambient_Fixed = 0, // Gentle constant ambient drift (0.08, 0.04, 0.06)
+	Solar_Updraft = 1, // Thermal upward convection tilted with sun azimuth
+	Custom_Wind   = 2, // User-defined 3D wind velocity vector
 }
 
 // Tunable volumetric medium & filtering parameters (serializable for presets)
@@ -193,6 +202,8 @@ Volumetric_Params :: struct {
 	dust_depth_mask_enabled:          bool, // Quadratic depth bell-curve window mask
 	dust_depth_near:                  f32,  // Near focus boundary [0.1..10.0] meters (default 0.50)
 	dust_depth_far:                   f32,  // Far focus boundary [5.0..100.0] meters (default 20.0)
+	dust_drift_mode:                  i32,  // Convection drift mode (0=Ambient, 1=Solar Updraft, 2=Custom Wind)
+	dust_custom_drift:                mt.Vec3, // User-defined 3D wind velocity vector (default {0.08, 0.04, 0.06})
 	crepuscular_horizon_fade_enabled: bool, // Sun elevation-based modulation of contre-jour boost
 	crepuscular_horizon_fade_start:   f32,  // Elevation angle (deg) below which boost is 100% (default 45.0)
 	crepuscular_horizon_fade_end:     f32,  // Elevation angle (deg) above which boost is 0% (default 85.0)
@@ -286,6 +297,7 @@ Volumetric_Renderer :: struct {
 	loc_dir_dust_depth_mask_enabled:      i32,
 	loc_dir_dust_depth_near:              i32,
 	loc_dir_dust_depth_far:               i32,
+	loc_dir_dust_drift_dir:               i32,
 	loc_dir_multi_scatter_enabled:        i32,
 	loc_dir_multi_scatter_amount:         i32,
 
@@ -419,6 +431,23 @@ volumetric_compute_airmass_spectrum :: proc(elevation_deg: f32, intensity: f32 =
 	}
 }
 
+// Computes 3D dust convection drift vector based on mode and solar direction.
+volumetric_compute_dust_drift :: proc(mode: i32, sun_dir: mt.Vec3, custom_drift: mt.Vec3) -> mt.Vec3 {
+	switch mode {
+	case 1:
+		// Solar Updraft / Thermal Convection: warm air ascends tilted gently with solar direction
+		updraft := mt.Vec3{sun_dir.x * 0.25, 1.0, sun_dir.z * 0.25}
+		n := mt.vec3_normalize(updraft)
+		return mt.Vec3{n.x * 0.09, n.y * 0.09, n.z * 0.09}
+	case 2:
+		// Custom Wind Velocity Vector
+		return custom_drift
+	case:
+		// Mode 0: Ambient Gentle Drift
+		return mt.Vec3{0.08, 0.04, 0.06}
+	}
+}
+
 // Ray-Sphere intersection calculation (CPU analytic)
 volumetric_intersect_ray_sphere :: proc(
 	ray_orig, ray_dir, sphere_center: mt.Vec3,
@@ -488,6 +517,8 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		dust_depth_mask_enabled          = DEFAULT_DUST_DEPTH_MASK_ENABLED,
 		dust_depth_near                  = DEFAULT_DUST_DEPTH_NEAR,
 		dust_depth_far                   = DEFAULT_DUST_DEPTH_FAR,
+		dust_drift_mode                  = DEFAULT_DUST_DRIFT_MODE,
+		dust_custom_drift                = DEFAULT_DUST_CUSTOM_DRIFT,
 		crepuscular_horizon_fade_enabled = DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED,
 		crepuscular_horizon_fade_start   = DEFAULT_CREPUSCULAR_HORIZON_FADE_START,
 		crepuscular_horizon_fade_end     = DEFAULT_CREPUSCULAR_HORIZON_FADE_END,
@@ -574,6 +605,7 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_dir_dust_depth_mask_enabled     = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_mask_enabled")
 	vr.loc_dir_dust_depth_near             = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_near")
 	vr.loc_dir_dust_depth_far              = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_far")
+	vr.loc_dir_dust_drift_dir              = gl.GetUniformLocation(vr.directional_program, "u_dust_drift_dir")
 	vr.loc_dir_multi_scatter_enabled       = gl.GetUniformLocation(vr.directional_program, "u_multi_scatter_enabled")
 	vr.loc_dir_multi_scatter_amount        = gl.GetUniformLocation(vr.directional_program, "u_multi_scatter_amount")
 
@@ -986,6 +1018,8 @@ volumetric_render :: proc(
 		gl.Uniform1i(vr.loc_dir_dust_depth_mask_enabled, 1 if vr.params.dust_depth_mask_enabled else 0)
 		gl.Uniform1f(vr.loc_dir_dust_depth_near, vr.params.dust_depth_near)
 		gl.Uniform1f(vr.loc_dir_dust_depth_far, vr.params.dust_depth_far)
+		effective_drift := volumetric_compute_dust_drift(vr.params.dust_drift_mode, sun_dir, vr.params.dust_custom_drift)
+		gl.Uniform3f(vr.loc_dir_dust_drift_dir, effective_drift.x, effective_drift.y, effective_drift.z)
 		gl.Uniform1i(vr.loc_dir_multi_scatter_enabled, 1 if vr.params.multi_scatter_enabled else 0)
 		gl.Uniform1f(vr.loc_dir_multi_scatter_amount, vr.params.multi_scatter_amount)
 

@@ -200,6 +200,8 @@ L'onglet **Shadows** propose 7 modes de visualisation analytique :
 | **`Dust Intensity`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Contraste des volutes de poussière (défaut $0.50$). |
 | **`Dust Scale`** | SliderFloat | $0.01 \to 2.00$ | `Reset` | Fréquence spatiale des panaches (défaut $0.25$). |
 | **`Dust Drift Speed`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Vitesse de convection temporelle (défaut $0.15$). |
+| **`Convection Drift Mode`** (Phase 3) | Combo | Modes 0, 1, 2 | `Reset` | Mode de dérive de poussière (0: Ambient, 1: Solar Updraft, 2: Custom Wind). |
+| **`Wind Drift Vector`** | SliderFloat3 | $-1.00 \to 1.00$ | `Reset` | Vecteur 3D de direction de vent personnalisé (mode 2, défaut $0.08, 0.04, 0.06$). |
 | **`Height Fog`** (Phase 2) | Checkbox | Bool | — | Gradient exponentiel de sol (couche limite planétaire). |
 | **`Ground Altitude (y0)`** | SliderFloat | $-10.0 \to 10.0\text{ m}$ | `Reset` | Altitude de base du niveau du sol (défaut $0.0\,\text{m}$). |
 | **`Altitude Falloff (k)`** | SliderFloat | $0.01 \to 2.00$ | `Reset` | Taux d'atténuation verticale (défaut $0.20$). |
@@ -298,6 +300,20 @@ Ce guide détaille pour chaque effet avancé son fondement physique, ses réglag
   * `Altitude Falloff (k)` (défaut $0.20$) : taux de décroissance verticale. Une valeur faible ($0.05$) crée un brouillard montant haut ; une valeur forte ($0.50$) crée une nappe rase très dense au sol.
 * **Effet visuel concret** :
   * Les pieds des sphères inférieures baignent dans une nappe de brume dense, tandis que les sphères supérieures et le ciel restent limpides et dégagés.
+
+### 6.8. Convection Dynamique Orientée Solaire / Vent (Wind Convection)
+* **Physique & Fonctionnement** :
+  * La poussière ne dérive pas selon un axe figé arbitraire : l'énergie thermique solaire chauffe l'air au sol créant une ascendance verticale (*thermal updraft*), tandis que les courants d'air extérieurs induisent des dérives de vent directionnelles.
+  * Le vecteur `u_dust_drift_dir` est injecté dynamiquement sans recompiler le shader ($0.00\,\text{ms}$ coût GPU) :
+    * Mode 0 (*Ambient*) : dérive douce équilibrée $(0.08, 0.04, 0.06)$.
+    * Mode 1 (*Solar Updraft*) : vecteur ascendant thermique orienté selon l'azimut solaire $\hat{\mathbf{v}} = \text{normalize}(s_x \cdot 0.25, 1.0, s_z \cdot 0.25) \times 0.09$.
+    * Mode 2 (*Custom Wind*) : vecteur 3D paramétrable par l'opérateur.
+* **Comment le régler** :
+  * Choisir `Convection Drift Mode` dans l'onglet Volumetric.
+  * En mode 1 (*Solar Updraft*), la direction s'adapte automatiquement à l'orientation du soleil.
+  * En mode 2 (*Custom Wind*), ajuster `Wind Drift Vector` avec le slider 3D pour orienter le flux de poussière.
+* **Effet visuel concret** :
+  * En mode solaire, les grains de poussière s'élèvent lentement vers le ciel en suivant l'inclinaison des rais de lumière. Lors de la manipulation du soleil par ImGuizmo, le mouvement des poussières réagit en direct avec la lumière.
 
 ---
 
