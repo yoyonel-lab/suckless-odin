@@ -196,6 +196,11 @@ L'onglet **Shadows** propose 7 modes de visualisation analytique :
 | **`Height Fog`** (Phase 2) | Checkbox | Bool | — | Gradient exponentiel de sol (couche limite planétaire). |
 | **`Ground Altitude (y0)`** | SliderFloat | $-10.0 \to 10.0\text{ m}$ | `Reset` | Altitude de base du niveau du sol (défaut $0.0\,\text{m}$). |
 | **`Altitude Falloff (k)`** | SliderFloat | $0.01 \to 2.00$ | `Reset` | Taux d'atténuation verticale (défaut $0.20$). |
+| **`Worley Cellular Dust`** (Phase 3) | Checkbox | Bool | — | Particules discrètes étincelantes par bruit cellulaire 3D Voronoi/Worley. |
+| **`Worley Particle Blend`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Ratio de mélange fumée Perlin (0.0) vers particules Worley (1.0). |
+| **`Dust Depth Window Mask`** (Phase 3) | Checkbox | Bool | — | Masque polynomial en cloche pour focaliser les particules à distance intermédiaire. |
+| **`Depth Focus Near`** | SliderFloat | $0.10 \to 10.00\text{ m}$ | `Reset` | Limite proche de visibilité des grains (évite le clipping caméra). |
+| **`Depth Focus Far`** | SliderFloat | $5.0 \to 100.0\text{ m}$ | `Reset` | Limite lointaine d'atténuation (évite le shimmering en profondeur). |
 | **`TAA Reprojection`** | Combo + Slider | Modes 0, 1, 2 | — | Accumulation temporelle anti-bruit avec clamping 3x3. |
 | **`Bilateral Blur`** | Combo + Slider | Modes 0, 1, 2 | — | Flou bilatéral guidé par la géométrie (lissage des pas). |
 

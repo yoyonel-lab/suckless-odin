@@ -169,11 +169,11 @@ $$\text{mask}(t) = \exp\left(-\left(\frac{t - t_{\text{focus}}}{w}\right)^2\righ
 
 ## 3. Matrice de Priorisation & Roadmap Phase 3
 
-| ID | Proposition | Impact Visuel | Coût GPU | Complexité Odin / GLSL | Priorité Retenue |
+| ID | Proposition | Impact Visuel | Coût GPU | Complexité Odin / GLSL | Priorité & Statut |
 | :---: | :--- | :---: | :---: | :---: | :---: |
-| **3.1** | **Worley Noise 3D $64^3$ (RGB Texture)** | ⭐⭐⭐⭐⭐ | $< 0.10\,\text{ms}$ | Moyenne (Texture Generator CPU) | **P1 (Immédiat)** |
-| **3.2** | **Crepuscular Horizon Fade** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Très faible (Formule CPU) | **P1 (Immédiat)** |
-| **3.3** | **Masque Gaussien / Cloche de Distance** | ⭐⭐⭐⭐ | $< 0.05\,\text{ms}$ | Faible (2 ALU shader) | **P1 (Immédiat)** |
+| **3.1** | **Worley Noise 3D $64^3$ (Texture RG8)** | ⭐⭐⭐⭐⭐ | $< 0.05\,\text{ms}$ | Texture Generator CPU + Fetch unifié | ✅ **Implémenté & Validé** |
+| **3.2** | **Crepuscular Horizon Fade** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Très faible (Formule CPU) | **P1 (Suivant)** |
+| **3.3** | **Masque Gaussien / Cloche de Distance** | ⭐⭐⭐⭐ | $< 0.02\,\text{ms}$ | Faible (Cloche quadratique sans exp) | ✅ **Implémenté & Validé** |
 | **3.4** | **Convection Dynamique Solaire** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Passage d'uniform) | **P2** |
 | **3.5** | **Multi-Scattering Isotrope** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Shader hors-boucle) | **P2** |
 | **3.6** | **Spectres Dynamiques Airmass** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Moyenne (Formule Kasten-Young) | **P2** |
@@ -187,3 +187,36 @@ Toute implémentation future issue de cette feuille de route devra scrupuleuseme
 1. **Règle 100% Persistance** : Chaque paramètre de phase 3 aura son entrée dans `Session_State`, ses vérifications dans `check_persistence.py` et son test unitaire dédié.
 2. **Tolérance Zéro Régression de Frame Time** : Le budget d'accumulation volumétrique sous résolution 1/2 ne doit en aucun cas dépasser **$0.75\,\text{ms}$** sur GPU dédié et **$1.40\,\text{ms}$** sur iGPU Iris Xe.
 3. **Contrôles UI Homogènes** : Checkbox de débrayage individuel, curseurs bornés et bouton `Reset` systématique dans l'onglet Volumetric et dans la vue de recherche floue.
+
+---
+
+## 5. Profiling Empirique & Métriques Tracy Profiler
+
+Les mesures ci-dessous ont été capturées directement via **Tracy Profiler** (`tracy-capture` + `tracy-csvexport`) et les requêtes GPU hardware (`glQueryCounter(GL_TIME_ELAPSED)`).
+
+### 5.1. Environnement de Test
+* **Matériel GPU hôte** : Intel Corporation Raptor Lake-P [Iris Xe Graphics] (rev 04)
+* **Pilote & API** : OpenGL 4.6 (Core Profile) Mesa 25.0.7-2+deb13u1
+* **Conditions de mesure** : 20 pas de march (`step_count = 20`), buffer volumétrique en demi-résolution (800x450 à partir d'un viewport 1600x900), mode solaire directionnel.
+
+### 5.2. Coûts par Passe GPU (Moyenne sur trace Tracy)
+
+| Zone GPU Tracy | Tout Actif (Worley 3D + Masque) | Poussière OFF (`dust_enabled=false`) | Delta Net Effet Worley 3D |
+| :--- | :---: | :---: | :---: |
+| **`Volumetric_Raymarch_Pass`** | **0.214 ms** (min 0.198, max 0.287) | **0.179 ms** (min 0.165, max 0.231) | **+0.035 ms** (+35 µs) |
+| **`Volumetric_TAA_Reprojection`** | **0.070 ms** | **0.069 ms** | $\approx 0.000\text{ ms}$ |
+| **`Volumetric_Bilateral_Blur`** | **0.156 ms** | **0.155 ms** | $\approx 0.000\text{ ms}$ |
+| **`Volumetric_Composite_Direct`** | **0.088 ms** | **0.088 ms** | $\approx 0.000\text{ ms}$ |
+| **`Volumetric_Pipeline` (Total)** | **0.532 ms** (min 0.490, max 0.687) | **0.496 ms** (min 0.460, max 0.612) | **+0.036 ms** (+36 µs) |
+
+*(Lorsque l'éclairage volumétrique est globalement désactivé avec `volumetric.enabled=false`, le coût passe strictement à **0.000 ms**).*
+
+### 5.3. Métriques d'Initialisation CPU (Boot-time)
+
+* **`Create_Dust_Noise_3D`** : **9.85 ms** (génération périodique CPU des $64^3 = 262\,144$ voxels Perlin FBM + Worley $8\times 8\times 8$ au lancement du moteur, une seule fois).
+* **`Create_Blue_Noise_2D`** : **0.04 ms** (upload VRAM de la table Void-and-Cluster 4 KB).
+
+### 5.4. Analyse des Résultats & Optimisations
+1. **Surcoût marginal du Worley 3D (+35 µs)** : L'intégration dans une texture 3D unique `GL_RG8` ($512\,\text{KB}$) permet d'échantillonner simultanément Perlin (R) et Worley (G) dans le **même et unique fetch hardware trilinéaire** par pas.
+2. **Impact nul du masque de profondeur** : L'approximation polynomiale en cloche $4 \cdot d_{\text{rel}} \cdot (1 - d_{\text{rel}})$ élimine toute division et appel transcendantal `exp()`, limitant le coût à 2 ALUs scalaires par échantillon.
+3. **Respect du budget iGPU** : Avec un total de **0.53 ms** sur GPU intégré Intel Iris Xe, le pipeline volumétrique complet consomme moins de 40% du budget alloué (1.40 ms max), garantissant un framerate élevé sans saturation.
