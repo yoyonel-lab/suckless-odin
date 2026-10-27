@@ -115,6 +115,8 @@ DEFAULT_DUST_DEPTH_FAR                   :: 20.0
 DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED :: false
 DEFAULT_CREPUSCULAR_HORIZON_FADE_START   :: 45.0 // Min elevation angle (deg) below which 100% boost is preserved
 DEFAULT_CREPUSCULAR_HORIZON_FADE_END     :: 85.0 // Max elevation angle (deg) above which boost is fully faded to 0
+DEFAULT_MULTI_SCATTER_ENABLED            :: false
+DEFAULT_MULTI_SCATTER_AMOUNT             :: 0.25 // Default 25% isotropic background compensation
 
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
@@ -192,6 +194,8 @@ Volumetric_Params :: struct {
 	crepuscular_horizon_fade_enabled: bool, // Sun elevation-based modulation of contre-jour boost
 	crepuscular_horizon_fade_start:   f32,  // Elevation angle (deg) below which boost is 100% (default 45.0)
 	crepuscular_horizon_fade_end:     f32,  // Elevation angle (deg) above which boost is 0% (default 85.0)
+	multi_scatter_enabled:            bool, // Isotropic multi-scattering energy compensation
+	multi_scatter_amount:             f32,  // Multi-scatter blend weight [0.0..1.0] (default 0.25)
 }
 
 // Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
@@ -278,6 +282,8 @@ Volumetric_Renderer :: struct {
 	loc_dir_dust_depth_mask_enabled:      i32,
 	loc_dir_dust_depth_near:              i32,
 	loc_dir_dust_depth_far:               i32,
+	loc_dir_multi_scatter_enabled:        i32,
+	loc_dir_multi_scatter_amount:         i32,
 
 	// Phase 2 Textures
 	blue_noise_tex:                       u32,
@@ -365,6 +371,12 @@ compute_crepuscular_horizon_fade :: proc(elevation, fade_start, fade_end: f32) -
 	return 1.0 - (t * t * (3.0 - 2.0 * t))
 }
 
+// Computes isotropic multi-scattering compensation on phase value.
+// Blends between directional single-scattering phase and isotropic uniform distribution (1.0).
+volumetric_compute_multi_scattering :: proc(phase, amount: f32) -> f32 {
+	return math.lerp(phase, f32(1.0), clamp(amount, 0.0, 1.0))
+}
+
 // Ray-Sphere intersection calculation (CPU analytic)
 volumetric_intersect_ray_sphere :: proc(
 	ray_orig, ray_dir, sphere_center: mt.Vec3,
@@ -437,6 +449,8 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		crepuscular_horizon_fade_enabled = DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED,
 		crepuscular_horizon_fade_start   = DEFAULT_CREPUSCULAR_HORIZON_FADE_START,
 		crepuscular_horizon_fade_end     = DEFAULT_CREPUSCULAR_HORIZON_FADE_END,
+		multi_scatter_enabled            = DEFAULT_MULTI_SCATTER_ENABLED,
+		multi_scatter_amount             = DEFAULT_MULTI_SCATTER_AMOUNT,
 	}
 
 	div := max(1, vr.params.resolution_divider)
@@ -516,6 +530,8 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_dir_dust_depth_mask_enabled     = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_mask_enabled")
 	vr.loc_dir_dust_depth_near             = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_near")
 	vr.loc_dir_dust_depth_far              = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_far")
+	vr.loc_dir_multi_scatter_enabled       = gl.GetUniformLocation(vr.directional_program, "u_multi_scatter_enabled")
+	vr.loc_dir_multi_scatter_amount        = gl.GetUniformLocation(vr.directional_program, "u_multi_scatter_amount")
 
 	// Create Phase 2 GPU Noise Textures
 	vr.blue_noise_tex = create_blue_noise_texture_2d()
@@ -915,12 +931,14 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_dir_height_fog_ground_y, vr.params.height_fog_ground_y)
 		gl.Uniform1f(vr.loc_dir_height_fog_falloff, vr.params.height_fog_falloff)
 
-		// Phase 3 Uniforms (Worley Cellular Dust & Depth Window Mask)
+		// Phase 3 Uniforms (Worley Cellular Dust, Depth Window Mask & Multi-Scattering)
 		gl.Uniform1i(vr.loc_dir_dust_worley_enabled, 1 if vr.params.dust_worley_enabled else 0)
 		gl.Uniform1f(vr.loc_dir_dust_worley_blend, vr.params.dust_worley_blend)
 		gl.Uniform1i(vr.loc_dir_dust_depth_mask_enabled, 1 if vr.params.dust_depth_mask_enabled else 0)
 		gl.Uniform1f(vr.loc_dir_dust_depth_near, vr.params.dust_depth_near)
 		gl.Uniform1f(vr.loc_dir_dust_depth_far, vr.params.dust_depth_far)
+		gl.Uniform1i(vr.loc_dir_multi_scatter_enabled, 1 if vr.params.multi_scatter_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_multi_scatter_amount, vr.params.multi_scatter_amount)
 
 		fullscreen_triangle_draw(&vr.triangle)
 

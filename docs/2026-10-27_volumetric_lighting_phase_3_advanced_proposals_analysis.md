@@ -107,9 +107,9 @@ $$P_{\text{compensated}}(\theta) = \text{mix}(P_{\text{HG}}(\theta), P_{\text{HG
 
 #### Projection dans `suckless-odin`
 * **Paramètres** :
-  * `multi_scatter_enabled: bool` (`Session_State`).
+  * `multi_scatter_enabled: bool` (`Session_State`, défaut `false`).
   * `multi_scatter_amount: f32` ($[0.0, 1.0]$, défaut $0.25$, Reset).
-* **Parité GUI** : Intégration dans le tracé du graphe de phase analytique ImGui dans `draw_tab_volumetric`.
+* **Parité GUI** : Intégration dans le tracé du graphe de phase analytique ImGui dans `draw_tab_volumetric`, contrôles dédiés et fuzzy search 100%.
 
 ---
 
@@ -175,7 +175,7 @@ $$\text{mask}(t) = \exp\left(-\left(\frac{t - t_{\text{focus}}}{w}\right)^2\righ
 | **3.2** | **Crepuscular Horizon Fade** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Très faible (Formule CPU) | ✅ **Implémenté & Validé** |
 | **3.3** | **Masque Gaussien / Cloche de Distance** | ⭐⭐⭐⭐ | $< 0.02\,\text{ms}$ | Faible (Cloche quadratique sans exp) | ✅ **Implémenté & Validé** |
 | **3.4** | **Convection Dynamique Solaire** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Passage d'uniform) | **P2** |
-| **3.5** | **Multi-Scattering Isotrope** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Shader hors-boucle) | **P2** |
+| **3.5** | **Multi-Scattering Isotrope** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Shader hors-boucle) | ✅ **Implémenté & Validé** |
 | **3.6** | **Spectres Dynamiques Airmass** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Moyenne (Formule Kasten-Young) | **P2** |
 | **3.7** | **Aperture Cones (Shafts Fenêtres)** | ⭐⭐⭐⭐⭐ | $0.20 - 0.40\,\text{ms}$ | Élevée (Math intersection 3D) | **P3 (R&D Spécifique)** |
 

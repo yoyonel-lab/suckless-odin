@@ -251,6 +251,23 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 				}
 			}
 
+			if imgui.Checkbox("Multi-Scattering Compensation##vol", &vr.params.multi_scatter_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.multi_scatter_enabled {
+				if imgui.SliderFloat("Isotropic Multi-Scatter Blend##vol", &vr.params.multi_scatter_amount, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##multi_scatter_amount_vol") {
+					vr.params.multi_scatter_amount = rendering.DEFAULT_MULTI_SCATTER_AMOUNT
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+
 			if imgui.Checkbox("Crepuscular Ray Boost (Contre-jour)##vol", &vr.params.crepuscular_boost_enabled) {
 				vr.history_valid = false
 				vr.preview_dirty = true
@@ -461,7 +478,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 
 			// Henyey-Greenstein Phase Plot
 			imgui.Spacing()
-			phase_title := "Dual-Lobed Phase Function P(theta, g1, g2):" if vr.params.dual_lobe_enabled else "Henyey-Greenstein Phase Function P(theta, g):"
+			phase_title := "Dual-Lobed + Multi-Scatter Phase Function:" if (vr.params.dual_lobe_enabled && vr.params.multi_scatter_enabled) else ("Dual-Lobed Phase Function P(theta, g1, g2):" if vr.params.dual_lobe_enabled else ("Henyey-Greenstein + Multi-Scatter Phase:" if vr.params.multi_scatter_enabled else "Henyey-Greenstein Phase Function P(theta, g):"))
 			imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "%s", phase_title)
 			phase_samples: [64]f32
 			max_p: f32 = 0.001
@@ -475,6 +492,9 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					p = p2 + vr.params.dual_lobe_blend * (p1 - p2)
 				} else {
 					p = rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g)
+				}
+				if vr.params.multi_scatter_enabled {
+					p = rendering.volumetric_compute_multi_scattering(p, vr.params.multi_scatter_amount)
 				}
 				phase_samples[i] = p
 				if p > max_p do max_p = p
@@ -915,6 +935,25 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 			imgui.SameLine()
 			if imgui.Button("Reset##dual_lobe_blend_vol_filt") {
 				vr.params.dual_lobe_blend = rendering.DEFAULT_DUAL_LOBE_BLEND
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Multi-Scattering Compensation", "volumetric multi scattering isotropic compensation phase ambient energy blend") {
+		if imgui.Checkbox("Multi-Scattering Compensation##vol_filt", &vr.params.multi_scatter_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.multi_scatter_enabled {
+			if imgui.SliderFloat("Isotropic Multi-Scatter Blend##vol_filt", &vr.params.multi_scatter_amount, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##multi_scatter_amount_vol_filt") {
+				vr.params.multi_scatter_amount = rendering.DEFAULT_MULTI_SCATTER_AMOUNT
 				vr.history_valid = false
 				vr.preview_dirty = true
 			}

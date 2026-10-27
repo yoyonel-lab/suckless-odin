@@ -183,6 +183,8 @@ L'onglet **Shadows** propose 7 modes de visualisation analytique :
 | **`Dual-Lobed HG`** (Phase 1) | Checkbox | Bool | — | Active le mélange double lobe (halo avant + rétrodiffusion). |
 | **`Backward Anisotropy (g2)`** | SliderFloat | $-0.99 \to 0.00$ | `Reset` | Anisotropie rétrograde secondaire (défaut $-0.30$). |
 | **`Forward Lobe Blend`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Pondération entre les lobes avant et arrière (défaut $0.70$). |
+| **`Multi-Scattering Compensation`** (Phase 3) | Checkbox | Bool | — | Compensation d'énergie par albédo isotrope résiduel diffusant. |
+| **`Isotropic Multi-Scatter Blend`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Facteur de mélange isotrope pour éliminer l'obscurcissement à $90^\circ$ (défaut $0.25$). |
 | **`Crepuscular Boost`** (Phase 1) | Checkbox | Bool | — | Sur-amplification optique face au soleil (contre-jour). |
 | **`Boost Strength`** | SliderFloat | $0.00 \to 5.00\times$ | `Reset` | Facteur multiplicateur d'éblouissement (défaut $2.00\times$). |
 | **`Cos Threshold`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Seuil d'alignement $\cos\theta$ observateur-soleil (défaut $0.70$). |

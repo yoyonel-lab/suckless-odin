@@ -281,5 +281,33 @@ test_crepuscular_horizon_fade :: proc(t: ^testing.T) {
 	}
 }
 
+// Verifies Proposition 3.5: Multi-Scattering Isotropic Compensation
+@(test)
+test_multi_scattering_compensation :: proc(t: ^testing.T) {
+	// 1. Identity when amount = 0.0
+	test_phase: f32 = 4.5
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, 0.0), test_phase)
+
+	// 2. Pure isotropic when amount = 1.0
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, 1.0), f32(1.0))
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(0.2, 1.0), f32(1.0))
+
+	// 3. Midpoint blend: 50% single-scattering + 50% isotropic
+	mid := rendering.volumetric_compute_multi_scattering(0.2, 0.5)
+	testing.expect_value(t, math.abs(mid - 0.6) < 0.0001, true)
+
+	// 4. Clamping bounds
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, -0.5), test_phase)
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, 1.5), f32(1.0))
+
+	// 5. Physical energy filling at 90 degrees with strong Mie anisotropy (g = 0.6)
+	p_90 := rendering.volumetric_henyey_greenstein(0.0, 0.6)
+	p_comp := rendering.volumetric_compute_multi_scattering(p_90, 0.25)
+	// Compensated phase must be strictly higher than single scattering at 90 deg (filling the dip)
+	testing.expect(t, p_comp > p_90, "Multi-scattering must lift phase value at 90 degrees")
+	expected_comp := 0.75 * p_90 + 0.25 * 1.0
+	testing.expect_value(t, math.abs(p_comp - expected_comp) < 0.0001, true)
+}
+
 
 

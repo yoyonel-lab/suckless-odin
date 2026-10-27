@@ -58,12 +58,14 @@ uniform bool  u_height_fog_enabled;
 uniform float u_height_fog_ground_y;
 uniform float u_height_fog_falloff;
 
-// Phase 3 Worley Cellular Dust & Depth Window Mask
+// Phase 3 Worley Cellular Dust, Depth Window Mask & Multi-Scattering
 uniform bool  u_dust_worley_enabled;
 uniform float u_dust_worley_blend;      // [0.0..1.0] blend Perlin (0.0) -> Worley (1.0)
 uniform bool  u_dust_depth_mask_enabled;
 uniform float u_dust_depth_near;        // [0.1..10.0] meters (near focus boundary)
 uniform float u_dust_depth_far;         // [5.0..100.0] meters (far focus boundary)
+uniform bool  u_multi_scatter_enabled;
+uniform float u_multi_scatter_amount;   // [0.0..1.0] isotropic compensation blend weight (default 0.25)
 
 // Mathematical & Quasirandom Constants (Zero Magic Constants)
 const float BLUE_NOISE_GOLDEN_X = 0.754877666; // 1 / phi_2
@@ -143,6 +145,11 @@ void main()
         float denom = max(1.0 + g2 - two_g * cos_theta, 0.0001);
         float inv_denom = inversesqrt(denom);
         phase = one_minus_g2 * (inv_denom * inv_denom * inv_denom);
+    }
+
+    // Multi-scattering isotropic background compensation (Phase 3.5)
+    if (u_multi_scatter_enabled) {
+        phase = mix(phase, 1.0, clamp(u_multi_scatter_amount, 0.0, 1.0));
     }
 
     // Crepuscular counter-jour boost

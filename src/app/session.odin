@@ -163,6 +163,8 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			crepuscular_horizon_fade_enabled = s.volumetric.params.crepuscular_horizon_fade_enabled,
 			crepuscular_horizon_fade_start   = s.volumetric.params.crepuscular_horizon_fade_start,
 			crepuscular_horizon_fade_end     = s.volumetric.params.crepuscular_horizon_fade_end,
+			multi_scatter_enabled            = s.volumetric.params.multi_scatter_enabled,
+			multi_scatter_amount             = s.volumetric.params.multi_scatter_amount,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -446,6 +448,13 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		} else {
 			s.volumetric.params.crepuscular_horizon_fade_start = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_START
 			s.volumetric.params.crepuscular_horizon_fade_end   = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_END
+		}
+
+		s.volumetric.params.multi_scatter_enabled = state.volumetric.multi_scatter_enabled
+		if state.volumetric.multi_scatter_enabled {
+			s.volumetric.params.multi_scatter_amount = clamp(state.volumetric.multi_scatter_amount, 0.0, 1.0)
+		} else {
+			s.volumetric.params.multi_scatter_amount = rendering.DEFAULT_MULTI_SCATTER_AMOUNT
 		}
 		s.volumetric.history_valid                 = false
 
