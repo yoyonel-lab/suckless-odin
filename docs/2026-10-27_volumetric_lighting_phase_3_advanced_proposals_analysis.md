@@ -176,7 +176,7 @@ $$\text{mask}(t) = \exp\left(-\left(\frac{t - t_{\text{focus}}}{w}\right)^2\righ
 | **3.3** | **Masque Gaussien / Cloche de Distance** | ⭐⭐⭐⭐ | $< 0.02\,\text{ms}$ | Faible (Cloche quadratique sans exp) | ✅ **Implémenté & Validé** |
 | **3.4** | **Convection Dynamique Solaire** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Passage d'uniform) | **P2** |
 | **3.5** | **Multi-Scattering Isotrope** | ⭐⭐⭐ | $0.00\,\text{ms}$ | Faible (Shader hors-boucle) | ✅ **Implémenté & Validé** |
-| **3.6** | **Spectres Dynamiques Airmass** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Moyenne (Formule Kasten-Young) | **P2** |
+| **3.6** | **Spectres Dynamiques Airmass** | ⭐⭐⭐⭐ | $0.00\,\text{ms}$ | Moyenne (Formule Kasten-Young CPU) | ✅ **Implémenté & Validé** |
 | **3.7** | **Aperture Cones (Shafts Fenêtres)** | ⭐⭐⭐⭐⭐ | $0.20 - 0.40\,\text{ms}$ | Élevée (Math intersection 3D) | **P3 (R&D Spécifique)** |
 
 ---

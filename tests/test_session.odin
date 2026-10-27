@@ -146,6 +146,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 		crepuscular_horizon_fade_end     = 80.0,
 		multi_scatter_enabled            = true,
 		multi_scatter_amount             = 0.35,
+		spectral_airmass_enabled         = true,
+		spectral_airmass_intensity       = 1.25,
 	}
 	state_to_save.point_light = session.Point_Light_Session_Settings{
 		position               = {10.0, 5.0, -2.0},
@@ -319,6 +321,8 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(80.0))
 	testing.expect_value(t, loaded_state.volumetric.multi_scatter_enabled, true)
 	testing.expect_value(t, loaded_state.volumetric.multi_scatter_amount, f32(0.35))
+	testing.expect_value(t, loaded_state.volumetric.spectral_airmass_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.spectral_airmass_intensity, f32(1.25))
 
 	// Point Light validation
 	testing.expect_value(t, loaded_state.point_light.enabled, true)
@@ -381,6 +385,8 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 		crepuscular_horizon_fade_end     = 0.0,
 		multi_scatter_enabled            = true,
 		multi_scatter_amount             = 0.0,
+		spectral_airmass_enabled         = true,
+		spectral_airmass_intensity       = 0.0,
 	}
 
 	save_ok := session.save_session(&state_to_save, test_file)
@@ -401,6 +407,7 @@ test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_start, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(0.0))
 	testing.expect_value(t, loaded_state.volumetric.multi_scatter_amount, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.spectral_airmass_intensity, f32(0.0))
 }
 
 @(test)

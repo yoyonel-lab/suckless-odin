@@ -165,6 +165,8 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			crepuscular_horizon_fade_end     = s.volumetric.params.crepuscular_horizon_fade_end,
 			multi_scatter_enabled            = s.volumetric.params.multi_scatter_enabled,
 			multi_scatter_amount             = s.volumetric.params.multi_scatter_amount,
+			spectral_airmass_enabled         = s.volumetric.params.spectral_airmass_enabled,
+			spectral_airmass_intensity       = s.volumetric.params.spectral_airmass_intensity,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -455,6 +457,13 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 			s.volumetric.params.multi_scatter_amount = clamp(state.volumetric.multi_scatter_amount, 0.0, 1.0)
 		} else {
 			s.volumetric.params.multi_scatter_amount = rendering.DEFAULT_MULTI_SCATTER_AMOUNT
+		}
+
+		s.volumetric.params.spectral_airmass_enabled = state.volumetric.spectral_airmass_enabled
+		if state.volumetric.spectral_airmass_enabled {
+			s.volumetric.params.spectral_airmass_intensity = clamp(state.volumetric.spectral_airmass_intensity, 0.0, 2.0)
+		} else {
+			s.volumetric.params.spectral_airmass_intensity = rendering.DEFAULT_SPECTRAL_AIRMASS_INTENSITY
 		}
 		s.volumetric.history_valid                 = false
 

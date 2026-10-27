@@ -309,5 +309,49 @@ test_multi_scattering_compensation :: proc(t: ^testing.T) {
 	testing.expect_value(t, math.abs(p_comp - expected_comp) < 0.0001, true)
 }
 
+// Verifies Proposition 3.6: Dynamic Airmass Spectrum (Kasten-Young)
+@(test)
+test_optical_airmass_and_dynamic_spectrum :: proc(t: ^testing.T) {
+	// 1. Airmass at zenith (90 deg) is ~1.0
+	airmass_zenith := rendering.volumetric_compute_optical_airmass(90.0)
+	testing.expect_value(t, math.abs(airmass_zenith - 1.0) < 0.05, true)
+
+	// 2. Airmass at horizon (0 deg) is ~38.0
+	airmass_horizon := rendering.volumetric_compute_optical_airmass(0.0)
+	testing.expect_value(t, airmass_horizon >= 35.0 && airmass_horizon <= 39.0, true)
+
+	// 3. Airmass at 30 deg elevation (approx 2.0)
+	airmass_30 := rendering.volumetric_compute_optical_airmass(30.0)
+	testing.expect_value(t, airmass_30 >= 1.9 && airmass_30 <= 2.1, true)
+
+	// 4. Clamping bounds: negative elevation clamped to 0.0; > 90.0 clamped to 90.0
+	testing.expect_value(t, rendering.volumetric_compute_optical_airmass(-15.0), airmass_horizon)
+	testing.expect_value(t, rendering.volumetric_compute_optical_airmass(110.0), airmass_zenith)
+
+	// 5. Monotonic decrease of airmass as elevation increases
+	prev_airmass := airmass_horizon
+	for deg in 1..=90 {
+		am := rendering.volumetric_compute_optical_airmass(f32(deg))
+		testing.expect(t, am <= prev_airmass, "Airmass must decrease as elevation rises")
+		prev_airmass = am
+	}
+
+	// 6. Intensity = 0.0 yields neutral unit spectrum at any elevation
+	spec_neutral_zenith := rendering.volumetric_compute_airmass_spectrum(90.0, 0.0)
+	testing.expect_value(t, spec_neutral_zenith, mt.Vec3{1.0, 1.0, 1.0})
+	spec_neutral_horizon := rendering.volumetric_compute_airmass_spectrum(0.0, 0.0)
+	testing.expect_value(t, spec_neutral_horizon, mt.Vec3{1.0, 1.0, 1.0})
+
+	// 7. Zenith spectrum has blue dominant over red (Rayleigh azure haze)
+	spec_zenith := rendering.volumetric_compute_airmass_spectrum(90.0, 1.0)
+	testing.expect(t, spec_zenith.z > spec_zenith.x, "Zenith spectrum must be blue-dominant")
+	testing.expect(t, spec_zenith.z > spec_zenith.y, "Zenith spectrum blue must exceed green")
+
+	// 8. Horizon spectrum has red dominant over blue (Sunset extinction rais)
+	spec_horizon := rendering.volumetric_compute_airmass_spectrum(0.0, 1.0)
+	testing.expect(t, spec_horizon.x > spec_horizon.z, "Horizon spectrum must be red-dominant")
+	testing.expect(t, spec_horizon.x > spec_horizon.y, "Horizon spectrum red must exceed green")
+}
+
 
 

@@ -117,6 +117,8 @@ DEFAULT_CREPUSCULAR_HORIZON_FADE_START   :: 45.0 // Min elevation angle (deg) be
 DEFAULT_CREPUSCULAR_HORIZON_FADE_END     :: 85.0 // Max elevation angle (deg) above which boost is fully faded to 0
 DEFAULT_MULTI_SCATTER_ENABLED            :: false
 DEFAULT_MULTI_SCATTER_AMOUNT             :: 0.25 // Default 25% isotropic background compensation
+DEFAULT_SPECTRAL_AIRMASS_ENABLED         :: false
+DEFAULT_SPECTRAL_AIRMASS_INTENSITY       :: 1.0 // 100% physically calibrated chromatic shift
 
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
@@ -196,6 +198,8 @@ Volumetric_Params :: struct {
 	crepuscular_horizon_fade_end:     f32,  // Elevation angle (deg) above which boost is 0% (default 85.0)
 	multi_scatter_enabled:            bool, // Isotropic multi-scattering energy compensation
 	multi_scatter_amount:             f32,  // Multi-scatter blend weight [0.0..1.0] (default 0.25)
+	spectral_airmass_enabled:         bool, // Automatically derive RGB spectrum from sun elevation (Kasten-Young)
+	spectral_airmass_intensity:       f32,  // Chromatic shift intensity multiplier [0.0..2.0] (default 1.0)
 }
 
 // Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
@@ -377,6 +381,44 @@ volumetric_compute_multi_scattering :: proc(phase, amount: f32) -> f32 {
 	return math.lerp(phase, f32(1.0), clamp(amount, 0.0, 1.0))
 }
 
+// Computes relative optical airmass according to Kasten & Young (1989) formula.
+// Elevation is clamped to [0.0..90.0] degrees. Returns [1.0 (zenith) .. ~38.0 (horizon)].
+volumetric_compute_optical_airmass :: proc(elevation_deg: f32) -> f32 {
+	gamma := clamp(elevation_deg, 0.0, 90.0)
+	gamma_rad := math.to_radians(gamma)
+	sin_gamma := math.sin(gamma_rad)
+	denom := sin_gamma + 0.50572 * math.pow(gamma + 6.07995, -1.6364)
+	if denom <= 0.0001 do return 38.0
+	return clamp(1.0 / denom, 1.0, 40.0)
+}
+
+// Computes dynamic RGB spectral scattering coefficients from solar elevation using Kasten-Young airmass.
+// Shifts from azure blue at zenith (elevation 90 deg, airmass ~1.0) to golden amber / crimson at sunset (airmass ~38.0).
+volumetric_compute_airmass_spectrum :: proc(elevation_deg: f32, intensity: f32 = 1.0) -> mt.Vec3 {
+	airmass := volumetric_compute_optical_airmass(elevation_deg)
+	t := clamp((airmass - 1.0) / 37.0, 0.0, 1.0)
+	t_curved := math.pow(t, 0.65) // Non-linear atmospheric optical depth transmission curve
+
+	// Zenith: Rayleigh azure haze (cool scattered light)
+	zenith_rgb := mt.Vec3{0.75, 1.00, 1.35}
+	// Horizon: Sunset extinction rais (warm golden/crimson scattered light)
+	horizon_rgb := mt.Vec3{1.60, 0.85, 0.40}
+
+	base_rgb := mt.Vec3{
+		math.lerp(zenith_rgb.x, horizon_rgb.x, t_curved),
+		math.lerp(zenith_rgb.y, horizon_rgb.y, t_curved),
+		math.lerp(zenith_rgb.z, horizon_rgb.z, t_curved),
+	}
+
+	neutral := mt.Vec3{1.0, 1.0, 1.0}
+	k := clamp(intensity, 0.0, 2.0)
+	return mt.Vec3{
+		math.lerp(neutral.x, base_rgb.x, k),
+		math.lerp(neutral.y, base_rgb.y, k),
+		math.lerp(neutral.z, base_rgb.z, k),
+	}
+}
+
 // Ray-Sphere intersection calculation (CPU analytic)
 volumetric_intersect_ray_sphere :: proc(
 	ray_orig, ray_dir, sphere_center: mt.Vec3,
@@ -451,6 +493,8 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		crepuscular_horizon_fade_end     = DEFAULT_CREPUSCULAR_HORIZON_FADE_END,
 		multi_scatter_enabled            = DEFAULT_MULTI_SCATTER_ENABLED,
 		multi_scatter_amount             = DEFAULT_MULTI_SCATTER_AMOUNT,
+		spectral_airmass_enabled         = DEFAULT_SPECTRAL_AIRMASS_ENABLED,
+		spectral_airmass_intensity       = DEFAULT_SPECTRAL_AIRMASS_INTENSITY,
 	}
 
 	div := max(1, vr.params.resolution_divider)
@@ -918,7 +962,12 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_dir_crepuscular_boost_threshold, vr.params.crepuscular_boost_threshold)
 
 		gl.Uniform1i(vr.loc_dir_spectral_scattering_enabled, 1 if vr.params.spectral_scattering_enabled else 0)
-		gl.Uniform3f(vr.loc_dir_spectral_coefficients, vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z)
+		effective_spectral := vr.params.spectral_coefficients
+		if vr.params.spectral_scattering_enabled && vr.params.spectral_airmass_enabled {
+			elevation := sun_shadow.detection.elevation if sun_shadow != nil else SUN_FALLBACK_ELEVATION
+			effective_spectral = volumetric_compute_airmass_spectrum(elevation, vr.params.spectral_airmass_intensity)
+		}
+		gl.Uniform3f(vr.loc_dir_spectral_coefficients, effective_spectral.x, effective_spectral.y, effective_spectral.z)
 
 		// Phase 2 Uniforms
 		gl.Uniform1i(vr.loc_dir_blue_noise_jitter_enabled, 1 if vr.params.blue_noise_jitter_enabled else 0)

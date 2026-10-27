@@ -339,17 +339,39 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 				vr.preview_dirty = true
 			}
 			if vr.params.spectral_scattering_enabled {
-				spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
-				if imgui.SliderFloat3("RGB Scattering Weights##vol", &spectral_arr, 0.1, 3.0, "%.2f") {
-					vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+				if imgui.Checkbox("Auto Airmass Spectrum (Kasten-Young)##vol", &vr.params.spectral_airmass_enabled) {
 					vr.history_valid = false
 					vr.preview_dirty = true
 				}
-				imgui.SameLine()
-				if imgui.Button("Reset##spectral_vol") {
-					vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
-					vr.history_valid = false
-					vr.preview_dirty = true
+				if vr.params.spectral_airmass_enabled {
+					if imgui.SliderFloat("Airmass Shift Intensity##vol", &vr.params.spectral_airmass_intensity, 0.0, 2.0, "%.2f") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##spectral_airmass_vol") {
+						vr.params.spectral_airmass_intensity = rendering.DEFAULT_SPECTRAL_AIRMASS_INTENSITY
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+					airmass := rendering.volumetric_compute_optical_airmass(elevation)
+					dyn_rgb := rendering.volumetric_compute_airmass_spectrum(elevation, vr.params.spectral_airmass_intensity)
+					imgui.TextDisabled("Elevation: %.1f deg | Airmass: %.1fx | Dynamic RGB: (%.2f, %.2f, %.2f)", elevation, airmass, dyn_rgb.x, dyn_rgb.y, dyn_rgb.z)
+				} else {
+					spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
+					if imgui.SliderFloat3("RGB Scattering Weights##vol", &spectral_arr, 0.1, 3.0, "%.2f") {
+						vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##spectral_vol") {
+						vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
 				}
 			}
 
@@ -1036,17 +1058,49 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 			vr.preview_dirty = true
 		}
 		if vr.params.spectral_scattering_enabled {
-			spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
-			if imgui.SliderFloat3("RGB Scattering Weights##vol_filt", &spectral_arr, 0.1, 3.0, "%.2f") {
-				vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+			if vr.params.spectral_airmass_enabled {
+				imgui.TextDisabled("Auto Airmass Spectrum active (overrides manual RGB weights).")
+			} else {
+				spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
+				if imgui.SliderFloat3("RGB Scattering Weights##vol_filt", &spectral_arr, 0.1, 3.0, "%.2f") {
+					vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##spectral_vol_filt") {
+					vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Atmospheric Airmass Spectrum", "volumetric airmass kasten young solar elevation chromatic spectrum dynamic extinction") {
+		if !vr.params.spectral_scattering_enabled {
+			imgui.TextDisabled("Spectral Chromatic Scattering must be enabled to configure Airmass Spectrum.")
+		} else {
+			if imgui.Checkbox("Auto Airmass Spectrum (Kasten-Young)##vol_filt", &vr.params.spectral_airmass_enabled) {
 				vr.history_valid = false
 				vr.preview_dirty = true
 			}
-			imgui.SameLine()
-			if imgui.Button("Reset##spectral_vol_filt") {
-				vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
-				vr.history_valid = false
-				vr.preview_dirty = true
+			if vr.params.spectral_airmass_enabled {
+				if imgui.SliderFloat("Airmass Shift Intensity##vol_filt", &vr.params.spectral_airmass_intensity, 0.0, 2.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##spectral_airmass_vol_filt") {
+					vr.params.spectral_airmass_intensity = rendering.DEFAULT_SPECTRAL_AIRMASS_INTENSITY
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+				airmass := rendering.volumetric_compute_optical_airmass(elevation)
+				dyn_rgb := rendering.volumetric_compute_airmass_spectrum(elevation, vr.params.spectral_airmass_intensity)
+				imgui.TextDisabled("Elevation: %.1f deg | Airmass: %.1fx | Dynamic RGB: (%.2f, %.2f, %.2f)", elevation, airmass, dyn_rgb.x, dyn_rgb.y, dyn_rgb.z)
 			}
 		}
 		match_count += 1

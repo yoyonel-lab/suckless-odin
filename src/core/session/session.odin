@@ -84,6 +84,8 @@ Volumetric_Session_Settings :: struct {
 	crepuscular_horizon_fade_end:     f32     `json:"crepuscular_horizon_fade_end"`,
 	multi_scatter_enabled:            bool    `json:"multi_scatter_enabled"`,
 	multi_scatter_amount:             f32     `json:"multi_scatter_amount"`,
+	spectral_airmass_enabled:         bool    `json:"spectral_airmass_enabled"`,
+	spectral_airmass_intensity:       f32     `json:"spectral_airmass_intensity"`,
 }
 
 Point_Light_Session_Settings :: struct {

@@ -192,7 +192,9 @@ L'onglet **Shadows** propose 7 modes de visualisation analytique :
 | **`Horizon Fade Start Angle`** | SliderFloat | $0.0^\circ \to 90.0^\circ$ | `Reset` | Élévation minimale préservant 100% du boost (défaut $45.0^\circ$). |
 | **`Horizon Fade End Angle`** | SliderFloat | $0.0^\circ \to 90.0^\circ$ | `Reset` | Élévation maximale où le boost est totalement éteint (défaut $85.0^\circ$). |
 | **`Spectral Scattering`** (Phase 1) | Checkbox | Bool | — | Diffusion chromatique RGB Rayleigh/Mie. |
-| **`RGB Scattering Weights`** | SliderFloat3 | $0.10 \to 3.00$ | `Reset` | Poids spectraux par canal RGB (défaut $1.20, 1.00, 0.85$). |
+| **`Auto Airmass Spectrum`** (Phase 3) | Checkbox | Bool | — | Spectre RGB automatique dérivé de l'élévation solaire (Kasten-Young). |
+| **`Airmass Shift Intensity`** | SliderFloat | $0.00 \to 2.00$ | `Reset` | Intensité du glissement chromatique azur zénithal vers ambre crépusculaire (défaut $1.00$). |
+| **`RGB Scattering Weights`** | SliderFloat3 | $0.10 \to 3.00$ | `Reset` | Poids spectraux manuels par canal RGB (défaut $1.20, 1.00, 0.85$, actif si Auto Airmass désactivé). |
 | **`Blue Noise Jitter`** (Phase 2) | Checkbox | Bool | — | Jitter Void-and-Cluster 64x64 éliminant le banding IGN. |
 | **`Dust Particles`** (Phase 2) | Checkbox | Bool | — | Modulation 3D FBM pour particules de poussière en suspension. |
 | **`Dust Intensity`** | SliderFloat | $0.00 \to 1.00$ | `Reset` | Contraste des volutes de poussière (défaut $0.50$). |
@@ -211,7 +213,95 @@ L'onglet **Shadows** propose 7 modes de visualisation analytique :
 
 ---
 
-## 6. Persistance des Paramètres (100% JSON)
+## 6. Guide Pratique des Effets Volumétriques Cinématiques (Physique, Réglages & Phénoménologie Visuelle)
+
+Ce guide détaille pour chaque effet avancé son fondement physique, ses réglages recommandés et sa signature visuelle à l'écran.
+
+### 6.1. Dynamic Airmass Spectrum (Kasten-Young)
+* **Physique & Fonctionnement** :
+  * Modèle atmosphérique empirique de Kasten & Young (1989) calculant la masse optique relative :
+    $$M(\gamma) = \frac{1}{\sin\gamma + 0.50572\,(\gamma + 6.07995)^{-1.6364}}$$
+    où $\gamma$ est l'élévation solaire au-dessus de l'horizon.
+  * Au zénith ($\gamma = 90^\circ$), l'épaisseur traversée est minimale ($M = 1.0$), produisant une diffusion de Rayleigh bleue azur $(0.75, 1.00, 1.35)$.
+  * À l'horizon ($\gamma = 0^\circ$), le trajet optique s'allonge de $38\times$ ($M \approx 38.0$) : les courtes longueurs d'onde sont totalement éteintes, ne laissant passer que l'ambre et le cramoisi crépusculaire $(1.60, 0.85, 0.40)$.
+* **Comment le régler** :
+  * Activer `Auto Airmass Spectrum (Kasten-Young)`.
+  * `Airmass Shift Intensity` (défaut $1.00$) : $0.00$ neutralise la teinte (lumière blanche pure), $1.00$ applique l'étalonnage photoréaliste, $> 1.00$ force une stylisation crépusculaire dramatique.
+* **Effet visuel concret** :
+  * En manipulant l'élévation du soleil (via le gizmo 3D ou le slider `Sun Elevation`), les rais de lumière passent continûment d'une brume bleutée froide en plein jour à des rayons dorés au coucher du soleil, puis à des rais rouges profonds au ras de l'horizon.
+
+### 6.2. Crepuscular Horizon Fade
+* **Physique & Fonctionnement** :
+  * L'éblouissement contre-jour direct (*Crepuscular Boost*) est naturel lorsque le soleil est rasant car la ligne de visée traverse une forte couche d'aérosols. Au zénith, un soleil haut ne doit pas aveugler tout l'écran d'un halo blanc saturé uniforme.
+  * Une courbe cubique douce (*smoothstep*) CPU atténue progressivement le multiplicateur de boost entre un angle de début et un angle de fin :
+    $$\text{factor} = 1.0 - \text{smoothstep}(\gamma_{\text{start}}, \gamma_{\text{end}}, \gamma)$$
+* **Comment le régler** :
+  * Activer `Auto Horizon Fade`.
+  * `Horizon Fade Start Angle` (défaut $45.0^\circ$) : au-dessous de cet angle, 100% du flare contre-jour est actif.
+  * `Horizon Fade End Angle` (défaut $85.0^\circ$) : au-dessus de cet angle (zénith plein ciel), le boost est réduit à 0%.
+* **Effet visuel concret** :
+  * En levant la caméra vers un soleil haut dans le ciel, la surexposition blanche aveuglante disparaît naturellement pour laisser place à des rais d'ombre nets et contrastés derrière les sphères.
+
+### 6.3. Isotropic Multi-Scattering Compensation
+* **Physique & Fonctionnement** :
+  * L'approximation classique de Henyey-Greenstein à simple diffusion ($g \ge 0.6$) concentre toute l'énergie vers l'avant. À $90^\circ$ du soleil (vue de profil), la fonction de phase chute à des valeurs quasi nulles, créant un "trou noir" non physique dans les rais.
+  * Dans la nature, les photons diffusent plusieurs fois contre les particules d'air, formant un fond lumineux isotrope ($P \approx 1.0$) qui compense les pertes :
+    $$P_{\text{eff}}(\theta) = \text{lerp}(P_{HG}(\theta), 1.0, \alpha_{\text{multi}})$$
+* **Comment le régler** :
+  * Activer `Multi-Scattering Compensation`.
+  * `Isotropic Multi-Scatter Blend` (défaut $0.25$) : $0.00$ = simple diffusion pure (fort contraste mais creux sombre à $90^\circ$), $0.25$ = équilibre physique naturel, $0.50+$ = brume très diffuse / jour de brouillard épais.
+* **Effet visuel concret** :
+  * Lorsqu'on regarde les rayons de profil ou perpendiculairement à la direction solaire, l'espace entre les sphères ne devient plus complètement noir et éteint : une douce nappe lumineuse ambiante baigne le volume.
+
+### 6.4. Worley Cellular Dust (Poussière Granulaire 3D)
+* **Physique & Fonctionnement** :
+  * La poussière et les grains de sable en suspension ne forment pas un gaz continu (Perlin FBM), mais des micro-particules discrètes réfléchissant la lumière spéculaire.
+  * Une texture 3D de cellules de Voronoi/Worley $64^3$ calcule la distance euclidienne aux germes de particules les plus proches, générant des points lumineux isolés et étincelants.
+* **Comment le régler** :
+  * Activer `Dust / Corpuscular Particles` puis `Worley Cellular Dust`.
+  * `Worley Particle Blend` (défaut $0.85$) : $0.00$ = brume continue Perlin (fumée), $1.00$ = particules de poussière étincelantes pures.
+  * `Dust Scale` ($0.15 \to 0.35$) : ajuste la granularité spatiale des poussières.
+* **Effet visuel concret** :
+  * Les rais de lumière semblent traversés de grains de poussière flottants qui s'allument lorsqu'ils traversent les zones éclairées, évoquant un rai de lumière traversant un grenier ou une grange.
+
+### 6.5. Dust Depth Window Mask (Masque de Distance en Cloche)
+* **Physique & Fonctionnement** :
+  * Les particules de poussière ne doivent être visibles qu'à distance moyenne. Trop près de l'objectif, elles créent d'immenses taches floues disgracieuses qui clignotent lors des rotations caméra ; trop loin, elles génèrent du sous-échantillonnage et du scintillement (*shimmering*).
+  * Un masque polynomial symétrique en cloche $4 \cdot u(1 - u)$ (sans division ni exponentielle coûteuse) annule la visibilité des grains hors de la zone d'intérêt :
+    $$u = \text{clamp}\left(\frac{t - d_{\text{near}}}{d_{\text{far}} - d_{\text{near}}}, 0.0, 1.0\right)$$
+* **Comment le régler** :
+  * Activer `Dust Depth Window Mask`.
+  * `Depth Focus Near` (défaut $0.50\,\text{m}$) : distance minimale avant apparition progressive des grains (évite le clipping caméra).
+  * `Depth Focus Far` (défaut $20.0\,\text{m}$) : distance maximale au-delà de laquelle les particules s'estompent doucement.
+* **Effet visuel concret** :
+  * Disparition totale des artéfacts de "grosses taches blanches" collées à la vitre de la caméra en marchant ou tournant rapidement, et arrière-plan lointain propre sans moiré stochastique.
+
+### 6.6. Dual-Lobed Henyey-Greenstein (Rétrodiffusion)
+* **Physique & Fonctionnement** :
+  * Les aérosols complexes (cristaux de glace, gouttes d'eau, grains de pollen) présentent à la fois un halo avant intense ($g_1 > 0$) et un lobe de réflexion arrière opposé ($g_2 < 0$) vers la source de lumière.
+  * Mélange convexe de deux fonctions de phase Henyey-Greenstein :
+    $$P_{\text{dual}}(\theta) = w \cdot P_{HG}(\theta, g_1) + (1 - w) \cdot P_{HG}(\theta, g_2)$$
+* **Comment le régler** :
+  * Activer `Dual-Lobed HG`.
+  * `Backward Anisotropy (g2)` (défaut $-0.30$) : asymétrie de la rétro-réflexion.
+  * `Forward Lobe Blend` (défaut $0.70$) : pondération du lobe avant ($70\%$) face au lobe arrière ($30\%$).
+* **Effet visuel concret** :
+  * Lorsque l'on tourne le dos au soleil pour regarder les sphères dans le sens de la lumière, l'atmosphère n'est pas éteinte : un contre-halo subtil souligne le contour arrière des objets dans l'axe de projection.
+
+### 6.7. Height Fog (Brume Exponentielle de Sol)
+* **Physique & Fonctionnement** :
+  * Loi barométrique de densité verticale simulant l'accumulation de vapeur froide ou de poussière lourde près du sol :
+    $$\rho(y) = e^{-k \cdot \max(0, y - y_0)}$$
+* **Comment le régler** :
+  * Activer `Height Fog`.
+  * `Ground Altitude (y0)` (défaut $0.0\,\text{m}$) : calage du niveau de plancher.
+  * `Altitude Falloff (k)` (défaut $0.20$) : taux de décroissance verticale. Une valeur faible ($0.05$) crée un brouillard montant haut ; une valeur forte ($0.50$) crée une nappe rase très dense au sol.
+* **Effet visuel concret** :
+  * Les pieds des sphères inférieures baignent dans une nappe de brume dense, tandis que les sphères supérieures et le ciel restent limpides et dégagés.
+
+---
+
+## 7. Persistance des Paramètres (100% JSON)
 
 Tous les paramètres ci-dessus sont strictement sérialisés et restaurés à l'identique entre les sessions de l'application via `session.json` :
 
