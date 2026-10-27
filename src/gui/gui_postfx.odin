@@ -302,6 +302,7 @@ draw_postfx_auto_exposure :: proc(p: ^postfx.Pipeline) {
 	if ae_on {
 		imgui.SameLine()
 		if imgui.TreeNodeEx("Settings##ae", {}) {
+			p.auto_exposure_fx.telemetry_requested = true
 			if imgui.SmallButton("Reset##ae") { postfx.pipeline_reset_effect(p, .Auto_Exposure) }
 			imgui.SliderFloat("Min Luminance", &p.auto_exposure_fx.params.min_luminance, 0.001, 1.0)
 			imgui.SliderFloat("Max Luminance", &p.auto_exposure_fx.params.max_luminance, 100.0, 50000.0)

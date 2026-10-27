@@ -71,6 +71,7 @@ import log "../log"
 Compute_Shader_Profile :: enum {
 	Legacy,     // Original heavy values (1024 samples, 0.025 step size)
 	Optimized,  // Optimized values (256/512 samples, 0.05 step size)
+	Fast_200ms, // Ultra-fast ~200ms values (128 samples, single-frame mips)
 }
 
 Compute_Slicing_Config :: struct {
@@ -121,6 +122,20 @@ DEFAULT_OPTIMIZED_COMPUTE_TUNING :: Compute_Tuning_Params{
 	},
 }
 
+DEFAULT_FAST_200MS_COMPUTE_TUNING :: Compute_Tuning_Params{
+	spbrdf_sample_count = 128,
+	spmap_sample_count  = 128,
+	irmap_sample_delta  = 0.10,
+	slicing = Compute_Slicing_Config{
+		specular_mip0_slices = 1,
+		specular_mip1_slices = 1,
+		specular_mip2_slices = 1,
+		irdiff_slices        = 1,
+		specular_mip_grouping_start_mip = 0,
+		seamless_downsample_progressive_mip_threshold = 0,
+	},
+}
+
 
 validate_compute_tuning_params :: proc(params: Compute_Tuning_Params) -> bool {
 	if params.spbrdf_sample_count <= 0 { return false }
@@ -157,20 +172,28 @@ load_compute_tuning_params :: proc(profile: Compute_Shader_Profile, path: string
 	}
 
 	profile_key: string
+	default_fallback := DEFAULT_COMPUTE_TUNING
 	switch profile {
-	case .Legacy:    profile_key = "legacy"
-	case .Optimized: profile_key = "optimized"
+	case .Legacy:
+		profile_key = "legacy"
+		default_fallback = DEFAULT_COMPUTE_TUNING
+	case .Optimized:
+		profile_key = "optimized"
+		default_fallback = DEFAULT_OPTIMIZED_COMPUTE_TUNING
+	case .Fast_200ms:
+		profile_key = "fast_200ms"
+		default_fallback = DEFAULT_FAST_200MS_COMPUTE_TUNING
 	}
 
 	params, exists := config.profiles[profile_key]
 	if !exists {
 		log.log_warning("core.settings", "Profile '%s' not found in JSON configuration. Falling back to built-in default.", profile_key)
-		return DEFAULT_COMPUTE_TUNING
+		return default_fallback
 	}
 
 	if !validate_compute_tuning_params(params) {
 		log.log_warning("core.settings", "Profile '%s' in JSON configuration has semantically invalid values. Falling back to built-in default.", profile_key)
-		return DEFAULT_COMPUTE_TUNING
+		return default_fallback
 	}
 
 	return params

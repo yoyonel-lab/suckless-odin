@@ -89,11 +89,67 @@ Volumetric_Light_Mode :: enum i32 {
 VOLUMETRIC_DEFAULT_INTENSITY_OMNI :: 1.0
 VOLUMETRIC_DEFAULT_INTENSITY_SUN  :: 0.25
 
+// Phase 1: Cinematic Defaults
+DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD :: -0.30
+DEFAULT_DUAL_LOBE_BLEND               :: 0.70
+DEFAULT_CREPUSCULAR_BOOST_STRENGTH    :: 2.0
+DEFAULT_CREPUSCULAR_BOOST_THRESHOLD   :: 0.70
+DEFAULT_SPECTRAL_SCATTERING_WEIGHTS   :: mt.Vec3{1.20, 1.00, 0.85}
+
+// Phase 2: Corpuscularity & Volumetric Noise Defaults
+DEFAULT_BLUE_NOISE_JITTER_ENABLED     :: true
+DEFAULT_DUST_ENABLED                  :: false
+DEFAULT_DUST_INTENSITY                :: 0.50
+DEFAULT_DUST_SCALE                    :: 0.25
+DEFAULT_DUST_SPEED                    :: 0.15
+DEFAULT_HEIGHT_FOG_ENABLED            :: false
+DEFAULT_HEIGHT_FOG_GROUND_Y           :: 0.0
+DEFAULT_HEIGHT_FOG_FALLOFF            :: 0.20
+
+// Kasten & Young (1989) atmospheric airmass constants (Zero Magic Constants)
+KASTEN_YOUNG_A               :: 0.50572
+KASTEN_YOUNG_B               :: 6.07995
+KASTEN_YOUNG_P               :: -1.6364
+AIRMASS_HORIZON_FALLBACK     :: 38.0
+AIRMASS_MAX_CLAMP            :: 40.0
+AIRMASS_NORMALIZATION_SPAN   :: 37.0 // Span from zenith (1.0) to horizon (~38.0)
+AIRMASS_CURVE_EXPONENT       :: 0.65 // Non-linear atmospheric optical depth transmission curve
+ZENITH_RAYLEIGH_RGB          :: mt.Vec3{0.75, 1.00, 1.35} // Cool scattered azure light at zenith
+HORIZON_SUNSET_RGB           :: mt.Vec3{1.60, 0.85, 0.40} // Warm golden/crimson scattered light at horizon
+
+// Dust convection constants (Zero Magic Constants)
+DUST_AMBIENT_DRIFT_DEFAULT   :: mt.Vec3{0.08, 0.04, 0.06}
+DUST_SOLAR_UPDRAFT_SPEED     :: 0.09
+DUST_SOLAR_TILT_WEIGHT       :: 0.25
+
+// Phase 3: Cellular Noise, Depth Window Mask & Crepuscular Horizon Fade Defaults
+DEFAULT_DUST_WORLEY_ENABLED              :: true
+DEFAULT_DUST_WORLEY_BLEND                :: 1.0
+DEFAULT_DUST_DEPTH_MASK_ENABLED          :: true
+DEFAULT_DUST_DEPTH_NEAR                  :: 0.50
+DEFAULT_DUST_DEPTH_FAR                   :: 20.0
+DEFAULT_DUST_DRIFT_MODE                  :: Volumetric_Dust_Drift_Mode.Ambient_Fixed
+DEFAULT_DUST_CUSTOM_DRIFT                :: DUST_AMBIENT_DRIFT_DEFAULT
+DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED :: false
+DEFAULT_CREPUSCULAR_HORIZON_FADE_START   :: 45.0 // Min elevation angle (deg) below which 100% boost is preserved
+DEFAULT_CREPUSCULAR_HORIZON_FADE_END     :: 85.0 // Max elevation angle (deg) above which boost is fully faded to 0
+DEFAULT_MULTI_SCATTER_ENABLED            :: false
+DEFAULT_MULTI_SCATTER_AMOUNT             :: 0.25 // Default 25% isotropic background compensation
+DEFAULT_SPECTRAL_AIRMASS_ENABLED         :: false
+DEFAULT_SPECTRAL_AIRMASS_INTENSITY       :: 1.0 // 100% physically calibrated chromatic shift
+
 volumetric_get_default_intensity :: proc(mode: Volumetric_Light_Mode) -> f32 {
 	#partial switch mode {
 	case .Sun_Directional: return VOLUMETRIC_DEFAULT_INTENSITY_SUN
 	case:                  return VOLUMETRIC_DEFAULT_INTENSITY_OMNI
 	}
+}
+
+// Convection drift mode for dust particles (Phase 3)
+Volumetric_Dust_Drift_Mode :: enum i32 {
+	Ambient_Fixed = 0, // Gentle constant ambient drift (0.08, 0.04, 0.06)
+	Solar_Updraft = 1, // Thermal upward convection tilted with sun azimuth
+	Custom_Wind   = 2, // User-defined 3D wind velocity vector
 }
 
 // Tunable volumetric medium & filtering parameters (serializable for presets)
@@ -135,6 +191,42 @@ Volumetric_Params :: struct {
 	preview_exposure_boost:       f32,  // default 1.0 (range 1.0..10.0)
 	zoom_scale:                   f32,  // Loupe zoom (1.0 to 16.0)
 	zoom_center:                  mt.Vec2, // (0.5, 0.5)
+
+	// Phase 1: Cinematic & Optical Extensions
+	dual_lobe_enabled:            bool, // Dual-lobed Henyey-Greenstein (forward + backward)
+	anisotropy_g_backward:        f32,  // Backward eccentricity (default -0.30, range -0.99..0.0)
+	dual_lobe_blend:              f32,  // Forward lobe blend weight (default 0.70, range 0.0..1.0)
+	crepuscular_boost_enabled:    bool, // Counter-jour intensity boost when looking towards sun
+	crepuscular_boost_strength:   f32,  // Multiplier boost (default 2.0, range 0.0..5.0)
+	crepuscular_boost_threshold:  f32,  // Look-at-sun cos threshold (default 0.70, range 0.0..1.0)
+	spectral_scattering_enabled:  bool, // Wavelength-dependent chromatic scattering (Rayleigh/Mie)
+	spectral_coefficients:        mt.Vec3, // RGB scattering weights (default {1.20, 1.00, 0.85})
+
+	// Phase 2: Corpuscularity & Volumetric Noise
+	blue_noise_jitter_enabled:    bool, // Void-and-Cluster 64x64 blue noise jitter (vs IGN)
+	dust_enabled:                 bool, // 3D FBM particle suspension modulation
+	dust_intensity:               f32,  // Dust contrast [0.0..1.0] (default 0.50)
+	dust_scale:                   f32,  // Dust spatial scale [0.01..2.0] (default 0.25)
+	dust_speed:                   f32,  // Dust convection drift speed [0.0..1.0] (default 0.15)
+	height_fog_enabled:           bool, // Exponential atmospheric height falloff
+	height_fog_ground_y:          f32,  // Ground baseline altitude y0 [-10.0..10.0] (default 0.0)
+	height_fog_falloff:           f32,  // Altitude attenuation coefficient k [0.01..2.0] (default 0.20)
+
+	// Phase 3: Worley Cellular Dust, Depth Window Mask & Crepuscular Horizon Fade
+	dust_worley_enabled:              bool, // Worley 3D cellular noise (sparkling particles vs Perlin smoke)
+	dust_worley_blend:                f32,  // Worley particle blend ratio [0.0..1.0] (default 1.0)
+	dust_depth_mask_enabled:          bool, // Quadratic depth bell-curve window mask
+	dust_depth_near:                  f32,  // Near focus boundary [0.1..10.0] meters (default 0.50)
+	dust_depth_far:                   f32,  // Far focus boundary [5.0..100.0] meters (default 20.0)
+	dust_drift_mode:                  Volumetric_Dust_Drift_Mode, // Convection drift mode (Ambient, Solar Updraft, Custom Wind)
+	dust_custom_drift:                mt.Vec3, // User-defined 3D wind velocity vector (default {0.08, 0.04, 0.06})
+	crepuscular_horizon_fade_enabled: bool, // Sun elevation-based modulation of contre-jour boost
+	crepuscular_horizon_fade_start:   f32,  // Elevation angle (deg) below which boost is 100% (default 45.0)
+	crepuscular_horizon_fade_end:     f32,  // Elevation angle (deg) above which boost is 0% (default 85.0)
+	multi_scatter_enabled:            bool, // Isotropic multi-scattering energy compensation
+	multi_scatter_amount:             f32,  // Multi-scatter blend weight [0.0..1.0] (default 0.25)
+	spectral_airmass_enabled:         bool, // Automatically derive RGB spectrum from sun elevation (Kasten-Young)
+	spectral_airmass_intensity:       f32,  // Chromatic shift intensity multiplier [0.0..2.0] (default 1.0)
 }
 
 // Phase 3, 4 & 5: Volumetric Lighting & Filtering Renderer
@@ -197,8 +289,37 @@ Volumetric_Renderer :: struct {
 	loc_dir_scattering_coeff:     i32,
 	loc_dir_extinction_coeff:     i32,
 	loc_dir_anisotropy_g:         i32,
-	loc_dir_intensity_mult:       i32,
-	loc_dir_jitter_enabled:       i32,
+	loc_dir_intensity_mult:               i32,
+	loc_dir_jitter_enabled:               i32,
+	loc_dir_dual_lobe_enabled:            i32,
+	loc_dir_anisotropy_g_backward:        i32,
+	loc_dir_dual_lobe_blend:              i32,
+	loc_dir_crepuscular_boost_enabled:    i32,
+	loc_dir_crepuscular_boost_strength:   i32,
+	loc_dir_crepuscular_boost_threshold:  i32,
+	loc_dir_spectral_scattering_enabled:  i32,
+	loc_dir_spectral_coefficients:        i32,
+	loc_dir_blue_noise_jitter_enabled:    i32,
+	loc_dir_dust_enabled:                 i32,
+	loc_dir_dust_intensity:               i32,
+	loc_dir_dust_scale:                   i32,
+	loc_dir_dust_speed:                   i32,
+	loc_dir_time:                         i32,
+	loc_dir_height_fog_enabled:           i32,
+	loc_dir_height_fog_ground_y:          i32,
+	loc_dir_height_fog_falloff:           i32,
+	loc_dir_dust_worley_enabled:          i32,
+	loc_dir_dust_worley_blend:            i32,
+	loc_dir_dust_depth_mask_enabled:      i32,
+	loc_dir_dust_depth_near:              i32,
+	loc_dir_dust_depth_far:               i32,
+	loc_dir_dust_drift_dir:               i32,
+	loc_dir_multi_scatter_enabled:        i32,
+	loc_dir_multi_scatter_amount:         i32,
+
+	// Phase 2 Textures
+	blue_noise_tex:                       u32,
+	dust_noise_tex3d:                     u32,
 
 	// TAA Reprojection Shader & Uniform Locations
 	taa_program:            u32,
@@ -271,6 +392,73 @@ volumetric_henyey_greenstein :: proc(cos_theta, g: f32) -> f32 {
 	return (1.0 - g2) / (denom * math.sqrt(denom))
 }
 
+// Computes smoothstep-based contre-jour attenuation according to sun elevation angle (theta_elevation).
+// Below fade_start: full boost (1.0). Above fade_end: boost completely suppressed (0.0).
+compute_crepuscular_horizon_fade :: proc(elevation, fade_start, fade_end: f32) -> f32 {
+	el := clamp(elevation, 0.0, 90.0)
+	if el <= fade_start do return 1.0
+	if el >= fade_end do return 0.0
+	span := max(0.001, fade_end - fade_start)
+	t := clamp((el - fade_start) / span, 0.0, 1.0)
+	return 1.0 - (t * t * (3.0 - 2.0 * t))
+}
+
+// Computes isotropic multi-scattering compensation on phase value.
+// Blends between directional single-scattering phase and isotropic uniform distribution (1.0).
+volumetric_compute_multi_scattering :: proc(phase, amount: f32) -> f32 {
+	return math.lerp(phase, f32(1.0), clamp(amount, 0.0, 1.0))
+}
+
+// Computes relative optical airmass according to Kasten & Young (1989) formula.
+// Elevation is clamped to [0.0..90.0] degrees. Returns [1.0 (zenith) .. ~38.0 (horizon)].
+volumetric_compute_optical_airmass :: proc(elevation_deg: f32) -> f32 {
+	gamma := clamp(elevation_deg, 0.0, 90.0)
+	gamma_rad := math.to_radians(gamma)
+	sin_gamma := math.sin(gamma_rad)
+	denom := sin_gamma + KASTEN_YOUNG_A * math.pow(gamma + KASTEN_YOUNG_B, KASTEN_YOUNG_P)
+	if denom <= 0.0001 do return AIRMASS_HORIZON_FALLBACK
+	return clamp(1.0 / denom, 1.0, AIRMASS_MAX_CLAMP)
+}
+
+// Computes dynamic RGB spectral scattering coefficients from solar elevation using Kasten-Young airmass.
+// Shifts from azure blue at zenith (elevation 90 deg, airmass ~1.0) to golden amber / crimson at sunset (airmass ~38.0).
+volumetric_compute_airmass_spectrum :: proc(elevation_deg: f32, intensity: f32 = 1.0) -> mt.Vec3 {
+	airmass := volumetric_compute_optical_airmass(elevation_deg)
+	t := clamp((airmass - 1.0) / AIRMASS_NORMALIZATION_SPAN, 0.0, 1.0)
+	t_curved := math.pow(t, AIRMASS_CURVE_EXPONENT)
+
+	base_rgb := mt.Vec3{
+		math.lerp(ZENITH_RAYLEIGH_RGB.x, HORIZON_SUNSET_RGB.x, t_curved),
+		math.lerp(ZENITH_RAYLEIGH_RGB.y, HORIZON_SUNSET_RGB.y, t_curved),
+		math.lerp(ZENITH_RAYLEIGH_RGB.z, HORIZON_SUNSET_RGB.z, t_curved),
+	}
+
+	neutral := mt.Vec3{1.0, 1.0, 1.0}
+	k := clamp(intensity, 0.0, 2.0)
+	return mt.Vec3{
+		math.lerp(neutral.x, base_rgb.x, k),
+		math.lerp(neutral.y, base_rgb.y, k),
+		math.lerp(neutral.z, base_rgb.z, k),
+	}
+}
+
+// Computes 3D dust convection drift vector based on mode and solar direction.
+volumetric_compute_dust_drift :: proc(mode: Volumetric_Dust_Drift_Mode, sun_dir: mt.Vec3, custom_drift: mt.Vec3) -> mt.Vec3 {
+	#partial switch mode {
+	case .Solar_Updraft:
+		// Solar Updraft / Thermal Convection: warm air ascends tilted gently with solar direction
+		updraft := mt.Vec3{sun_dir.x * DUST_SOLAR_TILT_WEIGHT, 1.0, sun_dir.z * DUST_SOLAR_TILT_WEIGHT}
+		n := mt.vec3_normalize(updraft)
+		return mt.Vec3{n.x * DUST_SOLAR_UPDRAFT_SPEED, n.y * DUST_SOLAR_UPDRAFT_SPEED, n.z * DUST_SOLAR_UPDRAFT_SPEED}
+	case .Custom_Wind:
+		// Custom Wind Velocity Vector
+		return custom_drift
+	case:
+		// Default / Ambient Gentle Drift
+		return DUST_AMBIENT_DRIFT_DEFAULT
+	}
+}
+
 // Ray-Sphere intersection calculation (CPU analytic)
 volumetric_intersect_ray_sphere :: proc(
 	ray_orig, ray_dir, sphere_center: mt.Vec3,
@@ -305,20 +493,50 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 		anisotropy_g           = 0.55,
 		intensity_mult         = 1.0,
 		jitter_enabled         = true,
-		taa_mode               = 2, // TAA Reprojection
-		taa_alpha              = 0.20,
-		taa_depth_threshold    = 0.80,
-		taa_clamping_enabled   = true,
-		blur_mode              = 2, // 9-tap Bilateral (Smooth ISO legacy)
-		blur_sharpness         = 500.0,
-		viewport_debug_mode    = 0,
-		upsample_mode          = 2, // Joint Bilateral Upsampling (JBU 2x2 Depth-Guided)
-		upsample_sharpness     = 200.0,
-		resolution_divider     = 2, // Half-resolution buffer (1/2 default)
-		preview_mode           = 0,
-		preview_exposure_boost = 1.0,
-		zoom_scale             = 1.0,
-		zoom_center            = mt.Vec2{0.5, 0.5},
+		taa_mode                    = 2, // TAA Reprojection
+		taa_alpha                   = 0.15,
+		taa_depth_threshold         = 0.80,
+		taa_clamping_enabled        = true,
+		blur_mode                   = 2, // 9-tap Bilateral (Smooth ISO legacy)
+		blur_sharpness              = 500.0,
+		viewport_debug_mode         = 0,
+		upsample_mode               = 2, // Joint Bilateral Upsampling (JBU 2x2 Depth-Guided)
+		upsample_sharpness          = 200.0,
+		resolution_divider          = 2, // Half-resolution buffer (1/2 default)
+		preview_mode                = 0,
+		preview_exposure_boost      = 1.0,
+		zoom_scale                  = 1.0,
+		zoom_center                 = mt.Vec2{0.5, 0.5},
+		dual_lobe_enabled           = false,
+		anisotropy_g_backward       = DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD,
+		dual_lobe_blend             = DEFAULT_DUAL_LOBE_BLEND,
+		crepuscular_boost_enabled   = false,
+		crepuscular_boost_strength  = DEFAULT_CREPUSCULAR_BOOST_STRENGTH,
+		crepuscular_boost_threshold = DEFAULT_CREPUSCULAR_BOOST_THRESHOLD,
+		spectral_scattering_enabled = false,
+		spectral_coefficients       = DEFAULT_SPECTRAL_SCATTERING_WEIGHTS,
+		blue_noise_jitter_enabled   = DEFAULT_BLUE_NOISE_JITTER_ENABLED,
+		dust_enabled                = DEFAULT_DUST_ENABLED,
+		dust_intensity              = DEFAULT_DUST_INTENSITY,
+		dust_scale                  = DEFAULT_DUST_SCALE,
+		dust_speed                  = DEFAULT_DUST_SPEED,
+		height_fog_enabled          = DEFAULT_HEIGHT_FOG_ENABLED,
+		height_fog_ground_y         = DEFAULT_HEIGHT_FOG_GROUND_Y,
+		height_fog_falloff          = DEFAULT_HEIGHT_FOG_FALLOFF,
+		dust_worley_enabled         = DEFAULT_DUST_WORLEY_ENABLED,
+		dust_worley_blend           = DEFAULT_DUST_WORLEY_BLEND,
+		dust_depth_mask_enabled          = DEFAULT_DUST_DEPTH_MASK_ENABLED,
+		dust_depth_near                  = DEFAULT_DUST_DEPTH_NEAR,
+		dust_depth_far                   = DEFAULT_DUST_DEPTH_FAR,
+		dust_drift_mode                  = DEFAULT_DUST_DRIFT_MODE,
+		dust_custom_drift                = DEFAULT_DUST_CUSTOM_DRIFT,
+		crepuscular_horizon_fade_enabled = DEFAULT_CREPUSCULAR_HORIZON_FADE_ENABLED,
+		crepuscular_horizon_fade_start   = DEFAULT_CREPUSCULAR_HORIZON_FADE_START,
+		crepuscular_horizon_fade_end     = DEFAULT_CREPUSCULAR_HORIZON_FADE_END,
+		multi_scatter_enabled            = DEFAULT_MULTI_SCATTER_ENABLED,
+		multi_scatter_amount             = DEFAULT_MULTI_SCATTER_AMOUNT,
+		spectral_airmass_enabled         = DEFAULT_SPECTRAL_AIRMASS_ENABLED,
+		spectral_airmass_intensity       = DEFAULT_SPECTRAL_AIRMASS_INTENSITY,
 	}
 
 	div := max(1, vr.params.resolution_divider)
@@ -376,10 +594,41 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	vr.loc_dir_anisotropy_g     = gl.GetUniformLocation(vr.directional_program, "u_anisotropy_g")
 	vr.loc_dir_intensity_mult   = gl.GetUniformLocation(vr.directional_program, "u_intensity_mult")
 	vr.loc_dir_jitter_enabled   = gl.GetUniformLocation(vr.directional_program, "u_jitter_enabled")
+	vr.loc_dir_dual_lobe_enabled           = gl.GetUniformLocation(vr.directional_program, "u_dual_lobe_enabled")
+	vr.loc_dir_anisotropy_g_backward       = gl.GetUniformLocation(vr.directional_program, "u_anisotropy_g_backward")
+	vr.loc_dir_dual_lobe_blend             = gl.GetUniformLocation(vr.directional_program, "u_dual_lobe_blend")
+	vr.loc_dir_crepuscular_boost_enabled   = gl.GetUniformLocation(vr.directional_program, "u_crepuscular_boost_enabled")
+	vr.loc_dir_crepuscular_boost_strength  = gl.GetUniformLocation(vr.directional_program, "u_crepuscular_boost_strength")
+	vr.loc_dir_crepuscular_boost_threshold = gl.GetUniformLocation(vr.directional_program, "u_crepuscular_boost_threshold")
+	vr.loc_dir_spectral_scattering_enabled = gl.GetUniformLocation(vr.directional_program, "u_spectral_scattering_enabled")
+	vr.loc_dir_spectral_coefficients       = gl.GetUniformLocation(vr.directional_program, "u_spectral_coefficients")
+	vr.loc_dir_blue_noise_jitter_enabled   = gl.GetUniformLocation(vr.directional_program, "u_blue_noise_jitter_enabled")
+	vr.loc_dir_dust_enabled                = gl.GetUniformLocation(vr.directional_program, "u_dust_enabled")
+	vr.loc_dir_dust_intensity              = gl.GetUniformLocation(vr.directional_program, "u_dust_intensity")
+	vr.loc_dir_dust_scale                  = gl.GetUniformLocation(vr.directional_program, "u_dust_scale")
+	vr.loc_dir_dust_speed                  = gl.GetUniformLocation(vr.directional_program, "u_dust_speed")
+	vr.loc_dir_time                        = gl.GetUniformLocation(vr.directional_program, "u_time")
+	vr.loc_dir_height_fog_enabled          = gl.GetUniformLocation(vr.directional_program, "u_height_fog_enabled")
+	vr.loc_dir_height_fog_ground_y         = gl.GetUniformLocation(vr.directional_program, "u_height_fog_ground_y")
+	vr.loc_dir_height_fog_falloff          = gl.GetUniformLocation(vr.directional_program, "u_height_fog_falloff")
+	vr.loc_dir_dust_worley_enabled         = gl.GetUniformLocation(vr.directional_program, "u_dust_worley_enabled")
+	vr.loc_dir_dust_worley_blend           = gl.GetUniformLocation(vr.directional_program, "u_dust_worley_blend")
+	vr.loc_dir_dust_depth_mask_enabled     = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_mask_enabled")
+	vr.loc_dir_dust_depth_near             = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_near")
+	vr.loc_dir_dust_depth_far              = gl.GetUniformLocation(vr.directional_program, "u_dust_depth_far")
+	vr.loc_dir_dust_drift_dir              = gl.GetUniformLocation(vr.directional_program, "u_dust_drift_dir")
+	vr.loc_dir_multi_scatter_enabled       = gl.GetUniformLocation(vr.directional_program, "u_multi_scatter_enabled")
+	vr.loc_dir_multi_scatter_amount        = gl.GetUniformLocation(vr.directional_program, "u_multi_scatter_amount")
+
+	// Create Phase 2 GPU Noise Textures
+	vr.blue_noise_tex = create_blue_noise_texture_2d()
+	vr.dust_noise_tex3d = create_dust_noise_texture_3d()
 
 	gl.UseProgram(vr.directional_program)
 	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_low_res_depth"), 0)
 	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_sun_shadow_map"), 1)
+	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_blue_noise_tex"), 2)
+	gl.Uniform1i(gl.GetUniformLocation(vr.directional_program, "u_dust_noise_tex3d"), 3)
 	gl.UseProgram(0)
 
 
@@ -477,6 +726,11 @@ volumetric_create :: proc(vr: ^Volumetric_Renderer, full_width, full_height: i32
 	dbg.object_label(gl.TEXTURE, vr.history_tex[1], "Volumetric_History_RGBA16F_1")
 	dbg.object_label(gl.TEXTURE, vr.acceptance_tex, "Volumetric_Acceptance_RGBA8")
 	dbg.object_label(gl.TEXTURE, vr.preview_tex, "Volumetric_Preview_RGBA8")
+	dbg.object_label(gl.TEXTURE, vr.blue_noise_tex, "Volumetric_Blue_Noise_2D")
+	dbg.object_label(gl.TEXTURE, vr.dust_noise_tex3d, "Volumetric_Dust_Noise_3D_Worley_Perlin")
+	dbg.object_label(gl.PROGRAM, vr.program, "Volumetric_Raymarch_Point_Program")
+	dbg.object_label(gl.PROGRAM, vr.directional_program, "Volumetric_Raymarch_Directional_Program")
+	dbg.object_label(gl.PROGRAM, vr.composite_program, "Volumetric_Composite_Program")
 
 	log.log_info("render.volumetric", "Volumetric renderer with TAA created (%dx%d -> %dx%d)", vr.full_width, vr.full_height, vr.width, vr.height)
 	return true
@@ -689,6 +943,7 @@ volumetric_render :: proc(
 	gl.Disable(gl.BLEND)
 
 	if vr.params.light_mode == .Sun_Directional && vr.directional_program != 0 {
+		dbg.push_group("Volumetric_Raymarch_Sun_Directional")
 		gl.UseProgram(vr.directional_program)
 
 		// Unit 0: Low-Res Depth (2D)
@@ -699,6 +954,14 @@ volumetric_render :: proc(
 		sun_tex: u32 = sun_shadow.depth_texture if sun_shadow != nil else 0
 		gl.ActiveTexture(gl.TEXTURE1)
 		gl.BindTexture(gl.TEXTURE_2D, sun_tex)
+
+		// Unit 2: Blue Noise 2D Texture
+		gl.ActiveTexture(gl.TEXTURE2)
+		gl.BindTexture(gl.TEXTURE_2D, vr.blue_noise_tex)
+
+		// Unit 3: 3D Dust / Corpuscular Noise Texture
+		gl.ActiveTexture(gl.TEXTURE3)
+		gl.BindTexture(gl.TEXTURE_3D, vr.dust_noise_tex3d)
 
 		gl.UniformMatrix4fv(vr.loc_dir_inv_view_proj, 1, false, &inv_view_proj[0][0])
 		gl.Uniform3f(vr.loc_dir_cam_pos, cam_pos.x, cam_pos.y, cam_pos.z)
@@ -713,7 +976,8 @@ volumetric_render :: proc(
 
 		gl.UniformMatrix4fv(vr.loc_dir_sun_view_proj, 1, false, &sun_vp[0][0])
 		gl.Uniform3f(vr.loc_dir_sun_dir, sun_dir.x, sun_dir.y, sun_dir.z)
-		gl.Uniform3f(vr.loc_dir_sun_color, 1.0, 0.95, 0.85)
+		sun_color := sun_shadow_get_effective_color(sun_shadow)
+		gl.Uniform3f(vr.loc_dir_sun_color, sun_color.x, sun_color.y, sun_color.z)
 		gl.Uniform1f(vr.loc_dir_sun_intensity, vr.params.sun_intensity)
 		gl.Uniform1f(vr.loc_dir_shadow_bias, 0.0015)
 		gl.Uniform1i(vr.loc_dir_shadows_enabled, 1 if shadows_enabled else 0)
@@ -727,15 +991,64 @@ volumetric_render :: proc(
 		gl.Uniform1f(vr.loc_dir_intensity_mult, vr.params.intensity_mult)
 		gl.Uniform1i(vr.loc_dir_jitter_enabled, 1 if vr.params.jitter_enabled else 0)
 
+		gl.Uniform1i(vr.loc_dir_dual_lobe_enabled, 1 if vr.params.dual_lobe_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_anisotropy_g_backward, vr.params.anisotropy_g_backward)
+		gl.Uniform1f(vr.loc_dir_dual_lobe_blend, vr.params.dual_lobe_blend)
+
+		gl.Uniform1i(vr.loc_dir_crepuscular_boost_enabled, 1 if vr.params.crepuscular_boost_enabled else 0)
+		effective_crepuscular_strength := vr.params.crepuscular_boost_strength
+		if vr.params.crepuscular_boost_enabled && vr.params.crepuscular_horizon_fade_enabled {
+			elevation := sun_shadow.detection.elevation if sun_shadow != nil else SUN_FALLBACK_ELEVATION
+			effective_crepuscular_strength *= compute_crepuscular_horizon_fade(elevation, vr.params.crepuscular_horizon_fade_start, vr.params.crepuscular_horizon_fade_end)
+		}
+		gl.Uniform1f(vr.loc_dir_crepuscular_boost_strength, effective_crepuscular_strength)
+		gl.Uniform1f(vr.loc_dir_crepuscular_boost_threshold, vr.params.crepuscular_boost_threshold)
+
+		gl.Uniform1i(vr.loc_dir_spectral_scattering_enabled, 1 if vr.params.spectral_scattering_enabled else 0)
+		effective_spectral := vr.params.spectral_coefficients
+		if vr.params.spectral_scattering_enabled && vr.params.spectral_airmass_enabled {
+			elevation := sun_shadow.detection.elevation if sun_shadow != nil else SUN_FALLBACK_ELEVATION
+			effective_spectral = volumetric_compute_airmass_spectrum(elevation, vr.params.spectral_airmass_intensity)
+		}
+		gl.Uniform3f(vr.loc_dir_spectral_coefficients, effective_spectral.x, effective_spectral.y, effective_spectral.z)
+
+		// Phase 2 Uniforms
+		gl.Uniform1i(vr.loc_dir_blue_noise_jitter_enabled, 1 if vr.params.blue_noise_jitter_enabled else 0)
+		gl.Uniform1i(vr.loc_dir_dust_enabled, 1 if vr.params.dust_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_dust_intensity, vr.params.dust_intensity)
+		gl.Uniform1f(vr.loc_dir_dust_scale, vr.params.dust_scale)
+		gl.Uniform1f(vr.loc_dir_dust_speed, vr.params.dust_speed)
+		gl.Uniform1f(vr.loc_dir_time, total_time)
+		gl.Uniform1i(vr.loc_dir_height_fog_enabled, 1 if vr.params.height_fog_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_height_fog_ground_y, vr.params.height_fog_ground_y)
+		gl.Uniform1f(vr.loc_dir_height_fog_falloff, vr.params.height_fog_falloff)
+
+		// Phase 3 Uniforms (Worley Cellular Dust, Depth Window Mask & Multi-Scattering)
+		gl.Uniform1i(vr.loc_dir_dust_worley_enabled, 1 if vr.params.dust_worley_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_dust_worley_blend, vr.params.dust_worley_blend)
+		gl.Uniform1i(vr.loc_dir_dust_depth_mask_enabled, 1 if vr.params.dust_depth_mask_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_dust_depth_near, vr.params.dust_depth_near)
+		gl.Uniform1f(vr.loc_dir_dust_depth_far, vr.params.dust_depth_far)
+		effective_drift := volumetric_compute_dust_drift(vr.params.dust_drift_mode, sun_dir, vr.params.dust_custom_drift)
+		gl.Uniform3f(vr.loc_dir_dust_drift_dir, effective_drift.x, effective_drift.y, effective_drift.z)
+		gl.Uniform1i(vr.loc_dir_multi_scatter_enabled, 1 if vr.params.multi_scatter_enabled else 0)
+		gl.Uniform1f(vr.loc_dir_multi_scatter_amount, vr.params.multi_scatter_amount)
+
 		fullscreen_triangle_draw(&vr.triangle)
 
+		gl.ActiveTexture(gl.TEXTURE3)
+		gl.BindTexture(gl.TEXTURE_3D, 0)
+		gl.ActiveTexture(gl.TEXTURE2)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.ActiveTexture(gl.TEXTURE1)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.UseProgram(0)
+		dbg.pop_group()
 	} else {
 		// Legacy Omni Point Raymarching
+		dbg.push_group("Volumetric_Raymarch_Omni_Point")
 		gl.UseProgram(vr.program)
 
 		// Bind Low-Res Depth (unit 0) & Shadow Cubemap (unit 1)
@@ -782,6 +1095,7 @@ volumetric_render :: proc(
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 		gl.UseProgram(0)
+		dbg.pop_group()
 	}
 
 	dbg.pop_group()
@@ -926,8 +1240,6 @@ volumetric_render :: proc(
 	gl.Viewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3])
 	gl_state.reset()
 	dbg.pop_group()
-
-	vr.preview_dirty = true
 }
 
 // Returns the active volumetric texture (Bilateral Blurred if active, TAA Filtered if active, or Raw)
@@ -1112,6 +1424,15 @@ volumetric_destroy :: proc(vr: ^Volumetric_Renderer) {
 	destroy_volumetric_fbo(vr)
 	fullscreen_triangle_destroy(&vr.triangle)
 	volumetric_timers_destroy(&vr.timers)
+
+	if vr.blue_noise_tex != 0 {
+		gl.DeleteTextures(1, &vr.blue_noise_tex)
+		vr.blue_noise_tex = 0
+	}
+	if vr.dust_noise_tex3d != 0 {
+		gl.DeleteTextures(1, &vr.dust_noise_tex3d)
+		vr.dust_noise_tex3d = 0
+	}
 
 	if vr.program != 0 {
 		gl.DeleteProgram(vr.program)

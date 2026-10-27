@@ -29,19 +29,21 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 		// Preview display modes
 		imgui.Text("Depth Preview Mode:")
 		imgui.SameLine()
-		if imgui.RadioButton("Turbo Heatmap", dd.preview_mode == 0) { dd.preview_mode = 0 }
+		if imgui.RadioButton("Turbo Heatmap", dd.preview_mode == 0) { dd.preview_mode = 0; dd.preview_dirty = true }
 		imgui.SameLine()
-		if imgui.RadioButton("Linear Grayscale", dd.preview_mode == 1) { dd.preview_mode = 1 }
+		if imgui.RadioButton("Linear Grayscale", dd.preview_mode == 1) { dd.preview_mode = 1; dd.preview_dirty = true }
 		imgui.SameLine()
-		if imgui.RadioButton("Discontinuity Mask", dd.preview_mode == 2) { dd.preview_mode = 2 }
+		if imgui.RadioButton("Discontinuity Mask", dd.preview_mode == 2) { dd.preview_mode = 2; dd.preview_dirty = true }
 
 		if dd.preview_mode != 2 {
-			imgui.SliderFloat("Min Depth Range", &dd.preview_min_depth, 0.1, 10.0, "%.1f m")
-			imgui.SliderFloat("Max Depth Range", &dd.preview_max_depth, 5.0, 100.0, "%.1f m")
+			if imgui.SliderFloat("Min Depth Range", &dd.preview_min_depth, 0.1, 10.0, "%.1f m") { dd.preview_dirty = true }
+			if imgui.SliderFloat("Max Depth Range", &dd.preview_max_depth, 5.0, 100.0, "%.1f m") { dd.preview_dirty = true }
 		}
 
 		// Update preview texture on-demand
-		rendering.depth_downsample_update_preview(dd)
+		if dd.preview_dirty {
+			rendering.depth_downsample_update_preview(dd)
+		}
 
 		imgui.Spacing()
 		avail_w := imgui.GetContentRegionAvail().x
@@ -87,8 +89,18 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 				if state.sun_shadow != nil {
 					ss := state.sun_shadow
 					det := &ss.detection
-					status_str := "Sun Detected (Direct Sunlight)" if det.sun_detected else "Fallback Direction (Manual / Fixed)"
-					status_col := imgui.Vec4{0.2, 1.0, 0.3, 1.0} if det.sun_detected else imgui.Vec4{0.9, 0.7, 0.3, 1.0}
+					status_str: string
+					status_col: imgui.Vec4
+					if det.is_aperture && det.sun_detected {
+						status_str = "Aperture Detected (Window / Skylight)"
+						status_col = imgui.Vec4{0.2, 0.85, 1.0, 1.0}
+					} else if det.sun_detected {
+						status_str = "Sun Detected (Direct Sunlight)"
+						status_col = imgui.Vec4{0.2, 1.0, 0.3, 1.0}
+					} else {
+						status_str = "Fallback Direction (Manual / Fixed)"
+						status_col = imgui.Vec4{0.9, 0.7, 0.3, 1.0}
+					}
 					imgui.TextColored(status_col, "Status: %s", status_str)
 					imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
 						det.azimuth, det.elevation, det.confidence, det.peak_intensity)
@@ -96,9 +108,51 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 					imgui.SliderFloat("Sun Volumetric Intensity", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
 					imgui.SliderFloat("Max Ray Distance", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
 
-					if !det.sun_detected {
+					// Sun Color Swatch & Override
+					eff_col := rendering.sun_shadow_get_effective_color(ss)
+					imgui.ColorButton("Sun Color##vol_swatch", imgui.Vec4{eff_col.x, eff_col.y, eff_col.z, 1.0})
+					imgui.SameLine()
+					imgui.Text("Sun Color (RGB): %.2f, %.2f, %.2f (%s)", eff_col.x, eff_col.y, eff_col.z,
+						"Manual Override" if ss.color_override_enabled else ("Auto-detected (Aperture)" if det.is_aperture else ("Auto-detected" if det.sun_detected else "Fallback")))
+					imgui.SameLine()
+					imgui.Checkbox("Override Color##sun_vol", &ss.color_override_enabled)
+
+					if ss.color_override_enabled {
+						color_arr := [3]f32{ss.manual_color.x, ss.manual_color.y, ss.manual_color.z}
+						if imgui.ColorEdit3("Manual Sun Color##sun_vol", &color_arr) {
+							ss.manual_color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
+							vr.history_valid = false
+						}
+						imgui.SameLine()
+						if imgui.Button("Reset Color##sun_vol") {
+							ss.manual_color = det.color
+							ss.color_override_enabled = false
+							vr.history_valid = false
+						}
+					}
+
+					imgui.Spacing()
+					imgui.Checkbox("Manual Sun Direction Override", &ss.override_enabled)
+					imgui.SameLine()
+					imgui.Checkbox("Show Sun 3D Gizmo", &ss.show_gizmo)
+
+					if ss.override_enabled {
+						dir_changed := false
+						if imgui.SliderFloat("Sun Azimuth", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+							dir_changed = true
+						}
+						if imgui.SliderFloat("Sun Elevation", &det.elevation, 0.0, 90.0, "%.1f deg") {
+							dir_changed = true
+						}
+						if dir_changed {
+							det.direction = rendering.sun_angles_to_dir(det.azimuth, det.elevation)
+							ss.is_dirty = true
+							ss.preview_dirty = true
+							vr.history_valid = false
+						}
+					} else if !det.sun_detected {
 						imgui.Spacing()
-						imgui.TextColored({0.9, 0.6, 0.2, 1.0}, "Manual Direction Override (Sun Not Detected):")
+						imgui.TextColored({0.9, 0.6, 0.2, 1.0}, "Fallback Direction (Sun Not Detected):")
 						dir_changed := false
 						if imgui.SliderFloat("Sun Azimuth", &det.azimuth, -180.0, 180.0, "%.1f deg") {
 							dir_changed = true
@@ -113,6 +167,7 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 							vr.history_valid = false
 						}
 					}
+
 				}
 				imgui.Spacing()
 				imgui.Separator()
@@ -164,15 +219,337 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			imgui.SameLine()
 			if imgui.Button("Backscatter (g=-0.35)") { rendering.volumetric_set_anisotropy(vr, light, -0.35) }
 
+			// Phase 1: Cinematic & Optical Enhancements
+			imgui.Spacing()
+			imgui.Separator()
+			imgui.TextColored({1.0, 0.75, 0.3, 1.0}, "Cinematic & Optical Enhancements (Phase 1):")
+
+			if imgui.Checkbox("Dual-Lobed Henyey-Greenstein##vol", &vr.params.dual_lobe_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.dual_lobe_enabled {
+				if imgui.SliderFloat("Backward Anisotropy (g2)##vol", &vr.params.anisotropy_g_backward, -0.99, 0.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##anisotropy_g2_vol") {
+					vr.params.anisotropy_g_backward = rendering.DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if imgui.SliderFloat("Forward Lobe Blend##vol", &vr.params.dual_lobe_blend, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dual_lobe_blend_vol") {
+					vr.params.dual_lobe_blend = rendering.DEFAULT_DUAL_LOBE_BLEND
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+
+			if imgui.Checkbox("Multi-Scattering Compensation##vol", &vr.params.multi_scatter_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.multi_scatter_enabled {
+				if imgui.SliderFloat("Isotropic Multi-Scatter Blend##vol", &vr.params.multi_scatter_amount, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##multi_scatter_amount_vol") {
+					vr.params.multi_scatter_amount = rendering.DEFAULT_MULTI_SCATTER_AMOUNT
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+
+			if imgui.Checkbox("Crepuscular Ray Boost (Contre-jour)##vol", &vr.params.crepuscular_boost_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.crepuscular_boost_enabled {
+				if imgui.SliderFloat("Crepuscular Boost Strength##vol", &vr.params.crepuscular_boost_strength, 0.0, 5.0, "%.2fx") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##crep_strength_vol") {
+					vr.params.crepuscular_boost_strength = rendering.DEFAULT_CREPUSCULAR_BOOST_STRENGTH
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if imgui.SliderFloat("Crepuscular Cos Threshold##vol", &vr.params.crepuscular_boost_threshold, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##crep_threshold_vol") {
+					vr.params.crepuscular_boost_threshold = rendering.DEFAULT_CREPUSCULAR_BOOST_THRESHOLD
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if imgui.Checkbox("Auto Horizon Fade (Zenith Attenuation)##vol", &vr.params.crepuscular_horizon_fade_enabled) {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if vr.params.crepuscular_horizon_fade_enabled {
+					if imgui.SliderFloat("Horizon Fade Start Angle##vol", &vr.params.crepuscular_horizon_fade_start, 0.0, 90.0, "%.1f deg") {
+						if vr.params.crepuscular_horizon_fade_start > vr.params.crepuscular_horizon_fade_end {
+							vr.params.crepuscular_horizon_fade_end = vr.params.crepuscular_horizon_fade_start
+						}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##crep_horizon_fade_start_vol") {
+						vr.params.crepuscular_horizon_fade_start = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_START
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					if imgui.SliderFloat("Horizon Fade End Angle##vol", &vr.params.crepuscular_horizon_fade_end, 0.0, 90.0, "%.1f deg") {
+						if vr.params.crepuscular_horizon_fade_end < vr.params.crepuscular_horizon_fade_start {
+							vr.params.crepuscular_horizon_fade_start = vr.params.crepuscular_horizon_fade_end
+						}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##crep_horizon_fade_end_vol") {
+						vr.params.crepuscular_horizon_fade_end = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_END
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+					fade_factor := rendering.compute_crepuscular_horizon_fade(elevation, vr.params.crepuscular_horizon_fade_start, vr.params.crepuscular_horizon_fade_end)
+					effective_boost := vr.params.crepuscular_boost_strength * fade_factor
+					imgui.TextDisabled("Elevation: %.1f deg | Fade: %.1f%% | Effective Boost: %.2fx", elevation, fade_factor * 100.0, effective_boost)
+				}
+			}
+
+			if imgui.Checkbox("Spectral Chromatic Scattering (Rayleigh/Mie)##vol", &vr.params.spectral_scattering_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.spectral_scattering_enabled {
+				if imgui.Checkbox("Auto Airmass Spectrum (Kasten-Young)##vol", &vr.params.spectral_airmass_enabled) {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if vr.params.spectral_airmass_enabled {
+					if imgui.SliderFloat("Airmass Shift Intensity##vol", &vr.params.spectral_airmass_intensity, 0.0, 2.0, "%.2f") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##spectral_airmass_vol") {
+						vr.params.spectral_airmass_intensity = rendering.DEFAULT_SPECTRAL_AIRMASS_INTENSITY
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+					airmass := rendering.volumetric_compute_optical_airmass(elevation)
+					dyn_rgb := rendering.volumetric_compute_airmass_spectrum(elevation, vr.params.spectral_airmass_intensity)
+					imgui.TextDisabled("Elevation: %.1f deg | Airmass: %.1fx | Dynamic RGB: (%.2f, %.2f, %.2f)", elevation, airmass, dyn_rgb.x, dyn_rgb.y, dyn_rgb.z)
+				} else {
+					spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
+					if imgui.SliderFloat3("RGB Scattering Weights##vol", &spectral_arr, 0.1, 3.0, "%.2f") {
+						vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##spectral_vol") {
+						vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+				}
+			}
+
+			// Phase 2: Corpuscularity & Volumetric Noise
+			imgui.Spacing()
+			imgui.Separator()
+			imgui.TextColored({1.0, 0.75, 0.3, 1.0}, "Corpuscularity & Volumetric Noise (Phase 2):")
+
+			if imgui.Checkbox("Blue Noise Jitter (vs IGN)##vol", &vr.params.blue_noise_jitter_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.Checkbox("Dust / Corpuscular Particles##vol", &vr.params.dust_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.dust_enabled {
+				if imgui.SliderFloat("Dust Intensity##vol", &vr.params.dust_intensity, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_intensity_vol") {
+					vr.params.dust_intensity = rendering.DEFAULT_DUST_INTENSITY
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if imgui.SliderFloat("Dust Scale##vol", &vr.params.dust_scale, 0.01, 2.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_scale_vol") {
+					vr.params.dust_scale = rendering.DEFAULT_DUST_SCALE
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if imgui.SliderFloat("Dust Drift Speed##vol", &vr.params.dust_speed, 0.0, 1.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_speed_vol") {
+					vr.params.dust_speed = rendering.DEFAULT_DUST_SPEED
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				drift_mode_idx := i32(vr.params.dust_drift_mode)
+				if imgui.Combo("Convection Drift Mode##vol", &drift_mode_idx, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+					vr.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(drift_mode_idx)
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_drift_mode_vol") {
+					vr.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if vr.params.dust_drift_mode == .Solar_Updraft {
+					sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
+					solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, vr.params.dust_custom_drift)
+					imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
+				} else if vr.params.dust_drift_mode == .Custom_Wind {
+					wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
+					if imgui.SliderFloat3("Wind Drift Vector##vol", &wind_arr, -1.0, 1.0, "%.2f") {
+						vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_custom_drift_vol") {
+						vr.params.dust_custom_drift = rendering.DEFAULT_DUST_CUSTOM_DRIFT
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+				}
+
+				if imgui.Checkbox("Worley Cellular Dust (vs Perlin)##vol", &vr.params.dust_worley_enabled) {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if vr.params.dust_worley_enabled {
+					if imgui.SliderFloat("Worley Particle Blend##vol", &vr.params.dust_worley_blend, 0.0, 1.0, "%.2f") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_worley_blend_vol") {
+						vr.params.dust_worley_blend = rendering.DEFAULT_DUST_WORLEY_BLEND
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+				}
+
+				if imgui.Checkbox("Dust Depth Window Mask##vol", &vr.params.dust_depth_mask_enabled) {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				if vr.params.dust_depth_mask_enabled {
+					if imgui.SliderFloat("Depth Focus Near##vol", &vr.params.dust_depth_near, 0.1, 10.0, "%.2f m") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_depth_near_vol") {
+						vr.params.dust_depth_near = rendering.DEFAULT_DUST_DEPTH_NEAR
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+
+					if imgui.SliderFloat("Depth Focus Far##vol", &vr.params.dust_depth_far, 5.0, 100.0, "%.1f m") {
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+					imgui.SameLine()
+					if imgui.Button("Reset##dust_depth_far_vol") {
+						vr.params.dust_depth_far = rendering.DEFAULT_DUST_DEPTH_FAR
+						vr.history_valid = false
+						vr.preview_dirty = true
+					}
+				}
+			}
+
+			if imgui.Checkbox("Height Fog (Atmospheric Falloff)##vol", &vr.params.height_fog_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.height_fog_enabled {
+				if imgui.SliderFloat("Ground Altitude (y0)##vol", &vr.params.height_fog_ground_y, -10.0, 10.0, "%.2f m") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##height_fog_ground_y_vol") {
+					vr.params.height_fog_ground_y = rendering.DEFAULT_HEIGHT_FOG_GROUND_Y
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				if imgui.SliderFloat("Altitude Falloff (k)##vol", &vr.params.height_fog_falloff, 0.01, 2.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##height_fog_falloff_vol") {
+					vr.params.height_fog_falloff = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+			imgui.Separator()
+
 			// Henyey-Greenstein Phase Plot
 			imgui.Spacing()
-			imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "Henyey-Greenstein Phase Function P(theta, g):")
+			phase_title := "Dual-Lobed + Multi-Scatter Phase Function:" if (vr.params.dual_lobe_enabled && vr.params.multi_scatter_enabled) else ("Dual-Lobed Phase Function P(theta, g1, g2):" if vr.params.dual_lobe_enabled else ("Henyey-Greenstein + Multi-Scatter Phase:" if vr.params.multi_scatter_enabled else "Henyey-Greenstein Phase Function P(theta, g):"))
+			imgui.TextColored({1.0, 0.8, 0.2, 1.0}, "%s", phase_title)
 			phase_samples: [64]f32
 			max_p: f32 = 0.001
 			for i in 0..<64 {
 				theta := (f32(i) / 63.0) * math.PI
 				cos_theta := math.cos(theta)
-				p := rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g)
+				p: f32
+				if vr.params.dual_lobe_enabled {
+					p1 := rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g)
+					p2 := rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g_backward)
+					p = p2 + vr.params.dual_lobe_blend * (p1 - p2)
+				} else {
+					p = rendering.volumetric_henyey_greenstein(cos_theta, vr.params.anisotropy_g)
+				}
+				if vr.params.multi_scatter_enabled {
+					p = rendering.volumetric_compute_multi_scattering(p, vr.params.multi_scatter_amount)
+				}
 				phase_samples[i] = p
 				if p > max_p do max_p = p
 			}
@@ -195,45 +572,49 @@ draw_tab_volumetric :: proc(g: ^Gui, state: Scene_State) {
 			imgui.Text("Buffer Preview Mode:")
 			if imgui.RadioButton("Final Output##vol", vr.params.preview_mode == 0) { vr.params.preview_mode = 0 }
 			imgui.SameLine()
-			if imgui.RadioButton("Raw Grain##vol", vr.params.preview_mode == 1) { vr.params.preview_mode = 1 }
+			if imgui.RadioButton("Raw Grain##vol", vr.params.preview_mode == 1) { vr.params.preview_mode = 1; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Heatmap##vol", vr.params.preview_mode == 2) { vr.params.preview_mode = 2 }
+			if imgui.RadioButton("Heatmap##vol", vr.params.preview_mode == 2) { vr.params.preview_mode = 2; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("TAA Acceptance##vol", vr.params.preview_mode == 3) { vr.params.preview_mode = 3 }
+			if imgui.RadioButton("TAA Acceptance##vol", vr.params.preview_mode == 3) { vr.params.preview_mode = 3; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Post-Blur HDR##vol", vr.params.preview_mode == 4) { vr.params.preview_mode = 4 }
+			if imgui.RadioButton("Post-Blur HDR##vol", vr.params.preview_mode == 4) { vr.params.preview_mode = 4; vr.preview_dirty = true }
 
-			if imgui.RadioButton("Bilateral Diff (|Delta|x10)##vol", vr.params.preview_mode == 5) { vr.params.preview_mode = 5 }
+			if imgui.RadioButton("Bilateral Diff (|Delta|x10)##vol", vr.params.preview_mode == 5) { vr.params.preview_mode = 5; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Edge Overlay (Magenta)##vol", vr.params.preview_mode == 6) { vr.params.preview_mode = 6 }
+			if imgui.RadioButton("Edge Overlay (Magenta)##vol", vr.params.preview_mode == 6) { vr.params.preview_mode = 6; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Silhouette Only##vol", vr.params.preview_mode == 7) { vr.params.preview_mode = 7 }
+			if imgui.RadioButton("Silhouette Only##vol", vr.params.preview_mode == 7) { vr.params.preview_mode = 7; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Weight Attenuation##vol", vr.params.preview_mode == 8) { vr.params.preview_mode = 8 }
+			if imgui.RadioButton("Weight Attenuation##vol", vr.params.preview_mode == 8) { vr.params.preview_mode = 8; vr.preview_dirty = true }
 			imgui.SameLine()
-			if imgui.RadioButton("Transmittance##vol", vr.params.preview_mode == 9) { vr.params.preview_mode = 9 }
+			if imgui.RadioButton("Transmittance##vol", vr.params.preview_mode == 9) { vr.params.preview_mode = 9; vr.preview_dirty = true }
 
-			imgui.SliderFloat("Exposure Boost##vol", &vr.params.preview_exposure_boost, 1.0, 10.0, "%.1fx")
+			if imgui.SliderFloat("Exposure Boost##vol", &vr.params.preview_exposure_boost, 1.0, 10.0, "%.1fx") { vr.preview_dirty = true }
 
 			// Magnifier Loupe Tool
 			imgui.Spacing()
 			imgui.TextColored({1.0, 0.7, 0.2, 1.0}, "Inspector Magnifier Loupe (Zoom on Sphere Edges):")
-			imgui.SliderFloat("Magnifier Zoom", &vr.params.zoom_scale, 1.0, 16.0, "%.1fx")
+			if imgui.SliderFloat("Magnifier Zoom", &vr.params.zoom_scale, 1.0, 16.0, "%.1fx") { vr.preview_dirty = true }
 			if vr.params.zoom_scale > 1.0 {
 				pan := [2]f32{vr.params.zoom_center.x, vr.params.zoom_center.y}
 				if imgui.SliderFloat2("Loupe Pan (UV)", &pan, 0.0, 1.0, "%.2f") {
 					vr.params.zoom_center = mt.Vec2{pan[0], pan[1]}
+					vr.preview_dirty = true
 				}
 				imgui.SameLine()
 				if imgui.Button("Reset Loupe") {
 					vr.params.zoom_scale = 1.0
 					vr.params.zoom_center = {0.5, 0.5}
+					vr.preview_dirty = true
 				}
 			}
 
-			cur_depth := rendering.depth_downsample_get_current_depth(state.depth_downsample)
-			disc_tex := state.depth_downsample.discontinuity_tex if state.depth_downsample != nil else 0
-			rendering.volumetric_update_preview(vr, cur_depth, disc_tex)
+			if vr.preview_dirty {
+				cur_depth := rendering.depth_downsample_get_current_depth(state.depth_downsample)
+				disc_tex := state.depth_downsample.discontinuity_tex if state.depth_downsample != nil else 0
+				rendering.volumetric_update_preview(vr, cur_depth, disc_tex)
+			}
 
 			preview_w := max(256.0, min(avail_w, 600.0))
 			aspect := f32(vr.height) / f32(max(1, vr.width))
@@ -504,17 +885,36 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		}
 		match_count += 1
 	}
-	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override") {
+	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Volumetric Lighting", "sun directional volumetric intensity azimuth elevation direction override gizmo light source position color tint chromaticity window skylight aperture opening portal") {
 		ss := state.sun_shadow
 		det := &ss.detection
 		imgui.SliderFloat("Sun Volumetric Intensity##filt", &vr.params.sun_intensity, 0.0, 10.0, "%.2fx")
 		imgui.SliderFloat("Max Ray Distance##filt", &vr.params.max_ray_distance, 10.0, 200.0, "%.1f m")
-		if !det.sun_detected {
+
+		eff_col := rendering.sun_shadow_get_effective_color(ss)
+		imgui.ColorButton("Sun Color##vol_filt_swatch", imgui.Vec4{eff_col.x, eff_col.y, eff_col.z, 1.0})
+		imgui.SameLine()
+		imgui.Text("Color: RGB(%.2f, %.2f, %.2f)", eff_col.x, eff_col.y, eff_col.z)
+		imgui.SameLine()
+		imgui.Checkbox("Override Color##vol_filt_col", &ss.color_override_enabled)
+		if ss.color_override_enabled {
+			color_arr := [3]f32{ss.manual_color.x, ss.manual_color.y, ss.manual_color.z}
+			if imgui.ColorEdit3("Manual Sun Color##vol_filt_edit", &color_arr) {
+				ss.manual_color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
+				vr.history_valid = false
+			}
+		}
+
+		imgui.Checkbox("Manual Sun Direction Override##vol_filt", &ss.override_enabled)
+		imgui.SameLine()
+		imgui.Checkbox("Show Sun 3D Gizmo##vol_filt", &ss.show_gizmo)
+
+		if ss.override_enabled || !det.sun_detected {
 			dir_changed := false
-			if imgui.SliderFloat("Sun Azimuth##filt", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+			if imgui.SliderFloat("Sun Azimuth##vol_filt", &det.azimuth, -180.0, 180.0, "%.1f deg") {
 				dir_changed = true
 			}
-			if imgui.SliderFloat("Sun Elevation##filt", &det.elevation, 0.0, 90.0, "%.1f deg") {
+			if imgui.SliderFloat("Sun Elevation##vol_filt", &det.elevation, 0.0, 90.0, "%.1f deg") {
 				dir_changed = true
 			}
 			if dir_changed {
@@ -523,6 +923,9 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 				ss.preview_dirty = true
 				vr.history_valid = false
 			}
+		} else {
+			imgui.TextDisabled("Sun Azimuth: %.1f deg | Elevation: %.1f deg (Auto-detected)", det.azimuth, det.elevation)
+			imgui.TextDisabled("Enable 'Manual Sun Direction Override' to adjust angles.")
 		}
 		match_count += 1
 	}
@@ -560,6 +963,374 @@ draw_filtered_volumetric :: proc(g: ^Gui, state: Scene_State, filter: cstring) -
 		g_val := vr.params.anisotropy_g
 		if imgui.SliderFloat("Phase Anisotropy (g)##filt", &g_val, -0.9, 0.9, "%.2f") {
 			rendering.volumetric_set_anisotropy(vr, light, g_val)
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dual-Lobed Henyey-Greenstein", "volumetric dual lobe henyey greenstein forward backward phase anisotropy optical") {
+		if imgui.Checkbox("Dual-Lobed Henyey-Greenstein##vol_filt", &vr.params.dual_lobe_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dual_lobe_enabled {
+			if imgui.SliderFloat("Backward Anisotropy (g2)##vol_filt", &vr.params.anisotropy_g_backward, -0.99, 0.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##anisotropy_g2_vol_filt") {
+				vr.params.anisotropy_g_backward = rendering.DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if imgui.SliderFloat("Forward Lobe Blend##vol_filt", &vr.params.dual_lobe_blend, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dual_lobe_blend_vol_filt") {
+				vr.params.dual_lobe_blend = rendering.DEFAULT_DUAL_LOBE_BLEND
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Multi-Scattering Compensation", "volumetric multi scattering isotropic compensation phase ambient energy blend") {
+		if imgui.Checkbox("Multi-Scattering Compensation##vol_filt", &vr.params.multi_scatter_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.multi_scatter_enabled {
+			if imgui.SliderFloat("Isotropic Multi-Scatter Blend##vol_filt", &vr.params.multi_scatter_amount, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##multi_scatter_amount_vol_filt") {
+				vr.params.multi_scatter_amount = rendering.DEFAULT_MULTI_SCATTER_AMOUNT
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Crepuscular Ray Boost", "volumetric crepuscular ray boost contre jour sun looking threshold flare cinema") {
+		if imgui.Checkbox("Crepuscular Ray Boost (Contre-jour)##vol_filt", &vr.params.crepuscular_boost_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.crepuscular_boost_enabled {
+			if imgui.SliderFloat("Crepuscular Boost Strength##vol_filt", &vr.params.crepuscular_boost_strength, 0.0, 5.0, "%.2fx") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_strength_vol_filt") {
+				vr.params.crepuscular_boost_strength = rendering.DEFAULT_CREPUSCULAR_BOOST_STRENGTH
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if imgui.SliderFloat("Crepuscular Cos Threshold##vol_filt", &vr.params.crepuscular_boost_threshold, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_threshold_vol_filt") {
+				vr.params.crepuscular_boost_threshold = rendering.DEFAULT_CREPUSCULAR_BOOST_THRESHOLD
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Crepuscular Horizon Fade", "volumetric crepuscular horizon fade zenith attenuation elevation angle sun contre jour") {
+		if imgui.Checkbox("Auto Horizon Fade (Zenith Attenuation)##vol_filt", &vr.params.crepuscular_horizon_fade_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.crepuscular_horizon_fade_enabled {
+			if imgui.SliderFloat("Horizon Fade Start Angle##vol_filt", &vr.params.crepuscular_horizon_fade_start, 0.0, 90.0, "%.1f deg") {
+				if vr.params.crepuscular_horizon_fade_start > vr.params.crepuscular_horizon_fade_end {
+					vr.params.crepuscular_horizon_fade_end = vr.params.crepuscular_horizon_fade_start
+				}
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_horizon_fade_start_vol_filt") {
+				vr.params.crepuscular_horizon_fade_start = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_START
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Horizon Fade End Angle##vol_filt", &vr.params.crepuscular_horizon_fade_end, 0.0, 90.0, "%.1f deg") {
+				if vr.params.crepuscular_horizon_fade_end < vr.params.crepuscular_horizon_fade_start {
+					vr.params.crepuscular_horizon_fade_start = vr.params.crepuscular_horizon_fade_end
+				}
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##crep_horizon_fade_end_vol_filt") {
+				vr.params.crepuscular_horizon_fade_end = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_END
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+			fade_factor := rendering.compute_crepuscular_horizon_fade(elevation, vr.params.crepuscular_horizon_fade_start, vr.params.crepuscular_horizon_fade_end)
+			effective_boost := vr.params.crepuscular_boost_strength * fade_factor
+			imgui.TextDisabled("Elevation: %.1f deg | Fade: %.1f%% | Effective Boost: %.2fx", elevation, fade_factor * 100.0, effective_boost)
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Spectral Chromatic Scattering", "volumetric spectral chromatic scattering rayleigh mie wavelength rgb weights") {
+		if imgui.Checkbox("Spectral Chromatic Scattering##vol_filt", &vr.params.spectral_scattering_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.spectral_scattering_enabled {
+			if vr.params.spectral_airmass_enabled {
+				imgui.TextDisabled("Auto Airmass Spectrum active (overrides manual RGB weights).")
+			} else {
+				spectral_arr := [3]f32{vr.params.spectral_coefficients.x, vr.params.spectral_coefficients.y, vr.params.spectral_coefficients.z}
+				if imgui.SliderFloat3("RGB Scattering Weights##vol_filt", &spectral_arr, 0.1, 3.0, "%.2f") {
+					vr.params.spectral_coefficients = mt.Vec3{spectral_arr[0], spectral_arr[1], spectral_arr[2]}
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##spectral_vol_filt") {
+					vr.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Atmospheric Airmass Spectrum", "volumetric airmass kasten young solar elevation chromatic spectrum dynamic extinction") {
+		if !vr.params.spectral_scattering_enabled {
+			imgui.TextDisabled("Spectral Chromatic Scattering must be enabled to configure Airmass Spectrum.")
+		} else {
+			if imgui.Checkbox("Auto Airmass Spectrum (Kasten-Young)##vol_filt", &vr.params.spectral_airmass_enabled) {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			if vr.params.spectral_airmass_enabled {
+				if imgui.SliderFloat("Airmass Shift Intensity##vol_filt", &vr.params.spectral_airmass_intensity, 0.0, 2.0, "%.2f") {
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##spectral_airmass_vol_filt") {
+					vr.params.spectral_airmass_intensity = rendering.DEFAULT_SPECTRAL_AIRMASS_INTENSITY
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+
+				elevation := state.sun_shadow.detection.elevation if state.sun_shadow != nil else rendering.SUN_FALLBACK_ELEVATION
+				airmass := rendering.volumetric_compute_optical_airmass(elevation)
+				dyn_rgb := rendering.volumetric_compute_airmass_spectrum(elevation, vr.params.spectral_airmass_intensity)
+				imgui.TextDisabled("Elevation: %.1f deg | Airmass: %.1fx | Dynamic RGB: (%.2f, %.2f, %.2f)", elevation, airmass, dyn_rgb.x, dyn_rgb.y, dyn_rgb.z)
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Blue Noise Jitter", "volumetric blue noise jitter void and cluster isotropic dither ign") {
+		if imgui.Checkbox("Blue Noise Jitter (vs IGN)##vol_filt", &vr.params.blue_noise_jitter_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dust Particles Noise", "volumetric dust corpuscular particles suspension 3d noise fbm turbulence") {
+		if imgui.Checkbox("Dust / Corpuscular Particles##vol_filt", &vr.params.dust_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dust_enabled {
+			if imgui.SliderFloat("Dust Intensity##vol_filt", &vr.params.dust_intensity, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_intensity_vol_filt") {
+				vr.params.dust_intensity = rendering.DEFAULT_DUST_INTENSITY
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Dust Scale##vol_filt", &vr.params.dust_scale, 0.01, 2.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_scale_vol_filt") {
+				vr.params.dust_scale = rendering.DEFAULT_DUST_SCALE
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Dust Drift Speed##vol_filt", &vr.params.dust_speed, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_speed_vol_filt") {
+				vr.params.dust_speed = rendering.DEFAULT_DUST_SPEED
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			drift_mode_idx := i32(vr.params.dust_drift_mode)
+			if imgui.Combo("Convection Drift Mode##vol_filt", &drift_mode_idx, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+				vr.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(drift_mode_idx)
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_drift_mode_vol_filt") {
+				vr.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if vr.params.dust_drift_mode == .Solar_Updraft {
+				sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
+				solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, vr.params.dust_custom_drift)
+				imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
+			} else if vr.params.dust_drift_mode == .Custom_Wind {
+				wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
+				if imgui.SliderFloat3("Wind Drift Vector##vol_filt", &wind_arr, -1.0, 1.0, "%.2f") {
+					vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_custom_drift_vol_filt") {
+					vr.params.dust_custom_drift = rendering.DEFAULT_DUST_CUSTOM_DRIFT
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dust Convection Wind", "volumetric dust convection wind drift velocity thermal updraft solar") {
+		if !vr.params.dust_enabled {
+			imgui.TextDisabled("Dust / Corpuscular Particles must be enabled to configure Convection Drift.")
+		} else {
+			drift_mode_idx := i32(vr.params.dust_drift_mode)
+			if imgui.Combo("Convection Drift Mode##vol_filt_solo", &drift_mode_idx, "Ambient Gentle (0.08, 0.04, 0.06)\x00Solar Updraft (Thermal Convection)\x00Custom Wind Velocity\x00\x00") {
+				vr.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(drift_mode_idx)
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_drift_mode_vol_filt_solo") {
+				vr.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if vr.params.dust_drift_mode == .Solar_Updraft {
+				sun_dir := state.sun_shadow.detection.direction if state.sun_shadow != nil else rendering.SUN_FALLBACK_DIRECTION
+				solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, vr.params.dust_custom_drift)
+				imgui.TextDisabled("Solar Convection Updraft: (%.3f, %.3f, %.3f)", solar_drift.x, solar_drift.y, solar_drift.z)
+			} else if vr.params.dust_drift_mode == .Custom_Wind {
+				wind_arr := [3]f32{vr.params.dust_custom_drift.x, vr.params.dust_custom_drift.y, vr.params.dust_custom_drift.z}
+				if imgui.SliderFloat3("Wind Drift Vector##vol_filt_solo", &wind_arr, -1.0, 1.0, "%.2f") {
+					vr.params.dust_custom_drift = mt.Vec3{wind_arr[0], wind_arr[1], wind_arr[2]}
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset##dust_custom_drift_vol_filt_solo") {
+					vr.params.dust_custom_drift = rendering.DEFAULT_DUST_CUSTOM_DRIFT
+					vr.history_valid = false
+					vr.preview_dirty = true
+				}
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Height Fog Atmospheric Falloff", "volumetric height fog atmospheric falloff ground altitude boundary layer exponential") {
+		if imgui.Checkbox("Height Fog (Atmospheric Falloff)##vol_filt", &vr.params.height_fog_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.height_fog_enabled {
+			if imgui.SliderFloat("Ground Altitude (y0)##vol_filt", &vr.params.height_fog_ground_y, -10.0, 10.0, "%.2f m") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##height_fog_ground_y_vol_filt") {
+				vr.params.height_fog_ground_y = rendering.DEFAULT_HEIGHT_FOG_GROUND_Y
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Altitude Falloff (k)##vol_filt", &vr.params.height_fog_falloff, 0.01, 2.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##height_fog_falloff_vol_filt") {
+				vr.params.height_fog_falloff = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Worley Cellular Dust", "volumetric worley cellular dust particles noise fbm blend perlin") {
+		if imgui.Checkbox("Worley Cellular Dust (vs Perlin)##vol_filt", &vr.params.dust_worley_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dust_worley_enabled {
+			if imgui.SliderFloat("Worley Particle Blend##vol_filt", &vr.params.dust_worley_blend, 0.0, 1.0, "%.2f") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_worley_blend_vol_filt") {
+				vr.params.dust_worley_blend = rendering.DEFAULT_DUST_WORLEY_BLEND
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+		}
+		match_count += 1
+	}
+	if fuzzy_match(filter, "Dust Depth Window Mask", "volumetric dust depth window mask near far focus bell curve distance clipping") {
+		if imgui.Checkbox("Dust Depth Window Mask##vol_filt", &vr.params.dust_depth_mask_enabled) {
+			vr.history_valid = false
+			vr.preview_dirty = true
+		}
+		if vr.params.dust_depth_mask_enabled {
+			if imgui.SliderFloat("Depth Focus Near##vol_filt", &vr.params.dust_depth_near, 0.1, 10.0, "%.2f m") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_depth_near_vol_filt") {
+				vr.params.dust_depth_near = rendering.DEFAULT_DUST_DEPTH_NEAR
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+
+			if imgui.SliderFloat("Depth Focus Far##vol_filt", &vr.params.dust_depth_far, 5.0, 100.0, "%.1f m") {
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset##dust_depth_far_vol_filt") {
+				vr.params.dust_depth_far = rendering.DEFAULT_DUST_DEPTH_FAR
+				vr.history_valid = false
+				vr.preview_dirty = true
+			}
 		}
 		match_count += 1
 	}

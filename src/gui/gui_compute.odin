@@ -9,7 +9,7 @@ import settings "../core/settings"
 
 // Helper to check if a profile is a protected built-in profile
 is_protected_profile :: proc(name: string) -> bool {
-	return name == "legacy" || name == "optimized"
+	return name == "legacy" || name == "optimized" || name == "fast_200ms"
 }
 
 // Dedicated tab for Compute Shader and Progressive Slicing Tuning

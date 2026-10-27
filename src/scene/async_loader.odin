@@ -48,10 +48,12 @@ Async_Request :: struct {
 	data:          [^]u16,             // decoded RGBA float16 pixels (SIMD-converted from FP32)
 	width:         i32,
 	height:        i32,
-	channels:      i32,
-	sun_detection: rendering.Sun_Detection,
-	state:         Async_State,
+	channels:             i32,
+	sun_detection:        rendering.Sun_Detection,
+	force_recompute_sun:  bool,
+	state:                Async_State,
 }
+
 
 // --- Async loader (ISO: AsyncLoader struct) ---
 
@@ -110,7 +112,7 @@ async_loader_destroy :: proc(loader: ^Async_Loader) {
 }
 
 // Submit a new load request. Returns false if the loader is busy.
-async_loader_request :: proc(loader: ^Async_Loader, path: string) -> bool {
+async_loader_request :: proc(loader: ^Async_Loader, path: string, force_recompute_sun: bool = false) -> bool {
 	if len(path) == 0 || len(path) >= ASYNC_MAX_PATH - 1 {
 		log.log_error("scene.async", "Invalid path length: %d", len(path))
 		return false
@@ -139,15 +141,17 @@ async_loader_request :: proc(loader: ^Async_Loader, path: string) -> bool {
 		loader.request.path[i] = path[i]
 	}
 	loader.request.path[len(path)] = 0
+	loader.request.force_recompute_sun = force_recompute_sun
 
 	loader.request.state = .Pending
 	loader.has_pending = true
 	tracy.async_status_transition(.Pending)
 	sync.signal(&loader.cond)
 
-	log.log_debug("scene.async", "Request submitted: %s", cstring(&loader.request.path[0]))
+	log.log_debug("scene.async", "Request submitted: %s (force_recompute_sun=%v)", cstring(&loader.request.path[0]), force_recompute_sun)
 	return true
 }
+
 
 // Poll for a completed result. Returns Async_Poll_Result.
 // On Ready, ownership of `out.data` transfers to caller (must free with stbi.image_free).
@@ -253,9 +257,11 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 
 		// Copy path out before unlocking
 		path_cstr := cstring(&loader.request.path[0])
+		force_recompute := loader.request.force_recompute_sun
 
 		// Unlock during heavy I/O
 		sync.unlock(&loader.mutex)
+
 
 		// --- Heavy I/O (disk read + decode) — Tracy zone ---
 		zone := tracy.zone_begin(&hdr_load_decode_loc)
@@ -325,8 +331,23 @@ async_worker_proc :: proc(t: ^thread.Thread) {
 			tracy.message_c(fmt.tprintf("Direct Decoded HDR->FP16: %dx%d (%d KB)",
 				w, h, pixel_count * 2 / 1024), tracy.COLOR_IO_CONVERT)
 
-			sun_detection = rendering.sun_detect_from_fp16(half_data, w, h)
+			found_in_cache := false
+			if !force_recompute {
+				if cached_det, hit := env_metadata_cache_lookup(path_str); hit {
+					sun_detection = cached_det
+					found_in_cache = true
+					log.log_debug("scene.async", "Loaded sun detection from metadata cache for '%s'", path_str)
+				}
+			}
+
+			// If not in cache or forced recalculation, run expensive CPU analysis
+			if !found_in_cache {
+				sun_detection = rendering.sun_detect_from_fp16(half_data, w, h)
+				env_metadata_cache_save(path_str, sun_detection)
+			}
 		}
+
+
 
 		// Re-acquire mutex to update state
 		sync.lock(&loader.mutex)

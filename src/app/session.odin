@@ -105,7 +105,12 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			max_ray_distance       = s.volumetric.params.max_ray_distance,
 			sun_azimuth            = s.sun_shadow.detection.azimuth,
 			sun_elevation          = s.sun_shadow.detection.elevation,
+			sun_override_enabled   = s.sun_shadow.override_enabled,
+			sun_show_gizmo         = s.sun_shadow.show_gizmo,
+			sun_color              = s.sun_shadow.manual_color if s.sun_shadow.color_override_enabled else s.sun_shadow.detection.color,
+			sun_color_override     = s.sun_shadow.color_override_enabled,
 			step_count             = s.volumetric.params.step_count,
+
 			scattering_coeff       = s.volumetric.params.scattering_coeff,
 			extinction_coeff       = s.volumetric.params.extinction_coeff,
 			anisotropy_g           = s.volumetric.params.anisotropy_g,
@@ -134,6 +139,36 @@ extract_session_state :: proc(application: ^App) -> session.Session_State {
 			depth_preview_max      = s.depth_downsample.preview_max_depth,
 			zoom_scale             = s.volumetric.params.zoom_scale,
 			zoom_center            = s.volumetric.params.zoom_center,
+			dual_lobe_enabled            = s.volumetric.params.dual_lobe_enabled,
+			anisotropy_g_backward        = s.volumetric.params.anisotropy_g_backward,
+			dual_lobe_blend              = s.volumetric.params.dual_lobe_blend,
+			crepuscular_boost_enabled    = s.volumetric.params.crepuscular_boost_enabled,
+			crepuscular_boost_strength   = s.volumetric.params.crepuscular_boost_strength,
+			crepuscular_boost_threshold  = s.volumetric.params.crepuscular_boost_threshold,
+			spectral_scattering_enabled  = s.volumetric.params.spectral_scattering_enabled,
+			spectral_coefficients        = s.volumetric.params.spectral_coefficients,
+			blue_noise_jitter_enabled    = s.volumetric.params.blue_noise_jitter_enabled,
+			dust_enabled                 = s.volumetric.params.dust_enabled,
+			dust_intensity               = s.volumetric.params.dust_intensity,
+			dust_scale                   = s.volumetric.params.dust_scale,
+			dust_speed                   = s.volumetric.params.dust_speed,
+			height_fog_enabled           = s.volumetric.params.height_fog_enabled,
+			height_fog_ground_y          = s.volumetric.params.height_fog_ground_y,
+			height_fog_falloff           = s.volumetric.params.height_fog_falloff,
+			dust_worley_enabled          = s.volumetric.params.dust_worley_enabled,
+			dust_worley_blend            = s.volumetric.params.dust_worley_blend,
+			dust_depth_mask_enabled          = s.volumetric.params.dust_depth_mask_enabled,
+			dust_depth_near                  = s.volumetric.params.dust_depth_near,
+			dust_depth_far                   = s.volumetric.params.dust_depth_far,
+			dust_drift_mode                  = i32(s.volumetric.params.dust_drift_mode),
+			dust_custom_drift                = s.volumetric.params.dust_custom_drift,
+			crepuscular_horizon_fade_enabled = s.volumetric.params.crepuscular_horizon_fade_enabled,
+			crepuscular_horizon_fade_start   = s.volumetric.params.crepuscular_horizon_fade_start,
+			crepuscular_horizon_fade_end     = s.volumetric.params.crepuscular_horizon_fade_end,
+			multi_scatter_enabled            = s.volumetric.params.multi_scatter_enabled,
+			multi_scatter_amount             = s.volumetric.params.multi_scatter_amount,
+			spectral_airmass_enabled         = s.volumetric.params.spectral_airmass_enabled,
+			spectral_airmass_intensity       = s.volumetric.params.spectral_airmass_intensity,
 		},
 		point_light       = session.Point_Light_Session_Settings{
 			position               = s.point_light.position,
@@ -303,15 +338,23 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		if state.volumetric.max_ray_distance > 0 {
 			s.volumetric.params.max_ray_distance   = state.volumetric.max_ray_distance
 		}
-		if !s.sun_shadow.detection.sun_detected {
-			if state.volumetric.sun_elevation > 0 || state.volumetric.sun_azimuth != 0 {
-				s.sun_shadow.detection.azimuth   = state.volumetric.sun_azimuth
-				s.sun_shadow.detection.elevation = state.volumetric.sun_elevation
-				s.sun_shadow.detection.direction = rendering.sun_angles_to_dir(state.volumetric.sun_azimuth, state.volumetric.sun_elevation)
-				s.sun_shadow.is_dirty = true
-				s.sun_shadow.preview_dirty = true
+		s.sun_shadow.override_enabled = state.volumetric.sun_override_enabled
+		s.sun_shadow.show_gizmo = state.volumetric.sun_show_gizmo
+		s.sun_shadow.color_override_enabled = state.volumetric.sun_color_override
+		if state.volumetric.sun_color.x > 0 || state.volumetric.sun_color.y > 0 || state.volumetric.sun_color.z > 0 {
+			s.sun_shadow.manual_color = state.volumetric.sun_color
+			if s.sun_shadow.color_override_enabled {
+				s.sun_shadow.detection.color = state.volumetric.sun_color
 			}
 		}
+		if s.sun_shadow.override_enabled {
+			s.sun_shadow.detection.azimuth   = state.volumetric.sun_azimuth
+			s.sun_shadow.detection.elevation = state.volumetric.sun_elevation
+			s.sun_shadow.detection.direction = rendering.sun_angles_to_dir(state.volumetric.sun_azimuth, state.volumetric.sun_elevation)
+			s.sun_shadow.is_dirty = true
+			s.sun_shadow.preview_dirty = true
+		}
+
 		s.volumetric.params.step_count             = state.volumetric.step_count
 		s.volumetric.params.scattering_coeff       = state.volumetric.scattering_coeff
 		s.volumetric.params.extinction_coeff       = state.volumetric.extinction_coeff
@@ -338,6 +381,102 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 		}
 		if state.volumetric.zoom_center.x != 0 || state.volumetric.zoom_center.y != 0 {
 			s.volumetric.params.zoom_center = state.volumetric.zoom_center
+		}
+		s.volumetric.params.dual_lobe_enabled = state.volumetric.dual_lobe_enabled
+		if state.volumetric.dual_lobe_enabled {
+			s.volumetric.params.anisotropy_g_backward = clamp(state.volumetric.anisotropy_g_backward, -0.99, 0.0)
+			s.volumetric.params.dual_lobe_blend       = clamp(state.volumetric.dual_lobe_blend, 0.0, 1.0)
+		} else {
+			s.volumetric.params.anisotropy_g_backward = rendering.DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD
+			s.volumetric.params.dual_lobe_blend       = rendering.DEFAULT_DUAL_LOBE_BLEND
+		}
+
+		s.volumetric.params.crepuscular_boost_enabled = state.volumetric.crepuscular_boost_enabled
+		if state.volumetric.crepuscular_boost_enabled {
+			s.volumetric.params.crepuscular_boost_strength  = clamp(state.volumetric.crepuscular_boost_strength, 0.0, 5.0)
+			s.volumetric.params.crepuscular_boost_threshold = clamp(state.volumetric.crepuscular_boost_threshold, 0.0, 1.0)
+		} else {
+			s.volumetric.params.crepuscular_boost_strength  = rendering.DEFAULT_CREPUSCULAR_BOOST_STRENGTH
+			s.volumetric.params.crepuscular_boost_threshold = rendering.DEFAULT_CREPUSCULAR_BOOST_THRESHOLD
+		}
+
+		s.volumetric.params.spectral_scattering_enabled = state.volumetric.spectral_scattering_enabled
+		if state.volumetric.spectral_scattering_enabled {
+			s.volumetric.params.spectral_coefficients = state.volumetric.spectral_coefficients
+		} else {
+			s.volumetric.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
+		}
+
+		s.volumetric.params.blue_noise_jitter_enabled = state.volumetric.blue_noise_jitter_enabled
+
+		s.volumetric.params.dust_enabled = state.volumetric.dust_enabled
+		if state.volumetric.dust_enabled {
+			s.volumetric.params.dust_intensity = clamp(state.volumetric.dust_intensity, 0.0, 1.0)
+			s.volumetric.params.dust_scale     = clamp(state.volumetric.dust_scale, 0.01, 2.0)
+			s.volumetric.params.dust_speed     = clamp(state.volumetric.dust_speed, 0.0, 1.0)
+		} else {
+			s.volumetric.params.dust_intensity = rendering.DEFAULT_DUST_INTENSITY
+			s.volumetric.params.dust_scale     = rendering.DEFAULT_DUST_SCALE
+			s.volumetric.params.dust_speed     = rendering.DEFAULT_DUST_SPEED
+		}
+
+		s.volumetric.params.height_fog_enabled = state.volumetric.height_fog_enabled
+		if state.volumetric.height_fog_enabled {
+			s.volumetric.params.height_fog_ground_y = clamp(state.volumetric.height_fog_ground_y, -10.0, 10.0)
+			s.volumetric.params.height_fog_falloff  = clamp(state.volumetric.height_fog_falloff, 0.01, 2.0)
+		} else {
+			s.volumetric.params.height_fog_ground_y = rendering.DEFAULT_HEIGHT_FOG_GROUND_Y
+			s.volumetric.params.height_fog_falloff  = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
+		}
+
+		s.volumetric.params.dust_worley_enabled = state.volumetric.dust_worley_enabled
+		if state.volumetric.dust_worley_enabled {
+			s.volumetric.params.dust_worley_blend = clamp(state.volumetric.dust_worley_blend, 0.0, 1.0)
+		} else {
+			s.volumetric.params.dust_worley_blend = rendering.DEFAULT_DUST_WORLEY_BLEND
+		}
+
+		s.volumetric.params.dust_depth_mask_enabled = state.volumetric.dust_depth_mask_enabled
+		if state.volumetric.dust_depth_mask_enabled {
+			s.volumetric.params.dust_depth_near = clamp(state.volumetric.dust_depth_near, 0.1, 10.0)
+			s.volumetric.params.dust_depth_far  = clamp(state.volumetric.dust_depth_far, 5.0, 100.0)
+		} else {
+			s.volumetric.params.dust_depth_near = rendering.DEFAULT_DUST_DEPTH_NEAR
+			s.volumetric.params.dust_depth_far  = rendering.DEFAULT_DUST_DEPTH_FAR
+		}
+
+		if state.volumetric.dust_drift_mode >= 0 && state.volumetric.dust_drift_mode <= 2 {
+			s.volumetric.params.dust_drift_mode = rendering.Volumetric_Dust_Drift_Mode(state.volumetric.dust_drift_mode)
+		} else {
+			s.volumetric.params.dust_drift_mode = rendering.DEFAULT_DUST_DRIFT_MODE
+		}
+		s.volumetric.params.dust_custom_drift = {
+			clamp(state.volumetric.dust_custom_drift.x, -1.0, 1.0),
+			clamp(state.volumetric.dust_custom_drift.y, -1.0, 1.0),
+			clamp(state.volumetric.dust_custom_drift.z, -1.0, 1.0),
+		}
+
+		s.volumetric.params.crepuscular_horizon_fade_enabled = state.volumetric.crepuscular_horizon_fade_enabled
+		if state.volumetric.crepuscular_horizon_fade_enabled {
+			s.volumetric.params.crepuscular_horizon_fade_start = clamp(state.volumetric.crepuscular_horizon_fade_start, 0.0, 90.0)
+			s.volumetric.params.crepuscular_horizon_fade_end   = clamp(state.volumetric.crepuscular_horizon_fade_end, 0.0, 90.0)
+		} else {
+			s.volumetric.params.crepuscular_horizon_fade_start = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_START
+			s.volumetric.params.crepuscular_horizon_fade_end   = rendering.DEFAULT_CREPUSCULAR_HORIZON_FADE_END
+		}
+
+		s.volumetric.params.multi_scatter_enabled = state.volumetric.multi_scatter_enabled
+		if state.volumetric.multi_scatter_enabled {
+			s.volumetric.params.multi_scatter_amount = clamp(state.volumetric.multi_scatter_amount, 0.0, 1.0)
+		} else {
+			s.volumetric.params.multi_scatter_amount = rendering.DEFAULT_MULTI_SCATTER_AMOUNT
+		}
+
+		s.volumetric.params.spectral_airmass_enabled = state.volumetric.spectral_airmass_enabled
+		if state.volumetric.spectral_airmass_enabled {
+			s.volumetric.params.spectral_airmass_intensity = clamp(state.volumetric.spectral_airmass_intensity, 0.0, 2.0)
+		} else {
+			s.volumetric.params.spectral_airmass_intensity = rendering.DEFAULT_SPECTRAL_AIRMASS_INTENSITY
 		}
 		s.volumetric.history_valid                 = false
 

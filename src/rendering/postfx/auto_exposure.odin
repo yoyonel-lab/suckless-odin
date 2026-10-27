@@ -20,6 +20,7 @@ Auto_Exposure_FX :: struct {
 	readback_pbo:         [2]u32, // double-buffered PBO
 	readback_frame:       u32,
 	readback_sync:        [2]gl.sync_t, // double-buffered sync fences
+	telemetry_requested:  bool, // Set by ImGui when settings panel is open
 
 	// Parameters
 	params: Auto_Exposure_Params,
@@ -116,6 +117,12 @@ auto_exposure_get_texture :: proc(fx: ^Auto_Exposure_FX) -> u32 {
 @(private)
 auto_exposure_readback :: proc(fx: ^Auto_Exposure_FX) {
 	// Readback is purely telemetry for Dear ImGui debug sliders.
+	// Skip entirely when ImGui telemetry is not requested to eliminate FenceSync/MapBuffer stalls.
+	if !fx.telemetry_requested {
+		return
+	}
+	fx.telemetry_requested = false
+
 	// Throttle to 10 Hz (every 10 frames) to eliminate per-frame FenceSync/MapBuffer stalls.
 	if fx.readback_frame % 10 != 0 {
 		fx.readback_frame += 1

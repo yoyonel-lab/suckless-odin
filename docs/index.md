@@ -160,6 +160,54 @@ Bienvenue sur la documentation technique de **Suckless-Odin**, moteur de rendu t
 
     [:octicons-arrow-right-24: Consulter le Guide Full GPU & ImGuizmo](2026-09-03_gpu_ambient_occlusion_compute_shader_and_imguizmo.md)
 
+-   :material-weather-sunny:{ .lg .middle } __Métadonnées Solaires HDR & Manipulation ImGuizmo 3D__
+
+    ---
+
+    Cache JSON persistant des angles solaires (`env_metadata.json`), détection bi-mode (plein soleil direct & ouvertures intérieures fenêtres/verrières), extraction chromatique, suppression de la parallaxe du gizmo 3D (ancrage caméra) et synchronisation 100% ImGui / Session State.
+
+    [:octicons-arrow-right-24: Consulter le Guide Solaire & Gizmo](2026-09-24_hdr_sun_metadata_caching_and_viewport_gizmo.md)
+
+-   :material-chart-bell-curve-cumulative:{ .lg .middle } __Analyse Performance IBL & Débits Matériels__
+
+    ---
+
+    Étude comparative entre limites physiques théoriques (NVMe PCIe 4.0, LPDDR5-6400, Intel Iris Xe) et stratégie de time-slicing amorti par tranches inter-frames (profils legacy, optimized, fast_200ms).
+
+    [:octicons-arrow-right-24: Consulter l'Analyse Matérielle IBL](2026-09-23_ibl_async_loading_performance_hardware_analysis.md)
+
+-   :material-weather-fog:{ .lg .middle } __Rendu Volumétrique Organique & Fumée AAA__
+
+    ---
+
+    Analyse comparative des techniques AAA pour ajouter du corps et de la matière aux rayons lumineux : bruit 3D Perlin-Worley défilant, gradient altimétrique, fonction de phase double lobe Henyey-Greenstein et architecture raymarching hétérogène.
+
+    [:octicons-arrow-right-24: Consulter l'Analyse Volumétrique Organique](2026-09-24_organic_volumetric_fog_and_smoke_analysis.md)
+
+-   :material-speedometer:{ .lg .middle } __Audit de Performance GPU & Quick Wins P0__
+
+    ---
+
+    Rapport d'optimisation GPU et benchmarks : adoption de `textureGather` sur PCF raymarch (-21% GPU time), suppression des `gl.Clear` redondants, conditionnement des previews GUI et mise en cache O(1) des métadonnées HDR.
+
+    [:octicons-arrow-right-24: Consulter l'Audit d'Optimisation P0](2026-10-26_p0_performance_optimization_audit_and_benchmarks.md)
+
+-   :material-movie-open:{ .lg .middle } __Feuille de Route Volumétrique Cinématique (Phases 1 & 2)__
+
+    ---
+
+    Spécification technique d'amélioration visuelle des god rays : fonction de phase double lobe Henyey-Greenstein, sur-amplification en contre-jour, diffusion chromatique spectrale et texture 3D de poussière.
+
+    [:octicons-arrow-right-24: Consulter la Feuille de Route Cinématique](2026-10-26_volumetric_lighting_cinematic_improvements_roadmap.md)
+
+-   :material-creation:{ .lg .middle } __Volumétrique Avancé — Analyse Phase 3 (GLM Proposals)__
+
+    ---
+
+    Étude physique et projections architecturales des 7 évolutions fonctionnelles : Worley noise 3D, modulation d'élévation, multi-scattering, convection solaire et cônes d'aperture.
+
+    [:octicons-arrow-right-24: Explorer les Propositions Phase 3](2026-10-27_volumetric_lighting_phase_3_advanced_proposals_analysis.md)
+
 </div>
 
 ---

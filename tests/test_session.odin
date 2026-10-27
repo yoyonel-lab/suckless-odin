@@ -86,7 +86,12 @@ test_session_save_load :: proc(t: ^testing.T) {
 		max_ray_distance       = 80.0,
 		sun_azimuth            = 120.0,
 		sun_elevation          = 35.0,
+		sun_override_enabled   = true,
+		sun_show_gizmo         = true,
+		sun_color              = {1.0, 0.85, 0.65},
+		sun_color_override     = true,
 		step_count             = 32,
+
 		scattering_coeff       = 0.035,
 		extinction_coeff       = 0.050,
 		anisotropy_g           = 0.75,
@@ -115,6 +120,36 @@ test_session_save_load :: proc(t: ^testing.T) {
 		depth_preview_max      = 45.0,
 		zoom_scale             = 2.5,
 		zoom_center            = {0.4, 0.6},
+		dual_lobe_enabled           = true,
+		anisotropy_g_backward       = -0.35,
+		dual_lobe_blend             = 0.65,
+		crepuscular_boost_enabled   = true,
+		crepuscular_boost_strength  = 2.5,
+		crepuscular_boost_threshold = 0.60,
+		spectral_scattering_enabled = true,
+		spectral_coefficients       = {1.25, 1.05, 0.80},
+		blue_noise_jitter_enabled   = true,
+		dust_enabled                = true,
+		dust_intensity              = 0.75,
+		dust_scale                  = 0.35,
+		dust_speed                  = 0.20,
+		height_fog_enabled          = true,
+		height_fog_ground_y         = -1.5,
+		height_fog_falloff          = 0.30,
+		dust_worley_enabled         = true,
+		dust_worley_blend           = 0.85,
+		dust_depth_mask_enabled          = true,
+		dust_depth_near                  = 0.60,
+		dust_depth_far                   = 25.0,
+		dust_drift_mode                  = 2,
+		dust_custom_drift                = {0.12, 0.45, -0.22},
+		crepuscular_horizon_fade_enabled = true,
+		crepuscular_horizon_fade_start   = 40.0,
+		crepuscular_horizon_fade_end     = 80.0,
+		multi_scatter_enabled            = true,
+		multi_scatter_amount             = 0.35,
+		spectral_airmass_enabled         = true,
+		spectral_airmass_intensity       = 1.25,
 	}
 	state_to_save.point_light = session.Point_Light_Session_Settings{
 		position               = {10.0, 5.0, -2.0},
@@ -234,6 +269,12 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.max_ray_distance, f32(80.0))
 	testing.expect_value(t, loaded_state.volumetric.sun_azimuth, f32(120.0))
 	testing.expect_value(t, loaded_state.volumetric.sun_elevation, f32(35.0))
+	testing.expect_value(t, loaded_state.volumetric.sun_override_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.sun_show_gizmo, true)
+	testing.expect_value(t, loaded_state.volumetric.sun_color.x, f32(1.0))
+	testing.expect_value(t, loaded_state.volumetric.sun_color.y, f32(0.85))
+	testing.expect_value(t, loaded_state.volumetric.sun_color.z, f32(0.65))
+	testing.expect_value(t, loaded_state.volumetric.sun_color_override, true)
 	testing.expect_value(t, loaded_state.volumetric.step_count, 32)
 	testing.expect_value(t, loaded_state.volumetric.anisotropy_g, 0.75)
 	testing.expect_value(t, loaded_state.volumetric.scattering_coeff, 0.035)
@@ -254,6 +295,40 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.volumetric.zoom_scale, 2.5)
 	testing.expect_value(t, loaded_state.volumetric.zoom_center.x, 0.4)
 	testing.expect_value(t, loaded_state.volumetric.zoom_center.y, 0.6)
+	testing.expect_value(t, loaded_state.volumetric.dual_lobe_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.anisotropy_g_backward, f32(-0.35))
+	testing.expect_value(t, loaded_state.volumetric.dual_lobe_blend, f32(0.65))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_strength, f32(2.5))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_threshold, f32(0.60))
+	testing.expect_value(t, loaded_state.volumetric.spectral_scattering_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.x, f32(1.25))
+	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.y, f32(1.05))
+	testing.expect_value(t, loaded_state.volumetric.spectral_coefficients.z, f32(0.80))
+	testing.expect_value(t, loaded_state.volumetric.blue_noise_jitter_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_intensity, f32(0.75))
+	testing.expect_value(t, loaded_state.volumetric.dust_scale, f32(0.35))
+	testing.expect_value(t, loaded_state.volumetric.dust_speed, f32(0.20))
+	testing.expect_value(t, loaded_state.volumetric.height_fog_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.height_fog_ground_y, f32(-1.5))
+	testing.expect_value(t, loaded_state.volumetric.height_fog_falloff, f32(0.30))
+	testing.expect_value(t, loaded_state.volumetric.dust_worley_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_worley_blend, f32(0.85))
+	testing.expect_value(t, loaded_state.volumetric.dust_depth_mask_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.dust_depth_near, f32(0.60))
+	testing.expect_value(t, loaded_state.volumetric.dust_depth_far, f32(25.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_drift_mode, 2)
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.x, f32(0.12))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.y, f32(0.45))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.z, f32(-0.22))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_start, f32(40.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(80.0))
+	testing.expect_value(t, loaded_state.volumetric.multi_scatter_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.multi_scatter_amount, f32(0.35))
+	testing.expect_value(t, loaded_state.volumetric.spectral_airmass_enabled, true)
+	testing.expect_value(t, loaded_state.volumetric.spectral_airmass_intensity, f32(1.25))
 
 	// Point Light validation
 	testing.expect_value(t, loaded_state.point_light.enabled, true)
@@ -283,6 +358,68 @@ test_session_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded_state.optimization_profile, 1)
 
 	delete(loaded_state.env_path)
+}
+
+@(test)
+test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
+	test_file := "test_session_zeros.json"
+	defer os.remove(test_file)
+
+	state_to_save: session.Session_State
+	state_to_save.volumetric = session.Volumetric_Session_Settings{
+		enabled                     = true,
+		dual_lobe_enabled           = true,
+		anisotropy_g_backward       = 0.0,
+		dual_lobe_blend             = 0.0,
+		crepuscular_boost_enabled   = true,
+		crepuscular_boost_strength  = 0.0,
+		crepuscular_boost_threshold = 0.0,
+		dust_enabled                = true,
+		dust_intensity              = 0.0,
+		dust_scale                  = 0.25,
+		dust_speed                  = 0.0,
+		height_fog_enabled          = true,
+		height_fog_ground_y         = 0.0,
+		height_fog_falloff          = 0.20,
+		dust_worley_enabled         = true,
+		dust_worley_blend           = 0.0,
+		dust_depth_mask_enabled          = true,
+		dust_depth_near                  = 0.50,
+		dust_depth_far                   = 20.0,
+		dust_drift_mode                  = 0,
+		dust_custom_drift                = {0.0, 0.0, 0.0},
+		crepuscular_horizon_fade_enabled = true,
+		crepuscular_horizon_fade_start   = 0.0,
+		crepuscular_horizon_fade_end     = 0.0,
+		multi_scatter_enabled            = true,
+		multi_scatter_amount             = 0.0,
+		spectral_airmass_enabled         = true,
+		spectral_airmass_intensity       = 0.0,
+	}
+
+	save_ok := session.save_session(&state_to_save, test_file)
+	testing.expect_value(t, save_ok, true)
+
+	loaded_state: session.Session_State
+	load_ok := session.load_session(&loaded_state, test_file)
+	testing.expect_value(t, load_ok, true)
+
+	testing.expect_value(t, loaded_state.volumetric.anisotropy_g_backward, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dual_lobe_blend, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_strength, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_threshold, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_intensity, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_speed, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.height_fog_ground_y, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_worley_blend, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_start, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_horizon_fade_end, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_drift_mode, 0)
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.x, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.y, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_custom_drift.z, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.multi_scatter_amount, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.spectral_airmass_intensity, f32(0.0))
 }
 
 @(test)

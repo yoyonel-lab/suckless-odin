@@ -63,8 +63,16 @@ void main(void)
 	if (pos.x >= outSize.x || pos.y >= outSize.y || pos.y >= u_max_y)
 		return;
 
-	vec2 uv = vec2(pos) / vec2(outSize);
-	vec3 N = normalize(uvToDir(uv));
+	vec3 N;
+	if (pos.y >= outSize.y - 1) {
+		N = vec3(0.0, 1.0, 0.0);
+	} else if (pos.y <= 0) {
+		N = vec3(0.0, -1.0, 0.0);
+	} else {
+		vec2 uv = vec2(float(pos.x) / float(outSize.x),
+		               float(pos.y) / float(outSize.y - 1));
+		N = normalize(uvToDir(uv));
+	}
 
 	vec3 irradiance = vec3(0.0);
 	vec3 up, right;

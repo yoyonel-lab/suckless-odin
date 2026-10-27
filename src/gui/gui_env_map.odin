@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 import imgui "../../deps/odin-imgui"
 import rendering "../rendering"
+import mt "../core/math_types"
 
 // Dedicated Dear ImGui panel for Environment Maps & HDR Gallery
 draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
@@ -58,7 +59,88 @@ draw_tab_env_map :: proc(g: ^Gui, state: Scene_State) {
 				imgui.Vec2{preview_w, preview_h},
 				state.env_texture_width, state.env_texture_height)
 		}
+
+		// Sun Detection & Direction Controls
+		if state.sun_shadow != nil {
+			ss := state.sun_shadow
+			det := &ss.detection
+			imgui.Spacing()
+			imgui.SeparatorText("Sun Lighting & Direction")
+
+			status_str: string
+			status_col: imgui.Vec4
+			if det.is_aperture && det.sun_detected {
+				status_str = "Aperture Detected (Window / Skylight)"
+				status_col = imgui.Vec4{0.2, 0.85, 1.0, 1.0}
+			} else if det.sun_detected {
+				status_str = "Sun Detected (Direct Sunlight)"
+				status_col = imgui.Vec4{0.2, 1.0, 0.3, 1.0}
+			} else {
+				status_str = "Fallback Direction (Indoor / Diffuse)"
+				status_col = imgui.Vec4{0.9, 0.7, 0.3, 1.0}
+			}
+			imgui.TextColored(status_col, "Status: %s", status_str)
+			imgui.Text("Azimuth: %.1f deg  |  Elevation: %.1f deg  |  Confidence: %d px  |  Peak: %.1f",
+				det.azimuth, det.elevation, det.confidence, det.peak_intensity)
+
+			// Color swatch & override controls
+			eff_col := rendering.sun_shadow_get_effective_color(ss)
+			imgui.ColorButton("Sun Color##env_swatch", imgui.Vec4{eff_col.x, eff_col.y, eff_col.z, 1.0})
+			imgui.SameLine()
+			imgui.Text("Color: RGB(%.2f, %.2f, %.2f) (%s)", eff_col.x, eff_col.y, eff_col.z,
+				"Manual Override" if ss.color_override_enabled else ("Auto-detected (Aperture)" if det.is_aperture else ("Auto-detected" if det.sun_detected else "Fallback")))
+			imgui.SameLine()
+			imgui.Checkbox("Override Color##sun_env", &ss.color_override_enabled)
+
+			if ss.color_override_enabled {
+				color_arr := [3]f32{ss.manual_color.x, ss.manual_color.y, ss.manual_color.z}
+				if imgui.ColorEdit3("Manual Sun Color##sun_env", &color_arr) {
+					ss.manual_color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
+					if state.volumetric != nil {
+						state.volumetric.history_valid = false
+					}
+				}
+				imgui.SameLine()
+				if imgui.Button("Reset Color##sun_env") {
+					ss.manual_color = det.color
+					ss.color_override_enabled = false
+					if state.volumetric != nil {
+						state.volumetric.history_valid = false
+					}
+				}
+			}
+
+			// Recompute button
+			if imgui.Button("Recompute Sun Analysis (CPU)") {
+				if len(curr_path) > 0 && state.change_env != nil {
+					state.change_env(state.scene_ptr, curr_path, true)
+				}
+			}
+			imgui.SameLine()
+			imgui.Checkbox("Manual Override", &ss.override_enabled)
+			imgui.SameLine()
+			imgui.Checkbox("Show 3D Gizmo", &ss.show_gizmo)
+
+			if ss.override_enabled {
+				dir_changed := false
+				if imgui.SliderFloat("Azimuth##sun_env", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+					dir_changed = true
+				}
+				if imgui.SliderFloat("Elevation##sun_env", &det.elevation, 0.0, 90.0, "%.1f deg") {
+					dir_changed = true
+				}
+				if dir_changed {
+					det.direction = rendering.sun_angles_to_dir(det.azimuth, det.elevation)
+					ss.is_dirty = true
+					ss.preview_dirty = true
+					if state.volumetric != nil {
+						state.volumetric.history_valid = false
+					}
+				}
+			}
+		}
 	}
+
 
 	imgui.Spacing()
 
@@ -206,5 +288,77 @@ draw_filtered_env_map :: proc(g: ^Gui, state: Scene_State, filter: cstring) -> i
 		}
 	}
 
+	if state.sun_shadow != nil && fuzzy_match(filter, "Sun Direction & Override", "sun direction azimuth elevation override gizmo recompute analysis lighting color tint chromaticity window skylight aperture opening portal") {
+		ss := state.sun_shadow
+		det := &ss.detection
+		status_str: string
+		status_col: imgui.Vec4
+		if det.is_aperture && det.sun_detected {
+			status_str = "Aperture Detected (Window / Skylight)"
+			status_col = imgui.Vec4{0.2, 0.85, 1.0, 1.0}
+		} else if det.sun_detected {
+			status_str = "Sun Detected (Direct Sunlight)"
+			status_col = imgui.Vec4{0.2, 1.0, 0.3, 1.0}
+		} else {
+			status_str = "Fallback Direction (Indoor / Diffuse)"
+			status_col = imgui.Vec4{0.9, 0.7, 0.3, 1.0}
+		}
+		imgui.TextColored(status_col, "Status: %s", status_str)
+		imgui.Text("Azimuth: %.1f deg | Elevation: %.1f deg | Confidence: %d px | Peak: %.1f",
+			det.azimuth, det.elevation, det.confidence, det.peak_intensity)
+
+		eff_col := rendering.sun_shadow_get_effective_color(ss)
+		imgui.ColorButton("Sun Color##filt_swatch", imgui.Vec4{eff_col.x, eff_col.y, eff_col.z, 1.0})
+		imgui.SameLine()
+		imgui.Text("Color: RGB(%.2f, %.2f, %.2f)", eff_col.x, eff_col.y, eff_col.z)
+		imgui.SameLine()
+		imgui.Checkbox("Override Color##filt_env", &ss.color_override_enabled)
+		if ss.color_override_enabled {
+			color_arr := [3]f32{ss.manual_color.x, ss.manual_color.y, ss.manual_color.z}
+			if imgui.ColorEdit3("Manual Sun Color##filt_env", &color_arr) {
+				ss.manual_color = mt.Vec3{color_arr[0], color_arr[1], color_arr[2]}
+				if state.volumetric != nil {
+					state.volumetric.history_valid = false
+				}
+			}
+		}
+
+		curr_path := ""
+		if state.current_hdr_index != nil && len(state.hdr_files) > 0 {
+			curr_path = state.hdr_files[state.current_hdr_index^]
+		}
+		if imgui.Button("Recompute Sun Analysis (CPU)##filt") {
+			if len(curr_path) > 0 && state.change_env != nil {
+				state.change_env(state.scene_ptr, curr_path, true)
+			}
+		}
+		imgui.SameLine()
+		imgui.Checkbox("Sun Manual Override##filt", &ss.override_enabled)
+		imgui.SameLine()
+		imgui.Checkbox("Show Sun 3D Gizmo##filt", &ss.show_gizmo)
+
+		if ss.override_enabled || !det.sun_detected {
+			dir_changed := false
+			if imgui.SliderFloat("Sun Azimuth##filt_sun", &det.azimuth, -180.0, 180.0, "%.1f deg") {
+				dir_changed = true
+			}
+			if imgui.SliderFloat("Sun Elevation##filt_sun", &det.elevation, 0.0, 90.0, "%.1f deg") {
+				dir_changed = true
+			}
+			if dir_changed {
+				det.direction = rendering.sun_angles_to_dir(det.azimuth, det.elevation)
+				ss.is_dirty = true
+				ss.preview_dirty = true
+				if state.volumetric != nil {
+					state.volumetric.history_valid = false
+				}
+			}
+		} else {
+			imgui.TextDisabled("Enable 'Sun Manual Override' to adjust angles manually.")
+		}
+		match_count += 1
+	}
+
 	return match_count
 }
+

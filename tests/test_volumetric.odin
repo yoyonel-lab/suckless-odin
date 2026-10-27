@@ -249,5 +249,134 @@ test_volumetric_presets_and_timers :: proc(t: ^testing.T) {
 	testing.expect_value(t, w.display_max, 3.0)
 }
 
+// Verifies Proposition 3.2: Crepuscular Horizon Fade smoothstep attenuation
+@(test)
+test_crepuscular_horizon_fade :: proc(t: ^testing.T) {
+	fade_start: f32 = 45.0
+	fade_end: f32 = 85.0
+
+	// 1. Below or at start angle: full boost (1.0)
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(0.0, fade_start, fade_end), f32(1.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(20.0, fade_start, fade_end), f32(1.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(45.0, fade_start, fade_end), f32(1.0))
+
+	// 2. Above or at end angle: zero boost (0.0)
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(85.0, fade_start, fade_end), f32(0.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(90.0, fade_start, fade_end), f32(0.0))
+
+	// 3. Midpoint: (65 - 45) / (85 - 45) = 20 / 40 = 0.5 -> smoothstep(0.5) = 0.5 -> 1.0 - 0.5 = 0.5
+	mid := rendering.compute_crepuscular_horizon_fade(65.0, fade_start, fade_end)
+	testing.expect_value(t, math.abs(mid - 0.5) < 0.0001, true)
+
+	// 4. Clamping bounds: negative elevation clamped to 0.0 -> returns 1.0; > 90 clamped to 90.0 -> returns 0.0
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(-10.0, fade_start, fade_end), f32(1.0))
+	testing.expect_value(t, rendering.compute_crepuscular_horizon_fade(120.0, fade_start, fade_end), f32(0.0))
+
+	// 5. Monotonic decrease over [fade_start, fade_end]
+	prev := f32(1.0)
+	for deg in 45..=85 {
+		val := rendering.compute_crepuscular_horizon_fade(f32(deg), fade_start, fade_end)
+		testing.expect(t, val <= prev, "Horizon fade must be monotonically decreasing")
+		prev = val
+	}
+}
+
+// Verifies Proposition 3.5: Multi-Scattering Isotropic Compensation
+@(test)
+test_multi_scattering_compensation :: proc(t: ^testing.T) {
+	// 1. Identity when amount = 0.0
+	test_phase: f32 = 4.5
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, 0.0), test_phase)
+
+	// 2. Pure isotropic when amount = 1.0
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, 1.0), f32(1.0))
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(0.2, 1.0), f32(1.0))
+
+	// 3. Midpoint blend: 50% single-scattering + 50% isotropic
+	mid := rendering.volumetric_compute_multi_scattering(0.2, 0.5)
+	testing.expect_value(t, math.abs(mid - 0.6) < 0.0001, true)
+
+	// 4. Clamping bounds
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, -0.5), test_phase)
+	testing.expect_value(t, rendering.volumetric_compute_multi_scattering(test_phase, 1.5), f32(1.0))
+
+	// 5. Physical energy filling at 90 degrees with strong Mie anisotropy (g = 0.6)
+	p_90 := rendering.volumetric_henyey_greenstein(0.0, 0.6)
+	p_comp := rendering.volumetric_compute_multi_scattering(p_90, 0.25)
+	// Compensated phase must be strictly higher than single scattering at 90 deg (filling the dip)
+	testing.expect(t, p_comp > p_90, "Multi-scattering must lift phase value at 90 degrees")
+	expected_comp := 0.75 * p_90 + 0.25 * 1.0
+	testing.expect_value(t, math.abs(p_comp - expected_comp) < 0.0001, true)
+}
+
+// Verifies Proposition 3.6: Dynamic Airmass Spectrum (Kasten-Young)
+@(test)
+test_optical_airmass_and_dynamic_spectrum :: proc(t: ^testing.T) {
+	// 1. Airmass at zenith (90 deg) is ~1.0
+	airmass_zenith := rendering.volumetric_compute_optical_airmass(90.0)
+	testing.expect_value(t, math.abs(airmass_zenith - 1.0) < 0.05, true)
+
+	// 2. Airmass at horizon (0 deg) is ~38.0
+	airmass_horizon := rendering.volumetric_compute_optical_airmass(0.0)
+	testing.expect_value(t, airmass_horizon >= 35.0 && airmass_horizon <= 39.0, true)
+
+	// 3. Airmass at 30 deg elevation (approx 2.0)
+	airmass_30 := rendering.volumetric_compute_optical_airmass(30.0)
+	testing.expect_value(t, airmass_30 >= 1.9 && airmass_30 <= 2.1, true)
+
+	// 4. Clamping bounds: negative elevation clamped to 0.0; > 90.0 clamped to 90.0
+	testing.expect_value(t, rendering.volumetric_compute_optical_airmass(-15.0), airmass_horizon)
+	testing.expect_value(t, rendering.volumetric_compute_optical_airmass(110.0), airmass_zenith)
+
+	// 5. Monotonic decrease of airmass as elevation increases
+	prev_airmass := airmass_horizon
+	for deg in 1..=90 {
+		am := rendering.volumetric_compute_optical_airmass(f32(deg))
+		testing.expect(t, am <= prev_airmass, "Airmass must decrease as elevation rises")
+		prev_airmass = am
+	}
+
+	// 6. Intensity = 0.0 yields neutral unit spectrum at any elevation
+	spec_neutral_zenith := rendering.volumetric_compute_airmass_spectrum(90.0, 0.0)
+	testing.expect_value(t, spec_neutral_zenith, mt.Vec3{1.0, 1.0, 1.0})
+	spec_neutral_horizon := rendering.volumetric_compute_airmass_spectrum(0.0, 0.0)
+	testing.expect_value(t, spec_neutral_horizon, mt.Vec3{1.0, 1.0, 1.0})
+
+	// 7. Zenith spectrum has blue dominant over red (Rayleigh azure haze)
+	spec_zenith := rendering.volumetric_compute_airmass_spectrum(90.0, 1.0)
+	testing.expect(t, spec_zenith.z > spec_zenith.x, "Zenith spectrum must be blue-dominant")
+	testing.expect(t, spec_zenith.z > spec_zenith.y, "Zenith spectrum blue must exceed green")
+
+	// 8. Horizon spectrum has red dominant over blue (Sunset extinction rais)
+	spec_horizon := rendering.volumetric_compute_airmass_spectrum(0.0, 1.0)
+	testing.expect(t, spec_horizon.x > spec_horizon.z, "Horizon spectrum must be red-dominant")
+	testing.expect(t, spec_horizon.x > spec_horizon.y, "Horizon spectrum red must exceed green")
+}
+
+// Verifies Proposition 3.4: Wind & Solar Dust Convection Drift
+@(test)
+test_dust_convection_drift :: proc(t: ^testing.T) {
+	sun_dir := mt.Vec3{0.6, 0.8, -0.2}
+	custom_wind := mt.Vec3{0.35, -0.10, 0.75}
+
+	// 1. Mode 0: Ambient Gentle Drift returns constant baseline
+	ambient := rendering.volumetric_compute_dust_drift(.Ambient_Fixed, sun_dir, custom_wind)
+	testing.expect_value(t, ambient, rendering.DUST_AMBIENT_DRIFT_DEFAULT)
+
+	// 2. Mode 1: Solar Updraft Convection rises vertically (Y > 0) and tilts with sun
+	solar_drift := rendering.volumetric_compute_dust_drift(.Solar_Updraft, sun_dir, custom_wind)
+	testing.expect(t, solar_drift.y > 0.07, "Solar convection must have dominant upward thermal lift")
+	testing.expect(t, solar_drift.x > 0.0, "Solar convection X component must follow sun horizontal azimuth")
+	testing.expect(t, solar_drift.z < 0.0, "Solar convection Z component must follow sun horizontal azimuth")
+
+	// 3. Mode 2: Custom Wind Vector faithfully returns user values
+	custom := rendering.volumetric_compute_dust_drift(.Custom_Wind, sun_dir, custom_wind)
+	testing.expect_value(t, custom, custom_wind)
+
+	// 4. Fallback unknown mode defaults to ambient
+	fallback := rendering.volumetric_compute_dust_drift(rendering.Volumetric_Dust_Drift_Mode(99), sun_dir, custom_wind)
+	testing.expect_value(t, fallback, rendering.DUST_AMBIENT_DRIFT_DEFAULT)
+}
+
 
 
