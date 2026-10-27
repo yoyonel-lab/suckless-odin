@@ -331,6 +331,45 @@ test_session_save_load :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_session_volumetric_explicit_zeros :: proc(t: ^testing.T) {
+	test_file := "test_session_zeros.json"
+	defer os.remove(test_file)
+
+	state_to_save: session.Session_State
+	state_to_save.volumetric = session.Volumetric_Session_Settings{
+		enabled                     = true,
+		dual_lobe_enabled           = true,
+		anisotropy_g_backward       = 0.0,
+		dual_lobe_blend             = 0.0,
+		crepuscular_boost_enabled   = true,
+		crepuscular_boost_strength  = 0.0,
+		crepuscular_boost_threshold = 0.0,
+		dust_enabled                = true,
+		dust_intensity              = 0.0,
+		dust_scale                  = 0.25,
+		dust_speed                  = 0.0,
+		height_fog_enabled          = true,
+		height_fog_ground_y         = 0.0,
+		height_fog_falloff          = 0.20,
+	}
+
+	save_ok := session.save_session(&state_to_save, test_file)
+	testing.expect_value(t, save_ok, true)
+
+	loaded_state: session.Session_State
+	load_ok := session.load_session(&loaded_state, test_file)
+	testing.expect_value(t, load_ok, true)
+
+	testing.expect_value(t, loaded_state.volumetric.anisotropy_g_backward, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dual_lobe_blend, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_strength, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.crepuscular_boost_threshold, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_intensity, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.dust_speed, f32(0.0))
+	testing.expect_value(t, loaded_state.volumetric.height_fog_ground_y, f32(0.0))
+}
+
+@(test)
 test_session_missing_file :: proc(t: ^testing.T) {
 	test_file := "test_session_missing.json"
 	os.remove(test_file) // ensure it does not exist

@@ -369,40 +369,50 @@ restore_session_state :: proc(application: ^App, state: session.Session_State) {
 			s.volumetric.params.zoom_center = state.volumetric.zoom_center
 		}
 		s.volumetric.params.dual_lobe_enabled = state.volumetric.dual_lobe_enabled
-		if state.volumetric.anisotropy_g_backward != 0 {
-			s.volumetric.params.anisotropy_g_backward = state.volumetric.anisotropy_g_backward
+		if state.volumetric.dual_lobe_enabled {
+			s.volumetric.params.anisotropy_g_backward = clamp(state.volumetric.anisotropy_g_backward, -0.99, 0.0)
+			s.volumetric.params.dual_lobe_blend       = clamp(state.volumetric.dual_lobe_blend, 0.0, 1.0)
+		} else {
+			s.volumetric.params.anisotropy_g_backward = rendering.DEFAULT_DUAL_LOBE_ANISOTROPY_BACKWARD
+			s.volumetric.params.dual_lobe_blend       = rendering.DEFAULT_DUAL_LOBE_BLEND
 		}
-		if state.volumetric.dual_lobe_blend > 0 {
-			s.volumetric.params.dual_lobe_blend = state.volumetric.dual_lobe_blend
-		}
+
 		s.volumetric.params.crepuscular_boost_enabled = state.volumetric.crepuscular_boost_enabled
-		if state.volumetric.crepuscular_boost_strength > 0 {
-			s.volumetric.params.crepuscular_boost_strength = state.volumetric.crepuscular_boost_strength
+		if state.volumetric.crepuscular_boost_enabled {
+			s.volumetric.params.crepuscular_boost_strength  = clamp(state.volumetric.crepuscular_boost_strength, 0.0, 5.0)
+			s.volumetric.params.crepuscular_boost_threshold = clamp(state.volumetric.crepuscular_boost_threshold, 0.0, 1.0)
+		} else {
+			s.volumetric.params.crepuscular_boost_strength  = rendering.DEFAULT_CREPUSCULAR_BOOST_STRENGTH
+			s.volumetric.params.crepuscular_boost_threshold = rendering.DEFAULT_CREPUSCULAR_BOOST_THRESHOLD
 		}
-		if state.volumetric.crepuscular_boost_threshold > 0 {
-			s.volumetric.params.crepuscular_boost_threshold = state.volumetric.crepuscular_boost_threshold
-		}
+
 		s.volumetric.params.spectral_scattering_enabled = state.volumetric.spectral_scattering_enabled
-		if state.volumetric.spectral_coefficients.x > 0 || state.volumetric.spectral_coefficients.y > 0 || state.volumetric.spectral_coefficients.z > 0 {
+		if state.volumetric.spectral_scattering_enabled {
 			s.volumetric.params.spectral_coefficients = state.volumetric.spectral_coefficients
+		} else {
+			s.volumetric.params.spectral_coefficients = rendering.DEFAULT_SPECTRAL_SCATTERING_WEIGHTS
 		}
+
 		s.volumetric.params.blue_noise_jitter_enabled = state.volumetric.blue_noise_jitter_enabled
+
 		s.volumetric.params.dust_enabled = state.volumetric.dust_enabled
-		if state.volumetric.dust_intensity > 0 {
-			s.volumetric.params.dust_intensity = state.volumetric.dust_intensity
+		if state.volumetric.dust_enabled {
+			s.volumetric.params.dust_intensity = clamp(state.volumetric.dust_intensity, 0.0, 1.0)
+			s.volumetric.params.dust_scale     = clamp(state.volumetric.dust_scale, 0.01, 2.0)
+			s.volumetric.params.dust_speed     = clamp(state.volumetric.dust_speed, 0.0, 1.0)
+		} else {
+			s.volumetric.params.dust_intensity = rendering.DEFAULT_DUST_INTENSITY
+			s.volumetric.params.dust_scale     = rendering.DEFAULT_DUST_SCALE
+			s.volumetric.params.dust_speed     = rendering.DEFAULT_DUST_SPEED
 		}
-		if state.volumetric.dust_scale > 0 {
-			s.volumetric.params.dust_scale = state.volumetric.dust_scale
-		}
-		if state.volumetric.dust_speed > 0 {
-			s.volumetric.params.dust_speed = state.volumetric.dust_speed
-		}
+
 		s.volumetric.params.height_fog_enabled = state.volumetric.height_fog_enabled
-		if state.volumetric.height_fog_ground_y != 0 {
-			s.volumetric.params.height_fog_ground_y = state.volumetric.height_fog_ground_y
-		}
-		if state.volumetric.height_fog_falloff > 0 {
-			s.volumetric.params.height_fog_falloff = state.volumetric.height_fog_falloff
+		if state.volumetric.height_fog_enabled {
+			s.volumetric.params.height_fog_ground_y = clamp(state.volumetric.height_fog_ground_y, -10.0, 10.0)
+			s.volumetric.params.height_fog_falloff  = clamp(state.volumetric.height_fog_falloff, 0.01, 2.0)
+		} else {
+			s.volumetric.params.height_fog_ground_y = rendering.DEFAULT_HEIGHT_FOG_GROUND_Y
+			s.volumetric.params.height_fog_falloff  = rendering.DEFAULT_HEIGHT_FOG_FALLOFF
 		}
 		s.volumetric.history_valid                 = false
 

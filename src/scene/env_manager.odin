@@ -1185,6 +1185,10 @@ env_manager_swap_textures :: proc(mgr: ^Env_Manager, scene: ^Scene) {
 		scene.sun_shadow.detection.color = prev_color
 	}
 	scene.sun_shadow.is_dirty = true
+	scene.sun_shadow.preview_dirty = true
+	scene.volumetric.preview_dirty = true
+	scene.volumetric.history_valid = false
+	scene.depth_downsample.preview_dirty = true
 	log.log_info("render.skybox", "Sun detection: azimuth=%.2f deg, elevation=%.2f deg, color=(%.2f,%.2f,%.2f), confidence=%d, detected=%v (override=%v)",
 		scene.sun_shadow.detection.azimuth,
 		scene.sun_shadow.detection.elevation,

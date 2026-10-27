@@ -58,6 +58,11 @@ uniform bool  u_height_fog_enabled;
 uniform float u_height_fog_ground_y;
 uniform float u_height_fog_falloff;
 
+// Mathematical & Quasirandom Constants (Zero Magic Constants)
+const float BLUE_NOISE_GOLDEN_X = 0.754877666; // 1 / phi_2
+const float BLUE_NOISE_GOLDEN_Y = 0.569840291; // 1 / (phi_2^2)
+const vec3  DUST_DRIFT_DIR      = vec3(0.08, 0.04, 0.06); // Normalized convection drift vector
+
 // Interleaved Gradient Noise (spatial/temporal ray jittering)
 float interleaved_gradient_noise(vec2 screen_pos, int frame)
 {
@@ -91,7 +96,7 @@ void main()
     float jitter = 0.5;
     if (u_jitter_enabled) {
         if (u_blue_noise_jitter_enabled) {
-            vec2 blue_offset = vec2(float(u_frame_idx % 64) * 0.754877666, float((u_frame_idx / 64) % 64) * 0.56984029);
+            vec2 blue_offset = vec2(float(u_frame_idx % 64) * BLUE_NOISE_GOLDEN_X, float((u_frame_idx / 64) % 64) * BLUE_NOISE_GOLDEN_Y);
             vec2 blue_uv = (gl_FragCoord.xy + blue_offset) / 64.0;
             jitter = texture(u_blue_noise_tex, blue_uv).r;
         } else {
@@ -171,9 +176,9 @@ void main()
         // Density modulation (Phase 2)
         float density_mod = 1.0;
         if (u_dust_enabled) {
-            vec3 dust_coord = sample_pos * u_dust_scale + vec3(0.08, 0.04, 0.06) * (u_time * u_dust_speed);
+            vec3 dust_coord = sample_pos * u_dust_scale + DUST_DRIFT_DIR * (u_time * u_dust_speed);
             float dust_sample = texture(u_dust_noise_tex3d, dust_coord).r;
-            density_mod *= mix(1.0, dust_sample * 2.0, u_dust_intensity);
+            density_mod *= mix(1.0, 0.25 + dust_sample * 1.75, u_dust_intensity);
         }
 
         if (u_height_fog_enabled) {
